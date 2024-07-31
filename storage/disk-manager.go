@@ -13,7 +13,7 @@ const PageSize = 4 * 1024
 
 type EncodablePage struct {
 	ID   PageID
-	Rows map[string]Row
+	Rows map[uint64]Row
 }
 
 type DiskManagerV2 struct {
@@ -24,9 +24,9 @@ type DiskManagerV2 struct {
 }
 
 type TableObj struct {
-	directoryPage *DirectoryPage
-	dataFile      *os.File
-	dirFile       *os.File
+	DirectoryPage *DirectoryPage
+	DataFile      *os.File
+	DirFile       *os.File
 }
 
 type TableName string
@@ -38,9 +38,6 @@ type TableInfo struct {
 }
 
 func NewDiskManagerV2(dbDirectory string) (*DiskManagerV2, error) {
-	if _, err := os.Stat(dbDirectory); !os.IsNotExist(err) {
-		return nil, fmt.Errorf("DB dir %s already exists, error: %w", dbDirectory, err)
-	}
 
 	err := os.Mkdir(dbDirectory, 0755)
 	if err != nil {
@@ -75,7 +72,7 @@ func NewDiskManagerV2(dbDirectory string) (*DiskManagerV2, error) {
 	return &dm, nil
 }
 
-func (dm *DiskManagerV2) InMemoryTableSetUp(name TableName) (*DirectoryPage, error) {
+func (dm *DiskManagerV2) InMemoryTableSetUp(name TableName) (*TableObj, error) {
 	dirFilePath := filepath.Join(dm.DBdirectory, "Tables", string(name), "directory_page")
 	dirFile, err := os.OpenFile(dirFilePath, os.O_RDWR|os.O_CREATE, 0644)
 	if err != nil {
@@ -90,7 +87,7 @@ func (dm *DiskManagerV2) InMemoryTableSetUp(name TableName) (*DirectoryPage, err
 	}
 
 	dirPage := DirectoryPage{}
-	if err := dm.DecodeV2(byts, &dirPage); err != nil {
+	if err := DecodeV2(byts, &dirPage); err != nil {
 		return nil, fmt.Errorf("error decoding directory page %w", err)
 	}
 
@@ -100,13 +97,15 @@ func (dm *DiskManagerV2) InMemoryTableSetUp(name TableName) (*DirectoryPage, err
 		return nil, fmt.Errorf("error opening data file %w", err)
 	}
 
-	dm.TableObjs[name] = &TableObj{
-		directoryPage: &dirPage,
-		dataFile:      dataFile,
-		dirFile:       dirFile,
+	tableObj := &TableObj{
+		DirectoryPage: &dirPage,
+		DataFile:      dataFile,
+		DirFile:       dirFile,
 	}
 
-	return &dirPage, nil
+	dm.TableObjs[name] = tableObj
+
+	return tableObj, nil
 }
 
 func (dm *DiskManagerV2) CreateTable(name TableName, info TableInfo) error {
@@ -144,15 +143,15 @@ func (dm *DiskManagerV2) CreateTable(name TableName, info TableInfo) error {
 
 func (dm *DiskManagerV2) WriteToDisk(req DiskReq) error {
 	tableInfo := dm.TableObjs[TableName(req.Page.TABLE)]
-	offset, found := tableInfo.directoryPage.Mapping[req.Page.ID]
+	offset, found := tableInfo.DirectoryPage.Mapping[req.Page.ID]
 
 	if !found {
 		pageOffset, err := dm.CreatePage(req, tableInfo)
 		if err != nil {
 			return fmt.Errorf("error creating page: %w", err)
 		}
-		tableInfo.directoryPage.Mapping[req.Page.ID] = pageOffset
-		dm.UpdateDirectoryPageDisk(tableInfo.directoryPage, tableInfo)
+		tableInfo.DirectoryPage.Mapping[req.Page.ID] = pageOffset
+		dm.UpdateDirectoryPageDisk(tableInfo.DirectoryPage, tableInfo)
 	} else {
 		dm.WritePage(req.Page, offset, tableInfo)
 	}
@@ -175,14 +174,14 @@ func (ds *DiskManagerV2) CreatePage(req DiskReq, tableInfo *TableObj) (Offset, e
 
 	buffer := append(encodedPage, make([]byte, paddingSize)...)
 
-	fileInfo, err := tableInfo.dataFile.Stat()
+	fileInfo, err := tableInfo.DataFile.Stat()
 	if err != nil {
 		return 0, fmt.Errorf("error fileStat; %w", err)
 	}
 
 	offset := fileInfo.Size()
 
-	n, err := tableInfo.dataFile.Write(buffer)
+	n, err := tableInfo.DataFile.Write(buffer)
 	if err != nil {
 		return 0, fmt.Errorf("error writting file; %w", err)
 	}
@@ -206,7 +205,7 @@ func (dm *DiskManagerV2) WritePage(page Page, offset Offset, tableInfo *TableObj
 		pageBytes = pageBytes[:PageSize]
 	}
 
-	_, err := tableInfo.dataFile.WriteAt(pageBytes, int64(offset))
+	_, err := tableInfo.DataFile.WriteAt(pageBytes, int64(offset))
 	if err != nil {
 		return err
 	}
@@ -220,7 +219,7 @@ func (dm *DiskManagerV2) UpdateDirectoryPageDisk(page *DirectoryPage, tableInfo 
 		return err
 	}
 
-	_, err = tableInfo.dirFile.WriteAt(encodedPage, 0)
+	_, err = tableInfo.DirFile.WriteAt(encodedPage, 0)
 	if err != nil {
 		return err
 	}
@@ -241,7 +240,7 @@ func (dm *DiskManagerV2) WriteCatalog() {
 	dm.FileCatalog.WriteAt(bytes, 0)
 }
 
-func (dm *DiskManagerV2) DecodeV2(page []byte, dst *DirectoryPage) error {
+func DecodeV2(page []byte, dst interface{}) error {
 	endIndex := bytes.IndexByte(page, 0)
 
 	err := json.Unmarshal(page[:endIndex], dst)

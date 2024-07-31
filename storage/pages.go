@@ -4,12 +4,13 @@ type PageID uint64
 type Page struct {
 	ID       PageID
 	TABLE    string
-	Rows     map[string]Row
+	Rows     map[uint64]Row
 	IsDirty  bool
 	IsPinned bool
 }
 
 type Row struct {
+	ID     uint64
 	Values map[string]string
 }
 
