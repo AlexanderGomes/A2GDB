@@ -21,6 +21,23 @@ type Join struct {
 	Condition  string
 }
 
+func extractCondition(expr sqlparser.Expr) string {
+	switch e := expr.(type) {
+	case *sqlparser.ComparisonExpr:
+		left := extractCondition(e.Left)
+		right := extractCondition(e.Right)
+		return left + " " + e.Operator + " " + right
+	case *sqlparser.ColName:
+		return e.Name.String()
+	case *sqlparser.SQLVal:
+		return "'" + string(e.Val) + "'" // Handle string values with quotes
+	case *sqlparser.ParenExpr:
+		return "(" + extractCondition(e.Expr) + ")" // Handle parenthesized expressions
+	default:
+		return "" // Handle other cases or return an empty string
+	}
+}
+
 func Parser(query string) (*ParsedQuery, error) {
 	stmt, err := sqlparser.Parse(query)
 	if err != nil {
@@ -76,6 +93,21 @@ func Parser(query string) (*ParsedQuery, error) {
 			}, stmt.From)
 		}
 
+		if stmt.Where != nil {
+			fmt.Println("WHERE CLAUSE")
+			sqlparser.Walk(func(node sqlparser.SQLNode) (kontinue bool, err error) {
+				if comparisonExpr, ok := node.(*sqlparser.ComparisonExpr); ok {
+					left := sqlparser.String(comparisonExpr.Left)
+					right := sqlparser.String(comparisonExpr.Right)
+
+					operator := comparisonExpr.Operator
+
+					parsedQuery.Predicates = append(parsedQuery.Predicates, left, operator, right)
+				}
+				return true, nil
+			}, stmt.Where.Expr)
+		}
+
 	case *sqlparser.DDL:
 		parsedQuery.SQLStatementType = "CREATE TABLE"
 		parsedQuery.TableReferences = append(parsedQuery.TableReferences, sqlparser.String(stmt.NewName))
@@ -108,6 +140,21 @@ func Parser(query string) (*ParsedQuery, error) {
 			parsedQuery.Predicates = append(parsedQuery.Predicates, currRow)
 		}
 
+	case *sqlparser.Delete:
+		parsedQuery.SQLStatementType = "DELETE"
+		for _, tableExpr := range stmt.TableExprs {
+			if aliasedTableExpr, ok := tableExpr.(*sqlparser.AliasedTableExpr); ok {
+				tableName, ok := aliasedTableExpr.Expr.(sqlparser.TableName)
+				if ok {
+					parsedQuery.TableReferences = append(parsedQuery.TableReferences, tableName.Name.String())
+				}
+			}
+		}
+
+		if stmt.Where != nil && stmt.Where.Expr != nil {
+			condition := extractCondition(stmt.Where.Expr)
+			parsedQuery.Predicates = append(parsedQuery.Predicates, condition)
+		}
 	default:
 		return nil, err
 	}

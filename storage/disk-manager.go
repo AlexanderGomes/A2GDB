@@ -153,7 +153,7 @@ func (dm *DiskManagerV2) WriteToDisk(req DiskReq) error {
 		tableInfo.DirectoryPage.Mapping[req.Page.ID] = pageOffset
 		dm.UpdateDirectoryPageDisk(tableInfo.DirectoryPage, tableInfo)
 	} else {
-		dm.WritePage(req.Page, offset, tableInfo)
+		dm.WritePage(&req.Page, offset, tableInfo.DataFile)
 	}
 
 	return nil
@@ -193,7 +193,7 @@ func (ds *DiskManagerV2) CreatePage(req DiskReq, tableInfo *TableObj) (Offset, e
 	return Offset(offset), nil
 }
 
-func (dm *DiskManagerV2) WritePage(page Page, offset Offset, tableInfo *TableObj) error {
+func (dm *DiskManagerV2) WritePage(page *Page, offset Offset, tableDataFile *os.File) error {
 	cleanPage := EncodablePage{
 		ID:   page.ID,
 		Rows: page.Rows,
@@ -205,7 +205,7 @@ func (dm *DiskManagerV2) WritePage(page Page, offset Offset, tableInfo *TableObj
 		pageBytes = pageBytes[:PageSize]
 	}
 
-	_, err := tableInfo.DataFile.WriteAt(pageBytes, int64(offset))
+	_, err := tableDataFile.WriteAt(pageBytes, int64(offset))
 	if err != nil {
 		return err
 	}

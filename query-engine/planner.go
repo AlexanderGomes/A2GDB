@@ -20,9 +20,20 @@ func GenerateQueryPlan(parsedQuery *ParsedQuery) (ExecutionPlan, error) {
 		InsertTablePlan(&executionPlan, parsedQuery)
 	case "SELECT":
 		SelectTablePlan(&executionPlan, parsedQuery)
+	case "DELETE":
+		DeletePlan(&executionPlan, parsedQuery)
 	}
 
 	return executionPlan, nil
+}
+
+func DeletePlan(executionPlan *ExecutionPlan, P *ParsedQuery) {
+	querySteps := []QueryStep{
+		{Operation: "GetTable", index: 0},
+		{Operation: "DeleteFromTable"},
+	}
+
+	executionPlan.Steps = append(executionPlan.Steps, querySteps...)
 }
 
 func SelectTablePlan(executionPlan *ExecutionPlan, P *ParsedQuery) {
@@ -33,7 +44,18 @@ func SelectTablePlan(executionPlan *ExecutionPlan, P *ParsedQuery) {
 	}
 
 	if len(P.Joins) > 0 {
-		querySteps = append(querySteps, QueryStep{Operation: "GetTable", index: 1}, QueryStep{Operation: "JoinQueryTable"})
+		querySteps = []QueryStep{
+			{Operation: "GetTable", index: 0},
+			{Operation: "CollectPointer", index: 0},
+			{Operation: "GetTable", index: 1},
+			{Operation: "CollectPointer", index: 1},
+			{Operation: "JoinQueryTable"},
+		}
+	}
+
+	// where clause
+	if len(P.Predicates) > 0 {
+		querySteps = append(querySteps, QueryStep{Operation: "WhereClause"})
 	}
 
 	executionPlan.Steps = append(executionPlan.Steps, querySteps...)
