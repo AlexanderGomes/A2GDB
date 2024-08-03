@@ -9,7 +9,7 @@ type QueryStep struct {
 	index     int
 }
 
-func GenerateQueryPlan(parsedQuery *ParsedQuery) (ExecutionPlan, error) {
+func GenerateQueryPlan(parsedQuery *ParsedQuery) ExecutionPlan {
 	executionPlan := ExecutionPlan{}
 	executionPlan.Steps = make([]QueryStep, 0)
 
@@ -24,7 +24,7 @@ func GenerateQueryPlan(parsedQuery *ParsedQuery) (ExecutionPlan, error) {
 		DeletePlan(&executionPlan, parsedQuery)
 	}
 
-	return executionPlan, nil
+	return executionPlan
 }
 
 func DeletePlan(executionPlan *ExecutionPlan, P *ParsedQuery) {

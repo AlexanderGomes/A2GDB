@@ -22,19 +22,15 @@ func main() {
 		);`)
 
 	dm.QueryEntryPoint(`INSERT INTO Company (Username, PasswordHash) 
-VALUES ('stay', '8133klj783813');`)
+VALUES ('alex', '123');`)
 
 	dm.QueryEntryPoint(`INSERT INTO Company (Username, PasswordHash) 
-VALUES ('stay', '8133klj783813');`)
+VALUES ('sander', '345');`)
 
-	dm.QueryEntryPoint(`INSERT INTO Company (Username, PasswordHash) 
-VALUES ('stay', '8133klj783813');`)
-
-	dm.QueryEntryPoint(`INSERT INTO Company (Username, PasswordHash) 
-VALUES ('testing', 'alexsanderhamir');`)
-
-	result, _ := dm.QueryEntryPoint(`SELECT * FROM Company WHERE PasswordHash = alexsanderhamir `)
-	fmt.Println(result)
+	_, err := dm.QueryEntryPoint(`DELETE FROM Company WHERE Username = 'sander';`)
+	if err != nil {
+		fmt.Println(err, "first")
+	}
 }
 
 func InitDatabase(k int, dirName string) (*queryengine.QueryEngine, error) {

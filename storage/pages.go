@@ -1,5 +1,17 @@
 package storage
 
+import (
+	"bytes"
+	"fmt"
+	"io"
+	"os"
+)
+
+type Row struct {
+	ID     uint64
+	Values map[string]string
+}
+
 type PageID uint64
 type Page struct {
 	ID       PageID
@@ -9,12 +21,99 @@ type Page struct {
 	IsPinned bool
 }
 
-type Row struct {
-	ID     uint64
-	Values map[string]string
+type EncodablePage struct {
+	ID   PageID
+	Rows map[uint64]Row
 }
 
 type Offset int64
 type DirectoryPage struct {
 	Mapping map[PageID]Offset
+}
+
+func (dm *DiskManagerV2) WritePageBack(page *Page, offset Offset, tableDataFile *os.File) error {
+	cleanPage := EncodablePage{
+		ID:   page.ID,
+		Rows: page.Rows,
+	}
+
+	pageBytes, err := Encode(cleanPage)
+	if err != nil {
+		return fmt.Errorf("WritePageBack: %w", err)
+	}
+
+	paddingSize := PageSize - len(pageBytes)
+	buffer := append(pageBytes, make([]byte, paddingSize)...)
+
+	_, err = tableDataFile.WriteAt(buffer, int64(offset))
+	if err != nil {
+		return fmt.Errorf("WritePageBack (failed writing page to disk): %w", err)
+	}
+
+	return nil
+}
+
+func (ds *DiskManagerV2) WritePageEOF(req DiskReq, tableInfo *TableObj) (Offset, error) {
+	cleanPage := EncodablePage{
+		ID:   req.Page.ID,
+		Rows: req.Page.Rows,
+	}
+
+	encodedPage, err := Encode(cleanPage)
+	if err != nil {
+		return 0, fmt.Errorf("WritePageEOF: %w", err)
+	}
+
+	paddingSize := PageSize - len(encodedPage)
+	buffer := append(encodedPage, make([]byte, paddingSize)...)
+
+	fileInfo, err := tableInfo.DataFile.Stat()
+	if err != nil {
+		return 0, fmt.Errorf("WritePageEOF (getting file info): %w", err)
+	}
+
+	offset := fileInfo.Size()
+
+	n, err := tableInfo.DataFile.Write(buffer)
+	if err != nil {
+		return 0, fmt.Errorf("WritePageEOF (writing file to disk): %w", err)
+	}
+
+	if n != PageSize {
+		return 0, fmt.Errorf("WritePageEOF (failed to write entire page to disk)")
+	}
+
+	return Offset(offset), nil
+}
+
+func CreatePage(page *Page, rows *Row, tableName string) {
+	page.Rows = make(map[uint64]Row)
+	pageID := generateRandomID()
+	page.ID = PageID(pageID)
+	page.TABLE = tableName
+
+	rowID := generateRandomID()
+	rows.ID = rowID
+	page.Rows[rows.ID] = *rows
+}
+
+func ReadDirFile(dirFile *os.File) ([]byte, error) {
+	var buffer bytes.Buffer
+
+	tempBuffer := make([]byte, 1024)
+
+	for {
+		n, err := dirFile.Read(tempBuffer)
+		if err != nil && err != io.EOF {
+			return nil, fmt.Errorf("ReadFile (error reading directory file): %w", err)
+		}
+		if n > 0 {
+			buffer.Write(tempBuffer[:n])
+		}
+		if err == io.EOF {
+			break
+		}
+	}
+
+	return buffer.Bytes(), nil
 }

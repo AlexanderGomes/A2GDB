@@ -1,14 +1,11 @@
 package queryengine
 
 import (
-	"crypto/rand"
 	"disk-db/storage"
+	"errors"
 	"fmt"
-	"io"
-	"math/big"
 	"os"
 	"strings"
-	"unsafe"
 )
 
 type Query struct {
@@ -27,93 +24,139 @@ const (
 func (qe *QueryEngine) QueryEntryPoint(sql string) (Query, error) {
 	parsedSQL, err := Parser(sql)
 	if err != nil {
-		fmt.Println(err)
-		return Query{}, err
+		return Query{}, fmt.Errorf("QueryEntryPoint: %w", err)
 	}
 
-	queryPlan, err := GenerateQueryPlan(parsedSQL)
+	queryPlan := GenerateQueryPlan(parsedSQL)
+
+	result, err := qe.ExecuteQueryPlan(queryPlan, parsedSQL)
 	if err != nil {
-		return Query{}, err
+		return Query{}, fmt.Errorf("QueryEntryPoint: %w", err)
 	}
-
-	result, _ := qe.ExecuteQueryPlan(queryPlan, parsedSQL)
 
 	return result, nil
 }
 
 func (qe *QueryEngine) ExecuteQueryPlan(qp ExecutionPlan, P *ParsedQuery) (Query, error) {
-	query := Query{}
 	var tableDataFile *os.File
+	var err error
+
+	query := Query{}
 	tablesPtr := []*os.File{}
 	tableObj := storage.TableObj{}
 
 	for _, steps := range qp.Steps {
+		if err != nil {
+			return Query{}, fmt.Errorf("ExecuteQueryPlan: %w", err)
+		}
+
 		switch steps.Operation {
 		case "GetTable":
-			tableObj, tableDataFile = GetTable(P, qe.DB, steps)
+			tableObj, tableDataFile, err = GetTable(P, qe.DB, steps)
 		case "GetAllColumns":
-			GetAllColumns(tableDataFile, &query)
+			err = GetAllColumns(tableDataFile, &query)
 		case "CollectPointer":
 			tablesPtr = append(tablesPtr, tableDataFile)
 		case "FilterByColumns":
-			FilterByColumns(tableDataFile, &query, P)
+			err = FilterByColumns(tableDataFile, &query, P)
 		case "InsertRows":
-			InsertRows(P, &query, qe.DB, tableDataFile)
+			err = InsertRows(P, &query, qe.DB, tableDataFile)
 		case "CreateTable":
-			CreateTable(P, &query, qe.DB)
+			err = CreateTable(P, &query, qe.DB)
 		case "JoinQueryTable":
-			JoinTables(&query, P.Joins[0].Condition, tablesPtr)
+			err = JoinTables(&query, P.Joins[0].Condition, tablesPtr)
 		case "DeleteFromTable":
-			DeleteFromTable(&query, P, tableDataFile, qe.DB.DiskScheduler.DiskManager, &tableObj)
+			err = DeleteFromTable(P, qe.DB.DiskScheduler.DiskManager, &tableObj)
 		case "WhereClause":
-			WhereClause(P, &query)
+			err = WhereClause(P, &query)
 		}
 	}
 
-	return query, nil
+	return query, err
 }
 
-func WhereClause(p *ParsedQuery, q *Query) {
-	field := p.Predicates[0].(string)
-	condition := p.Predicates[1].(string)
-	value := p.Predicates[2].(string)
+func WhereClause(p *ParsedQuery, q *Query) error {
+	if len(p.Predicates) < 3 {
+		return errors.New("WhereClause (insufficient predicates)")
+	}
+
+	field, ok := p.Predicates[0].(string)
+	if !ok {
+		return errors.New("WhereClause (first predicate is not a string)")
+	}
+	condition, ok := p.Predicates[1].(string)
+	if !ok {
+		return errors.New("WhereClause (second predicate is not a string)")
+	}
+	value, ok := p.Predicates[2].(string)
+	if !ok {
+		return errors.New("WhereClause (third predicate is not a string)")
+	}
+
+	if condition != "=" {
+		return errors.New("WhereClause (unsupported condition)")
+	}
+
 	res := []storage.Row{}
-	if condition == "=" {
-		for _, row := range q.Result {
-			cleanVal := strings.Trim(row.Values[field], "'")
-			if cleanVal == value {
-				res = append(res, row)
-			}
+	for _, row := range q.Result {
+		cleanVal, ok := row.Values[field]
+		if !ok {
+			return fmt.Errorf("field %s not found in row", field)
+		}
+		cleanVal = strings.Trim(cleanVal, "'")
+		if cleanVal == value {
+			res = append(res, row)
 		}
 	}
 
 	q.Result = res
+	return nil
 }
 
-func DeleteFromTable(query *Query, p *ParsedQuery, tablePtr *os.File, manager *storage.DiskManagerV2, tableObj *storage.TableObj) {
-	tablePages := ReadlAllPages(tablePtr)
+func DeleteFromTable(p *ParsedQuery, manager *storage.DiskManagerV2, tableObj *storage.TableObj) error {
+	tablePages, err := storage.FullTableScan(tableObj.DataFile)
+	if err != nil {
+		return fmt.Errorf("DeleteFromTable: %w", err)
+	}
+
 	predicateStr := p.Predicates[0].(string)
 	comparisonParts := strings.Split(predicateStr, "=")
 	field := strings.TrimSpace(comparisonParts[0])
 	value := strings.TrimSpace(comparisonParts[1])
 
 	for _, page := range tablePages {
-		for _, row := range page.Rows {
-			cleanVal := strings.Trim(row.Values[field], "'")
-			if cleanVal == value {
-				delete(page.Rows, row.ID)
+		for id, row := range page.Rows {
+			foundRow := row.Values[field] == value
+			if foundRow {
+				delete(page.Rows, id)
 			}
 		}
 
 		dirPage := tableObj.DirectoryPage
 		offset := dirPage.Mapping[page.ID]
-		manager.WritePage(page, offset, tablePtr)
+
+		err := manager.WritePageBack(page, offset, tableObj.DataFile)
+		if err != nil {
+			return fmt.Errorf("DeleteFromTable: %w", err)
+		}
 	}
+
+	return nil
 }
 
-func JoinTables(query *Query, condition string, tablePtr []*os.File) {
-	slicePage1 := ReadlAllPages(tablePtr[0])
-	slicePage2 := ReadlAllPages(tablePtr[1])
+func JoinTables(query *Query, condition string, tablePtr []*os.File) error {
+	var err error
+	var slicePage1, slicePage2 []*storage.Page
+
+	slicePage1, err = storage.FullTableScan(tablePtr[0])
+	if err != nil {
+		return fmt.Errorf("JoinTables (error reading table one): %w ", err)
+	}
+
+	slicePage2, err = storage.FullTableScan(tablePtr[1])
+	if err != nil {
+		return fmt.Errorf("JoinTables (error reading table two): %w ", err)
+	}
 
 	comparisonParts := strings.Split(condition, "=")
 	leftTableCondition := strings.TrimSpace(comparisonParts[0])
@@ -136,41 +179,23 @@ func JoinTables(query *Query, condition string, tablePtr []*os.File) {
 			}
 		}
 	}
+
+	return nil
 }
 
-func ReadlAllPages(dataFile *os.File) []*storage.Page {
-	offset := 0
-	pageSlice := []*storage.Page{}
-
-	for {
-		page := storage.Page{}
-		buffer := make([]byte, storage.PageSize)
-		_, err := dataFile.ReadAt(buffer, int64(offset))
-		if err != nil && err == io.EOF {
-			fmt.Println("readAllPages:end of file, processing pages...")
-			break
-		}
-		storage.DecodeV2(buffer, &page)
-		pageSlice = append(pageSlice, &page)
-		offset += storage.PageSize
-	}
-
-	return pageSlice
-}
-
-func CreateTable(parsedQuery *ParsedQuery, query *Query, bpm *storage.BufferPoolManager) {
+func CreateTable(parsedQuery *ParsedQuery, query *Query, bpm *storage.BufferPoolManager) error {
 	table := parsedQuery.TableReferences[0]
 	manager := bpm.DiskScheduler.DiskManager
 	err := manager.CreateTable(storage.TableName(table), storage.TableInfo{})
 	if err != nil {
-		fmt.Println(err)
-		return
+		return fmt.Errorf("QueryEngine (CreateTable): %w", err)
 	}
 
 	fmt.Println("TABLE CREATED")
+	return nil
 }
 
-func GetTable(parsedQuery *ParsedQuery, bpm *storage.BufferPoolManager, step QueryStep) (storage.TableObj, *os.File) {
+func GetTable(parsedQuery *ParsedQuery, bpm *storage.BufferPoolManager, step QueryStep) (storage.TableObj, *os.File, error) {
 	manager := bpm.DiskScheduler.DiskManager
 	tableNAME := parsedQuery.TableReferences[step.index]
 
@@ -180,19 +205,22 @@ func GetTable(parsedQuery *ParsedQuery, bpm *storage.BufferPoolManager, step Que
 	if !found {
 		tableObj, err = manager.InMemoryTableSetUp(storage.TableName(tableNAME))
 		if err != nil {
-			fmt.Println(err)
-			return storage.TableObj{}, nil
+			return storage.TableObj{}, nil, fmt.Errorf("GetTable: %w", err)
 		}
 	}
 
 	fmt.Println("GOT TABLE")
-	return *tableObj, tableObj.DataFile
+	return *tableObj, tableObj.DataFile, err
 }
 
-func InsertRows(parsedQuery *ParsedQuery, query *Query, bpm *storage.BufferPoolManager, tablePtr *os.File) {
+func InsertRows(parsedQuery *ParsedQuery, query *Query, bpm *storage.BufferPoolManager, tablePtr *os.File) error {
 	fmt.Println("INSERTING")
+
 	rows := parsedQuery.Predicates[0].(storage.Row)
-	updatedPage := FindAvailablePage(tablePtr, parsedQuery, &rows)
+	updatedPage, err := storage.FindAvailablePage(tablePtr, parsedQuery.TableReferences[0], &rows)
+	if err != nil {
+		return fmt.Errorf("InsertRows: %w", err)
+	}
 
 	manager := bpm.DiskScheduler.DiskManager
 	tableObj := manager.TableObjs[storage.TableName(parsedQuery.TableReferences[0])]
@@ -206,82 +234,29 @@ func InsertRows(parsedQuery *ParsedQuery, query *Query, bpm *storage.BufferPoolM
 			Operation: "WRITE",
 		}
 
-		offset, err := manager.CreatePage(pageReq, tableObj)
+		offset, err := manager.WritePageEOF(pageReq, tableObj)
 		if err != nil {
-			errWrap := fmt.Errorf("Query error writing page to data file: %w", err)
-			fmt.Println(errWrap)
-			return
+			return fmt.Errorf("InsertRows: %w", err)
 		}
 
 		tableObj.DirectoryPage.Mapping[updatedPage.ID] = offset
 		err = manager.UpdateDirectoryPageDisk(tableObj.DirectoryPage, tableObj)
 		if err != nil {
-			errWrap := fmt.Errorf("Query error updating directory page: %w", err)
-			fmt.Println(errWrap)
-			return
+			return fmt.Errorf("InsertRows: %w", err)
 		}
 
-		return
+		return nil
 	}
 
-	// # don't update table directory page
-	err := manager.WritePage(updatedPage, offset, tableObj.DataFile)
+	err = manager.WritePageBack(updatedPage, offset, tableObj.DataFile)
 	if err != nil {
-		errWrap := fmt.Errorf("Query error writing EXISTING page to data file: %w", err)
-		fmt.Println(errWrap)
+		return fmt.Errorf("InsertRows: %w", err)
 	}
+
+	return nil
 }
 
 // # does this function belong here, or with disk manager ?
-func FindAvailablePage(tablePtr *os.File, parsedQuery *ParsedQuery, rows *storage.Row) *storage.Page {
-	offset := 0
-	// not necessary for decoding only for creating
-	page := storage.Page{Rows: make(map[uint64]storage.Row)}
-
-	for {
-		pageBytes := make([]byte, storage.PageSize)
-		_, err := tablePtr.ReadAt(pageBytes, int64(offset))
-		if err != nil {
-			if err == io.EOF {
-				fmt.Println("FindAvailablePage: End of file reached, creating new page")
-				CreatePage(&page, rows, parsedQuery.TableReferences[0])
-				return &page
-			}
-			fmt.Printf("FindAvailablePage: Query error reading a page: %v\n", err)
-			return nil
-		}
-
-		offset += storage.PageSize
-		storage.DecodeV2(pageBytes, &page)
-
-		cleanSize := getSizeOfIDAndRows(&page)
-
-		if storage.PageSize > cleanSize {
-			fmt.Println("true")
-			page.TABLE = parsedQuery.TableReferences[0]
-			rows.ID = generateRandomID()
-			page.Rows[rows.ID] = *rows
-			break
-		}
-
-		page = storage.Page{Rows: make(map[uint64]storage.Row)}
-
-	}
-
-	return &page
-}
-
-func CreatePage(page *storage.Page, rows *storage.Row, tableName string) {
-	page.Rows = make(map[uint64]storage.Row)
-	pageID := generateRandomID()
-	page.ID = storage.PageID(pageID)
-	page.TABLE = tableName
-
-	rowID := generateRandomID()
-	rows.ID = rowID
-	page.Rows[rows.ID] = *rows
-}
-
 func createColumnMap(columns []string) map[string]string {
 	columnMap := make(map[string]string)
 
@@ -292,23 +267,12 @@ func createColumnMap(columns []string) map[string]string {
 	return columnMap
 }
 
-func FilterByColumns(filePtr *os.File, query *Query, P *ParsedQuery) {
+func FilterByColumns(filePtr *os.File, query *Query, P *ParsedQuery) error {
 	columnMap := createColumnMap(P.ColumnsSelected)
+	pageSlice, err := storage.FullTableScan(filePtr)
 
-	offset := 0
-	pageSlice := []*storage.Page{}
-
-	for {
-		page := storage.Page{}
-		buffer := make([]byte, storage.PageSize)
-		_, err := filePtr.ReadAt(buffer, int64(offset))
-		if err != nil && err == io.EOF {
-			fmt.Println("FilterByColumns: end of file, processing pages...")
-			break
-		}
-		storage.DecodeV2(buffer, &page)
-		pageSlice = append(pageSlice, &page)
-		offset += storage.PageSize
+	if err != nil {
+		return fmt.Errorf("FilterByColumns: %w", err)
 	}
 
 	for _, page := range pageSlice {
@@ -322,23 +286,15 @@ func FilterByColumns(filePtr *os.File, query *Query, P *ParsedQuery) {
 			query.Result = append(query.Result, tuple)
 		}
 	}
+
+	return nil
 }
 
-func GetAllColumns(filePtr *os.File, query *Query) {
-	offset := 0
-	pageSlice := []*storage.Page{}
+func GetAllColumns(filePtr *os.File, query *Query) error {
+	pageSlice, err := storage.FullTableScan(filePtr)
 
-	for {
-		page := storage.Page{}
-		buffer := make([]byte, storage.PageSize)
-		_, err := filePtr.ReadAt(buffer, int64(offset))
-		if err != nil && err == io.EOF {
-			fmt.Println("gerAllColumns: end of file, processing pages...")
-			break
-		}
-		storage.DecodeV2(buffer, &page)
-		pageSlice = append(pageSlice, &page)
-		offset += storage.PageSize
+	if err != nil {
+		return fmt.Errorf("GetAllColumns: %w", err)
 	}
 
 	for _, page := range pageSlice {
@@ -346,34 +302,6 @@ func GetAllColumns(filePtr *os.File, query *Query) {
 			query.Result = append(query.Result, tuple)
 		}
 	}
-}
 
-func generateRandomID() uint64 {
-	max := new(big.Int).Lsh(big.NewInt(1), 64) // 2^64
-	randomNum, _ := rand.Int(rand.Reader, max)
-
-	return randomNum.Uint64()
-}
-
-func getSizeOfIDAndRows(page *storage.Page) uintptr {
-	size := unsafe.Sizeof(page.ID) // Size of PageID
-
-	// Calculate size of map header
-	size += unsafe.Sizeof(page.Rows) // Size of the map header
-
-	// Calculate size of map keys and values
-	for k, v := range page.Rows {
-		size += unsafe.Sizeof(k) // Size of the key (uint64)
-		size += unsafe.Sizeof(v) // Size of the value (Row)
-
-		// Size of Row.Values (map[string]string)
-		for key, value := range v.Values {
-			size += unsafe.Sizeof(key)   // Size of the key (string header)
-			size += uintptr(len(key))    // Size of the string data for key
-			size += unsafe.Sizeof(value) // Size of the value (string header)
-			size += uintptr(len(value))  // Size of the string data for value
-		}
-	}
-
-	return size
+	return err
 }
