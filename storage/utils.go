@@ -3,6 +3,7 @@ package storage
 import (
 	"bytes"
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"math/big"
@@ -99,4 +100,52 @@ func (w *WrapperWaitGroup) Counter() int {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.count
+}
+
+func SerializeTuple(t Tuple) []byte {
+	var buf bytes.Buffer
+
+	err := binary.Write(&buf, binary.LittleEndian, t.Header.Length)
+	if err != nil {
+		fmt.Println("Failed to write Length:", err)
+		return nil
+	}
+
+	err = binary.Write(&buf, binary.LittleEndian, t.Header.Flags)
+	if err != nil {
+		fmt.Println("Failed to write Flags:", err)
+		return nil
+	}
+
+	// Serialize the Data
+	_, err = buf.Write(t.Data)
+	if err != nil {
+		fmt.Println("Failed to write Data:", err)
+		return nil
+	}
+
+	return buf.Bytes()
+}
+
+func SerializePage(p *PageV2) ([]byte, error) {
+	var buf bytes.Buffer
+
+	// Write Header
+	if err := binary.Write(&buf, binary.LittleEndian, p.Header); err != nil {
+		return nil, err
+	}
+
+	// Write PointerArray
+	for _, loc := range p.PointerArray {
+		if err := binary.Write(&buf, binary.LittleEndian, loc); err != nil {
+			return nil, err
+		}
+	}
+
+	// Write Data
+	if _, err := buf.Write(p.Data); err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
 }

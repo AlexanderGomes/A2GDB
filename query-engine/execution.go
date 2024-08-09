@@ -227,7 +227,6 @@ func InsertRows(parsedQuery *ParsedQuery, query *Query, bpm *storage.BufferPoolM
 
 	offset, found := tableObj.DirectoryPage.Mapping[updatedPage.ID]
 
-	// # just created the page
 	if !found {
 		offset, err := manager.WritePageEOF(updatedPage, tableObj)
 		if err != nil {
@@ -251,7 +250,6 @@ func InsertRows(parsedQuery *ParsedQuery, query *Query, bpm *storage.BufferPoolM
 	return nil
 }
 
-
 func createColumnMap(columns []string) map[string]string {
 	columnMap := make(map[string]string)
 
@@ -272,13 +270,15 @@ func FilterByColumns(filePtr *os.File, query *Query, P *ParsedQuery) error {
 
 	for _, page := range pageSlice {
 		for _, tuple := range page.Rows {
+			tempTuple := storage.Row{Values: make(map[string]string)}
+
 			for key := range tuple.Values {
-				if _, found := columnMap[key]; !found {
-					delete(tuple.Values, key)
+				if value, found := columnMap[key]; found {
+					tempTuple.Values[key] = value
 				}
 			}
 
-			query.Result = append(query.Result, tuple)
+			query.Result = append(query.Result, tempTuple)
 		}
 	}
 

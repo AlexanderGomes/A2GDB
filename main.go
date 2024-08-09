@@ -16,17 +16,27 @@ const (
 )
 
 func main() {
-	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0777)
-	if err != nil {
-		fmt.Println("Openfile: %w", err)
+	page := storage.CreatePageV2()
+	rows := []byte("n")
+	tuple := storage.Tuple{
+		Data: rows,
+		Header: storage.TupleHeader{
+			Length: uint16(len(rows)),
+			Flags:  7,
+		},
 	}
 
-	page, err := storage.FullTableScanBigFiles(file)
-	if err != nil {
-		fmt.Println("FullTableScanBigFiles %w", err)
+	bts := storage.SerializeTuple(tuple)
+
+	for i := 0; i < 30000; i++ {
+		err := page.AddTuple(bts)
+
+		if err != nil {
+			fmt.Println(err)
+		}
 	}
 
-	fmt.Println(len(page))
+	fmt.Println(page)
 
 }
 
