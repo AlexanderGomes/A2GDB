@@ -229,12 +229,7 @@ func InsertRows(parsedQuery *ParsedQuery, query *Query, bpm *storage.BufferPoolM
 
 	// # just created the page
 	if !found {
-		pageReq := storage.DiskReq{
-			Page:      *updatedPage,
-			Operation: "WRITE",
-		}
-
-		offset, err := manager.WritePageEOF(pageReq, tableObj)
+		offset, err := manager.WritePageEOF(updatedPage, tableObj)
 		if err != nil {
 			return fmt.Errorf("InsertRows: %w", err)
 		}
@@ -256,7 +251,7 @@ func InsertRows(parsedQuery *ParsedQuery, query *Query, bpm *storage.BufferPoolM
 	return nil
 }
 
-// # does this function belong here, or with disk manager ?
+
 func createColumnMap(columns []string) map[string]string {
 	columnMap := make(map[string]string)
 

@@ -42,7 +42,7 @@ func (dm *DiskManagerV2) WritePageBack(page *Page, offset Offset, tableDataFile 
 		return fmt.Errorf("WritePageBack: %w", err)
 	}
 
-	paddingSize := PageSize - len(pageBytes)
+	paddingSize := PageSize - int64(len(pageBytes))
 	buffer := append(pageBytes, make([]byte, paddingSize)...)
 
 	_, err = tableDataFile.WriteAt(buffer, int64(offset))
@@ -53,10 +53,10 @@ func (dm *DiskManagerV2) WritePageBack(page *Page, offset Offset, tableDataFile 
 	return nil
 }
 
-func (ds *DiskManagerV2) WritePageEOF(req DiskReq, tableInfo *TableObj) (Offset, error) {
+func (ds *DiskManagerV2) WritePageEOF(page *Page, tableInfo *TableObj) (Offset, error) {
 	cleanPage := EncodablePage{
-		ID:   req.Page.ID,
-		Rows: req.Page.Rows,
+		ID:   page.ID,
+		Rows: page.Rows,
 	}
 
 	encodedPage, err := Encode(cleanPage)
@@ -64,7 +64,7 @@ func (ds *DiskManagerV2) WritePageEOF(req DiskReq, tableInfo *TableObj) (Offset,
 		return 0, fmt.Errorf("WritePageEOF: %w", err)
 	}
 
-	paddingSize := PageSize - len(encodedPage)
+	paddingSize := PageSize - int64(len(encodedPage))
 	buffer := append(encodedPage, make([]byte, paddingSize)...)
 
 	fileInfo, err := tableInfo.DataFile.Stat()
@@ -79,7 +79,7 @@ func (ds *DiskManagerV2) WritePageEOF(req DiskReq, tableInfo *TableObj) (Offset,
 		return 0, fmt.Errorf("WritePageEOF (writing file to disk): %w", err)
 	}
 
-	if n != PageSize {
+	if int64(n) != PageSize {
 		return 0, fmt.Errorf("WritePageEOF (failed to write entire page to disk)")
 	}
 

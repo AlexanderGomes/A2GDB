@@ -6,7 +6,7 @@ import (
 	"os"
 )
 
-const PageSize = 4 * 1024
+const PageSize int64 = 4 * 1024
 
 type DiskManagerV2 struct {
 	DBdirectory string
@@ -63,7 +63,7 @@ func (dm *DiskManagerV2) WriteToDisk(req DiskReq) error {
 	offset, found := tableInfo.DirectoryPage.Mapping[req.Page.ID]
 
 	if !found {
-		pageOffset, err := dm.WritePageEOF(req, tableInfo)
+		pageOffset, err := dm.WritePageEOF(&req.Page, tableInfo)
 		if err != nil {
 			return fmt.Errorf("WriteToDisk: %w", err)
 		}
@@ -82,6 +82,7 @@ func (dm *DiskManagerV2) WriteToDisk(req DiskReq) error {
 	return nil
 }
 
+// # TODO - what if we deleted things from the directory page ? - needs padding
 func (dm *DiskManagerV2) UpdateDirectoryPageDisk(page *DirectoryPage, tableInfo *TableObj) error {
 	encodedPage, err := Encode(page)
 	if err != nil {
@@ -96,8 +97,9 @@ func (dm *DiskManagerV2) UpdateDirectoryPageDisk(page *DirectoryPage, tableInfo 
 	return nil
 }
 
+// ## making this efficient includes adding more features to be able to map internal space better
 func FindAvailablePage(tablePtr *os.File, tableName string, row *Row) (*Page, error) {
-	offset := 0
+	var offset int64
 	page := Page{Rows: make(map[uint64]Row)}
 
 	for {
@@ -121,7 +123,7 @@ func FindAvailablePage(tablePtr *os.File, tableName string, row *Row) (*Page, er
 
 		cleanSize := getSizeOfIDAndRows(&page)
 
-		if PageSize > cleanSize {
+		if PageSize > int64(cleanSize) {
 			page.TABLE = tableName
 			row.ID = generateRandomID()
 			page.Rows[row.ID] = *row

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"sync"
 	"unsafe"
 )
 
@@ -46,7 +47,7 @@ func Encode(page interface{}) ([]byte, error) {
 
 func DecodeV2(page []byte, dst interface{}) error {
 	endIndex := bytes.IndexByte(page, 0)
-    if endIndex == -1 {
+	if endIndex == -1 {
 		endIndex = len(page)
 	}
 
@@ -68,4 +69,34 @@ func (dm *DiskManagerV2) UpdateCatalog() error {
 	dm.FileCatalog.WriteAt(bytes, 0)
 
 	return nil
+}
+
+type WrapperWaitGroup struct {
+	wg    sync.WaitGroup
+	count int
+	mu    sync.Mutex
+}
+
+func (w *WrapperWaitGroup) Add(delta int) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.count += delta
+	w.wg.Add(delta)
+}
+
+func (w *WrapperWaitGroup) Done() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.count--
+	w.wg.Done()
+}
+
+func (w *WrapperWaitGroup) Wait() {
+	w.wg.Wait()
+}
+
+func (w *WrapperWaitGroup) Counter() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.count
 }

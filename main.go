@@ -5,32 +5,74 @@ import (
 	"disk-db/storage"
 	"fmt"
 	"log"
+	"os"
 )
 
 const (
 	replacerFrequency = 2
 	dirName           = "A2G_DB"
+	path              = "A2G_DB/Tables/Company/Company"
+	NumPages          = (100 * 1024 * 1024 * 1024) / storage.PageSize
 )
 
 func main() {
-	dm, _ := InitDatabase(replacerFrequency, dirName)
-
-	dm.QueryEntryPoint(`CREATE TABLE Company (
-			UserID INT AUTO_INCREMENT PRIMARY KEY,
-			Username VARCHAR,
-			PasswordHash VARCHAR
-		);`)
-
-	dm.QueryEntryPoint(`INSERT INTO Company (Username, PasswordHash) 
-VALUES ('alex', '123');`)
-
-	dm.QueryEntryPoint(`INSERT INTO Company (Username, PasswordHash) 
-VALUES ('sander', '345');`)
-
-	_, err := dm.QueryEntryPoint(`DELETE FROM Company WHERE Username = 'sander';`)
+	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0777)
 	if err != nil {
-		fmt.Println(err, "first")
+		fmt.Println("Openfile: %w", err)
 	}
+
+	page, err := storage.FullTableScanBigFiles(file)
+	if err != nil {
+		fmt.Println("FullTableScanBigFiles %w", err)
+	}
+
+	fmt.Println(len(page))
+
+}
+
+func CreateTestFile() {
+	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0777)
+	if err != nil {
+		fmt.Println("Openfile: %w", err)
+	}
+
+	for i := int64(0); i < NumPages; i++ {
+		page := storage.Page{
+			ID:       storage.PageID(i),
+			TABLE:    "TestTable",
+			Rows:     make(map[uint64]storage.Row),
+			IsDirty:  false,
+			IsPinned: false,
+		}
+
+		for j := 0; j < 38; j++ {
+			page.Rows[uint64(j)] = storage.Row{
+				ID:     uint64(j),
+				Values: map[string]string{"column1": "value1", "column2": "value2", "column12": "value1", "column21": "value2"},
+			}
+		}
+
+		encodedPage, err := storage.Encode(page)
+		if err != nil {
+			fmt.Println("Error encoding page:", err)
+			return
+		}
+
+		paddingSize := int(storage.PageSize) - len(encodedPage)
+		if paddingSize < 0 {
+			// Handle case where encodedPage is larger than PageSize
+			paddingSize = 0
+		}
+
+		buffer := append(encodedPage, make([]byte, paddingSize)...)
+
+		_, err = file.Write(buffer)
+		if err != nil {
+			fmt.Println("Error writing page to file:", err)
+			return
+		}
+	}
+
 }
 
 func InitDatabase(k int, dirName string) (*queryengine.QueryEngine, error) {
