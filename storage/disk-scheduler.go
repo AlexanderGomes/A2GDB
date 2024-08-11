@@ -6,12 +6,12 @@ import (
 )
 
 type DiskReq struct {
-	Page      Page
+	Page      PageV2
 	Operation string
 }
 
 type DiskResult struct {
-	Page     Page
+	Page     PageV2
 	Response error
 }
 
@@ -25,10 +25,10 @@ type DiskScheduler struct {
 func (ds *DiskScheduler) ProccessReq() {
 	for req := range ds.RequestChan {
 		var result DiskResult
-		
+
 		if req.Operation == "WRITE" {
-			err := ds.DiskManager.WriteToDisk(req)
-			result.Page.ID = req.Page.ID
+			err := ds.DiskManager.WriteToDisk(&req.Page)
+			result.Page.Header.ID = req.Page.Header.ID
 			if err != nil {
 				result.Response = errors.New("unable to write to disk: " + err.Error())
 			}

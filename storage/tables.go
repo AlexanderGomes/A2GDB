@@ -16,7 +16,7 @@ const (
 )
 
 type TableObj struct {
-	DirectoryPage *DirectoryPage
+	DirectoryPage *DirectoryPageV2
 	DataFile      *os.File
 	DirFile       *os.File
 }
@@ -37,8 +37,8 @@ func (dm *DiskManagerV2) InMemoryTableSetUp(name TableName) (*TableObj, error) {
 		return nil, fmt.Errorf("InMemoryTableSetUp (error reading Dir File): %w", err)
 	}
 
-	dirPage := DirectoryPage{}
-	if err := DecodeV2(byts, &dirPage); err != nil {
+	dirPage, err := DecodeDirectory(byts)
+	if err != nil {
 		return nil, fmt.Errorf("InMemoryTableSetUp: %w", err)
 	}
 
@@ -49,7 +49,7 @@ func (dm *DiskManagerV2) InMemoryTableSetUp(name TableName) (*TableObj, error) {
 	}
 
 	tableObj := &TableObj{
-		DirectoryPage: &dirPage,
+		DirectoryPage: dirPage,
 		DataFile:      dataFile,
 		DirFile:       dirFile,
 	}
@@ -82,8 +82,8 @@ func (dm *DiskManagerV2) CreateTable(name TableName, info TableInfo) error {
 	}
 
 	// # create directory page file for table file
-	dirPage := DirectoryPage{Mapping: map[PageID]Offset{}}
-	bytes, err := Encode(dirPage)
+	dirPage := DirectoryPageV2{}
+	bytes, err := EncodeDirectory(&dirPage)
 	if err != nil {
 		return fmt.Errorf("CreateTable: %w", err)
 	}
@@ -101,12 +101,11 @@ func (dm *DiskManagerV2) CreateTable(name TableName, info TableInfo) error {
 	return nil
 }
 
-func FullTableScan(file *os.File) ([]*Page, error) {
+func FullTableScan(file *os.File) ([]*PageV2, error) {
 	var offset int64
-	pageSlice := []*Page{}
+	pageSlice := []*PageV2{}
 
 	for {
-		page := Page{}
 		buffer := make([]byte, PageSize)
 		_, err := file.ReadAt(buffer, int64(offset))
 		if err != nil && err == io.EOF {
@@ -114,12 +113,12 @@ func FullTableScan(file *os.File) ([]*Page, error) {
 			break
 		}
 
-		err = DecodeV2(buffer, &page)
+		page, err := DecodePageV2(buffer)
 		if err != nil {
-			return []*Page{}, fmt.Errorf("FullTableScan: %w", err)
+			return []*PageV2{}, fmt.Errorf("FullTableScan: %w", err)
 		}
 
-		pageSlice = append(pageSlice, &page)
+		pageSlice = append(pageSlice, page)
 		offset += PageSize
 	}
 
@@ -133,12 +132,12 @@ type Chunk struct {
 	Size      int64
 }
 
-func FullTableScanBigFiles(file *os.File) ([]*Page, error) {
+func FullTableScanBigFiles(file *os.File) ([]*PageV2, error) {
 	chunks := FileCreateChunks(file, PERCENTAGE)
 	byteChan := make(chan []byte, BUFFER_SIZE)
-	pageChan := make(chan *Page, BUFFER_SIZE)
+	pageChan := make(chan *PageV2, BUFFER_SIZE)
 
-	var pages []*Page
+	var pages []*PageV2
 
 	var wgManagers sync.WaitGroup
 	for _, c := range chunks {
@@ -159,7 +158,7 @@ func FullTableScanBigFiles(file *os.File) ([]*Page, error) {
 		wgDecoders.Add(1)
 		go func() {
 			defer wgDecoders.Done()
-			Decoder(byteChan, pageChan)
+			DecoderWorker(byteChan, pageChan)
 		}()
 	}
 
@@ -175,14 +174,13 @@ func FullTableScanBigFiles(file *os.File) ([]*Page, error) {
 	return pages, nil
 }
 
-func Decoder(byteChan chan []byte, pageChan chan *Page) {
+func DecoderWorker(byteChan chan []byte, pageChan chan *PageV2) {
 	for pageByte := range byteChan {
-		page := Page{}
-		err := DecodeV2(pageByte, &page)
+		page, err := DecodePageV2(pageByte)
 		if err != nil {
 			fmt.Println("Decoder: %w", err)
 		}
-		pageChan <- &page
+		pageChan <- page
 	}
 	fmt.Println("Decoder has finished processing all data and byteChan is closed")
 }

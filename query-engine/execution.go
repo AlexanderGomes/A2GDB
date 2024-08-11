@@ -9,7 +9,7 @@ import (
 )
 
 type Query struct {
-	Result  []storage.Row
+	Result  []*storage.RowV2
 	Message string
 }
 
@@ -42,7 +42,7 @@ func (qe *QueryEngine) ExecuteQueryPlan(qp ExecutionPlan, P *ParsedQuery) (Query
 	var err error
 
 	query := Query{}
-	tablesPtr := []*os.File{}
+	tablesPtr := []*storage.TableObj{}
 	tableObj := storage.TableObj{}
 
 	for _, steps := range qp.Steps {
@@ -56,7 +56,7 @@ func (qe *QueryEngine) ExecuteQueryPlan(qp ExecutionPlan, P *ParsedQuery) (Query
 		case "GetAllColumns":
 			err = GetAllColumns(tableDataFile, &query)
 		case "CollectPointer":
-			tablesPtr = append(tablesPtr, tableDataFile)
+			tablesPtr = append(tablesPtr, &tableObj)
 		case "FilterByColumns":
 			err = FilterByColumns(tableDataFile, &query, P)
 		case "InsertRows":
@@ -97,7 +97,7 @@ func WhereClause(p *ParsedQuery, q *Query) error {
 		return errors.New("WhereClause (unsupported condition)")
 	}
 
-	res := []storage.Row{}
+	res := []*storage.RowV2{}
 	for _, row := range q.Result {
 		cleanVal, ok := row.Values[field]
 		if !ok {
@@ -125,17 +125,24 @@ func DeleteFromTable(p *ParsedQuery, manager *storage.DiskManagerV2, tableObj *s
 	value := strings.TrimSpace(comparisonParts[1])
 
 	for _, page := range tablePages {
-		for id, row := range page.Rows {
+		dirPage := tableObj.DirectoryPage
+		pageObj := dirPage.Value[storage.PageID(page.Header.ID)]
+		tuplesInfo := pageObj.PointerArray
+
+		for _, location := range tuplesInfo {
+			rowBytes := page.Data[location.Offset : location.Offset+location.Length]
+			row, err := storage.DecodeRow(rowBytes)
+			if err != nil {
+				return fmt.Errorf("DeleteFromTable: %w", err)
+			}
+
 			foundRow := row.Values[field] == value
 			if foundRow {
-				delete(page.Rows, id)
+				storage.ResetBytesToEmpty(page, location.Offset, location.Length)
 			}
 		}
 
-		dirPage := tableObj.DirectoryPage
-		offset := dirPage.Mapping[page.ID]
-
-		err := manager.WritePageBack(page, offset, tableObj.DataFile)
+		err := manager.WritePageBackV2(page, pageObj.Offset, tableObj.DataFile)
 		if err != nil {
 			return fmt.Errorf("DeleteFromTable: %w", err)
 		}
@@ -144,16 +151,16 @@ func DeleteFromTable(p *ParsedQuery, manager *storage.DiskManagerV2, tableObj *s
 	return nil
 }
 
-func JoinTables(query *Query, condition string, tablePtr []*os.File) error {
+func JoinTables(query *Query, condition string, tablePtr []*storage.TableObj) error {
 	var err error
-	var slicePage1, slicePage2 []*storage.Page
+	var slicePage1, slicePage2 []*storage.PageV2
 
-	slicePage1, err = storage.FullTableScan(tablePtr[0])
+	slicePage1, err = storage.FullTableScan(tablePtr[0].DataFile)
 	if err != nil {
 		return fmt.Errorf("JoinTables (error reading table one): %w ", err)
 	}
 
-	slicePage2, err = storage.FullTableScan(tablePtr[1])
+	slicePage2, err = storage.FullTableScan(tablePtr[1].DataFile)
 	if err != nil {
 		return fmt.Errorf("JoinTables (error reading table two): %w ", err)
 	}
@@ -162,21 +169,41 @@ func JoinTables(query *Query, condition string, tablePtr []*os.File) error {
 	leftTableCondition := strings.TrimSpace(comparisonParts[0])
 	rightTableCondition := strings.TrimSpace(comparisonParts[1])
 
-	hashTable := make(map[string]storage.Row)
+	hashTable := make(map[string]*storage.RowV2)
 
 	for _, page := range slicePage1 {
-		for _, row := range page.Rows {
+		dirPage := tablePtr[0].DirectoryPage
+		pageObj := dirPage.Value[storage.PageID(page.Header.ID)]
+		tuplesInfo := pageObj.PointerArray
+
+		for _, location := range tuplesInfo {
+			rowBytes := page.Data[location.Offset : location.Offset+location.Length]
+			row, err := storage.DecodeRow(rowBytes)
+			if err != nil {
+				return fmt.Errorf("DeleteFromTable: %w", err)
+			}
+
 			joinKey := row.Values[leftTableCondition]
 			hashTable[joinKey] = row
 		}
 	}
 
 	for _, page := range slicePage2 {
-		for _, row := range page.Rows {
+		dirPage := tablePtr[1].DirectoryPage
+		pageObj := dirPage.Value[storage.PageID(page.Header.ID)]
+		tuplesInfo := pageObj.PointerArray
+
+		for _, location := range tuplesInfo {
+			rowBytes := page.Data[location.Offset : location.Offset+location.Length]
+			row, err := storage.DecodeRow(rowBytes)
+			if err != nil {
+				return fmt.Errorf("DeleteFromTable: %w", err)
+			}
 			joinKey := row.Values[rightTableCondition]
 			if matchedRow, exists := hashTable[joinKey]; exists {
 				query.Result = append(query.Result, matchedRow)
 			}
+
 		}
 	}
 
@@ -217,7 +244,7 @@ func InsertRows(parsedQuery *ParsedQuery, query *Query, bpm *storage.BufferPoolM
 	fmt.Println("INSERTING")
 
 	rows := parsedQuery.Predicates[0].(storage.Row)
-	updatedPage, err := storage.FindAvailablePage(tablePtr, parsedQuery.TableReferences[0], &rows)
+	updatedPage, err := storage.FindAvailablePage(tablePtr, spaceNeeded)
 	if err != nil {
 		return fmt.Errorf("InsertRows: %w", err)
 	}

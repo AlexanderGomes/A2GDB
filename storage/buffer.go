@@ -25,7 +25,7 @@ type BufferRes struct {
 
 type FrameID int
 type BufferPoolManager struct {
-	Pages         [MaxPoolSize]*Page
+	Pages         [MaxPoolSize]*PageV2
 	freeList      []FrameID
 	pageTable     map[PageID]FrameID
 	Replacer      *LRUKReplacer
@@ -39,11 +39,11 @@ func (bpm *BufferPoolManager) FlushAll() {
 			Page:      *page,
 			Operation: "WRITE",
 		}
-		bpm.DiskScheduler.DiskManager.WriteToDisk(req)
+		bpm.DiskScheduler.AddReq(req)
 	}
 }
 
-func (bpm *BufferPoolManager) InsertPage(page *Page) error {
+func (bpm *BufferPoolManager) InsertPage(page *PageV2) error {
 	if len(bpm.freeList) == 0 {
 		for i := 0; i < 20; i++ {
 			bpm.Evict()
@@ -53,7 +53,7 @@ func (bpm *BufferPoolManager) InsertPage(page *Page) error {
 	bpm.freeList = bpm.freeList[1:]
 
 	bpm.Pages[frameID] = page
-	bpm.pageTable[page.ID] = frameID
+	bpm.pageTable[PageID(page.Header.ID)] = frameID
 
 	return nil
 }
@@ -71,9 +71,9 @@ func (bpm *BufferPoolManager) Evict() error {
 	}
 
 	bpm.DiskScheduler.AddReq(req)
-	bpm.DeletePage(page.ID)
+	bpm.DeletePage(PageID(page.Header.ID))
 
-	fmt.Println("PAGE EVICTED:", page.ID)
+	fmt.Println("PAGE EVICTED:", page.Header.ID)
 	return nil
 }
 
@@ -87,9 +87,8 @@ func (bpm *BufferPoolManager) DeletePage(pageID PageID) (FrameID, error) {
 	return 0, errors.New("Page not found")
 }
 
-
-func (bpm *BufferPoolManager) FetchPage(pageID PageID) (*Page, error) {
-	var pagePtr *Page
+func (bpm *BufferPoolManager) FetchPage(pageID PageID) (*PageV2, error) {
+	var pagePtr *PageV2
 
 	if frameID, ok := bpm.pageTable[pageID]; ok {
 		pagePtr = bpm.Pages[frameID]
@@ -98,12 +97,10 @@ func (bpm *BufferPoolManager) FetchPage(pageID PageID) (*Page, error) {
 		}
 	} else {
 
-		// change
-		page := Page{
-			ID: pageID,
-		}
+		// TODO # Why create a page just to pass the ID ?
+		page := PageV2{}
+		page.Header.ID = uint64(pageID)
 
-		// change
 		req := DiskReq{
 			Page:      page,
 			Operation: "READ",
@@ -115,16 +112,16 @@ func (bpm *BufferPoolManager) FetchPage(pageID PageID) (*Page, error) {
 				return nil, result.Response
 			}
 
-			if result.Page.ID == pageID {
+			if PageID(result.Page.Header.ID) == pageID {
 				bpm.InsertPage(&result.Page)
-				bpm.Pin(result.Page.ID)
+				bpm.Pin(PageID(result.Page.Header.ID))
 				pagePtr = &result.Page
 				break
 			}
 		}
 	}
 
-	bpm.Pin(pagePtr.ID)
+	bpm.Pin(PageID(pagePtr.Header.ID))
 	return pagePtr, nil
 }
 
@@ -153,7 +150,7 @@ func (bpm *BufferPoolManager) Pin(pageID PageID) error {
 
 func NewBufferPoolManager(k int, fileName string) (*BufferPoolManager, error) {
 	freeList := make([]FrameID, 0)
-	pages := [MaxPoolSize]*Page{}
+	pages := [MaxPoolSize]*PageV2{}
 	for i := 0; i < MaxPoolSize; i++ {
 		freeList = append(freeList, FrameID(i))
 		pages[FrameID(i)] = nil

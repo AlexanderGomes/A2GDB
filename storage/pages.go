@@ -12,7 +12,6 @@ type Row struct {
 	Values map[string]string
 }
 
-type PageID uint64
 type Page struct {
 	ID       PageID
 	TABLE    string
@@ -26,7 +25,6 @@ type EncodablePage struct {
 	Rows map[uint64]Row
 }
 
-type Offset int64
 type DirectoryPage struct {
 	Mapping map[PageID]Offset
 }
@@ -86,16 +84,6 @@ func (ds *DiskManagerV2) WritePageEOF(page *Page, tableInfo *TableObj) (Offset, 
 	return Offset(offset), nil
 }
 
-func CreatePage(page *Page, rows *Row, tableName string) {
-	page.Rows = make(map[uint64]Row)
-	pageID := generateRandomID()
-	page.ID = PageID(pageID)
-	page.TABLE = tableName
-
-	rowID := generateRandomID()
-	rows.ID = rowID
-	page.Rows[rows.ID] = *rows
-}
 
 func ReadDirFile(dirFile *os.File) ([]byte, error) {
 	var buffer bytes.Buffer

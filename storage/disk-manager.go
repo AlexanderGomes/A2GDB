@@ -58,22 +58,29 @@ func NewDiskManagerV2(dbDirectory string) (*DiskManagerV2, error) {
 	return &dm, nil
 }
 
-func (dm *DiskManagerV2) WriteToDisk(req DiskReq) error {
-	tableInfo := dm.TableObjs[TableName(req.Page.TABLE)]
-	offset, found := tableInfo.DirectoryPage.Mapping[req.Page.ID]
+func (dm *DiskManagerV2) WriteToDisk(page *PageV2) error {
+	tableInfo := dm.TableObjs[TableName(page.TABLE)]
+	pageObj, found := tableInfo.DirectoryPage.Value[PageID(page.Header.ID)]
 
 	if !found {
-		pageOffset, err := dm.WritePageEOF(&req.Page, tableInfo)
+		pageOffset, err := dm.WritePageEOFV2(page, tableInfo.DataFile)
 		if err != nil {
 			return fmt.Errorf("WriteToDisk: %w", err)
 		}
-		tableInfo.DirectoryPage.Mapping[req.Page.ID] = pageOffset
-		err = dm.UpdateDirectoryPageDisk(tableInfo.DirectoryPage, tableInfo)
+
+		pageInfo := PageInfo{
+			Offset:       pageOffset,
+			PointerArray: page.PointerArray,
+		}
+
+		tableInfo.DirectoryPage.Value[PageID(page.Header.ID)] = &pageInfo
+
+		err = dm.UpdateDirectoryPageDisk(tableInfo.DirectoryPage, tableInfo.DirFile)
 		if err != nil {
 			return fmt.Errorf("WriteToDisk: %w", err)
 		}
 	} else {
-		err := dm.WritePageBack(&req.Page, offset, tableInfo.DataFile)
+		err := dm.WritePageBackV2(page, pageObj.Offset, tableInfo.DataFile)
 		if err != nil {
 			return fmt.Errorf("WriteToDisk: %w", err)
 		}
@@ -82,14 +89,13 @@ func (dm *DiskManagerV2) WriteToDisk(req DiskReq) error {
 	return nil
 }
 
-// # TODO - what if we deleted things from the directory page ? - needs padding
-func (dm *DiskManagerV2) UpdateDirectoryPageDisk(page *DirectoryPage, tableInfo *TableObj) error {
-	encodedPage, err := Encode(page)
+func (dm *DiskManagerV2) UpdateDirectoryPageDisk(page *DirectoryPageV2, dirFile *os.File) error {
+	pageBytes, err := EncodeDirectory(page)
 	if err != nil {
 		return fmt.Errorf("UpdateDirectoryPageDisk: %w", err)
 	}
 
-	_, err = tableInfo.DirFile.WriteAt(encodedPage, 0)
+	_, err = dirFile.WriteAt(pageBytes, 0)
 	if err != nil {
 		return fmt.Errorf("UpdateDirectoryPageDisk (Writing to Dir File): %w", err)
 	}
@@ -97,10 +103,9 @@ func (dm *DiskManagerV2) UpdateDirectoryPageDisk(page *DirectoryPage, tableInfo 
 	return nil
 }
 
-// ## making this efficient includes adding more features to be able to map internal space better
-func FindAvailablePage(tablePtr *os.File, tableName string, row *Row) (*Page, error) {
+func FindAvailablePage(tablePtr *os.File, bytesNeeded int) (*PageV2, error) {
 	var offset int64
-	page := Page{Rows: make(map[uint64]Row)}
+	var page *PageV2
 
 	for {
 		pageBytes := make([]byte, PageSize)
@@ -108,30 +113,24 @@ func FindAvailablePage(tablePtr *os.File, tableName string, row *Row) (*Page, er
 		if err != nil {
 			if err == io.EOF {
 				fmt.Println("FindAvailablePage (End of file reached, creating new page)")
-				CreatePage(&page, row, tableName)
-				return &page, nil
+				return CreatePageV2(), nil
 			}
 
 			return nil, fmt.Errorf("FindAvailablePage(erro reading from file non-EOF): %w", err)
 		}
 
 		offset += PageSize
-		err = DecodeV2(pageBytes, &page)
+		foundPage, err := DecodePageV2(pageBytes)
 		if err != nil {
 			return nil, fmt.Errorf("FindAvailablePage: %w", err)
 		}
 
-		cleanSize := getSizeOfIDAndRows(&page)
-
-		if PageSize > int64(cleanSize) {
-			page.TABLE = tableName
-			row.ID = generateRandomID()
-			page.Rows[row.ID] = *row
+		canInsert := foundPage.Header.UpperPtr-foundPage.Header.LowerPtr >= uint16(bytesNeeded)
+		if canInsert {
+			page = foundPage
 			break
 		}
-
-		page = Page{Rows: make(map[uint64]Row)}
 	}
 
-	return &page, nil
+	return page, nil
 }

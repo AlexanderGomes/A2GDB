@@ -17,7 +17,7 @@ const (
 
 func main() {
 	page := storage.CreatePageV2()
-	rows := []byte("n")
+	rows := []byte("name:alex,age:12,wife:malavika,school:pinole,name:alex,age:12,wife:malavika,school:pinole")
 	tuple := storage.Tuple{
 		Data: rows,
 		Header: storage.TupleHeader{
@@ -35,8 +35,6 @@ func main() {
 			fmt.Println(err)
 		}
 	}
-
-	fmt.Println(page)
 
 }
 

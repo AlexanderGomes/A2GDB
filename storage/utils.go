@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"math/big"
 	"sync"
-	"unsafe"
 )
 
 func generateRandomID() uint64 {
@@ -16,26 +15,6 @@ func generateRandomID() uint64 {
 	randomNum, _ := rand.Int(rand.Reader, max)
 
 	return randomNum.Uint64()
-}
-
-func getSizeOfIDAndRows(page *Page) uintptr {
-	size := unsafe.Sizeof(page.ID)
-
-	size += unsafe.Sizeof(page.Rows)
-
-	for k, v := range page.Rows {
-		size += unsafe.Sizeof(k)
-		size += unsafe.Sizeof(v)
-
-		for key, value := range v.Values {
-			size += unsafe.Sizeof(key)
-			size += uintptr(len(key))
-			size += unsafe.Sizeof(value)
-			size += uintptr(len(value))
-		}
-	}
-
-	return size
 }
 
 func Encode(page interface{}) ([]byte, error) {
@@ -117,7 +96,6 @@ func SerializeTuple(t Tuple) []byte {
 		return nil
 	}
 
-	// Serialize the Data
 	_, err = buf.Write(t.Data)
 	if err != nil {
 		fmt.Println("Failed to write Data:", err)
@@ -125,27 +103,4 @@ func SerializeTuple(t Tuple) []byte {
 	}
 
 	return buf.Bytes()
-}
-
-func SerializePage(p *PageV2) ([]byte, error) {
-	var buf bytes.Buffer
-
-	// Write Header
-	if err := binary.Write(&buf, binary.LittleEndian, p.Header); err != nil {
-		return nil, err
-	}
-
-	// Write PointerArray
-	for _, loc := range p.PointerArray {
-		if err := binary.Write(&buf, binary.LittleEndian, loc); err != nil {
-			return nil, err
-		}
-	}
-
-	// Write Data
-	if _, err := buf.Write(p.Data); err != nil {
-		return nil, err
-	}
-
-	return buf.Bytes(), nil
 }
