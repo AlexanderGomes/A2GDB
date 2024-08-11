@@ -131,7 +131,7 @@ func Parser(query string) (*ParsedQuery, error) {
 		}
 
 		for _, row := range rows {
-			currRow := storage.Row{Values: make(map[string]string)}
+			currRow := storage.RowV2{Values: make(map[string]string)}
 			for i, valExpr := range row {
 				key := parsedQuery.ColumnsSelected[i]
 				value := sqlparser.String(valExpr)

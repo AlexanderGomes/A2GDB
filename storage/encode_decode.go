@@ -243,7 +243,7 @@ func ResetBytesToEmpty(page *PageV2, offset uint16, length uint16) error {
 	}
 
 	for i := uint16(0); i < length; i++ {
-		page.Data[offset+i] = 0x00
+		page.Data[offset+i] = 0x0
 	}
 
 	return nil

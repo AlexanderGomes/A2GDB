@@ -32,7 +32,7 @@ func (dm *DiskManagerV2) InMemoryTableSetUp(name TableName) (*TableObj, error) {
 		return nil, fmt.Errorf("InMemoryTableSetUp (error opening directory_page file): %w", err)
 	}
 
-	byts, err := ReadDirFile(dirFile)
+	byts, err := ReadDirFileV2(dirFile)
 	if err != nil {
 		return nil, fmt.Errorf("InMemoryTableSetUp (error reading Dir File): %w", err)
 	}
@@ -255,7 +255,6 @@ func FileCreateChunks(file *os.File, percentage int) []*Chunk {
 	fileSize := stat.Size()
 
 	numPages := int(fileSize / PageSize)
-	fmt.Printf("file num pages (int): %d\n", fileSize/PageSize)
 	perChunkPageNum := int(numPages * percentage / 100)
 	blockSize := PageSize * int64(perChunkPageNum)
 
@@ -276,8 +275,6 @@ func FileCreateChunks(file *os.File, percentage int) []*Chunk {
 			NumPages:  int(currBlockSize / PageSize),
 			Size:      currBlockSize,
 		}
-
-		fmt.Printf("block num pages: %d\n", chunk.NumPages)
 		chunks = append(chunks, &chunk)
 	}
 

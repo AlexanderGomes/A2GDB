@@ -54,11 +54,11 @@ func (qe *QueryEngine) ExecuteQueryPlan(qp ExecutionPlan, P *ParsedQuery) (Query
 		case "GetTable":
 			tableObj, tableDataFile, err = GetTable(P, qe.DB, steps)
 		case "GetAllColumns":
-			err = GetAllColumns(tableDataFile, &query)
+			err = GetAllColumns(&tableObj, &query)
 		case "CollectPointer":
 			tablesPtr = append(tablesPtr, &tableObj)
 		case "FilterByColumns":
-			err = FilterByColumns(tableDataFile, &query, P)
+			err = FilterByColumns(&tableObj, &query, P)
 		case "InsertRows":
 			err = InsertRows(P, &query, qe.DB, tableDataFile)
 		case "CreateTable":
@@ -99,12 +99,11 @@ func WhereClause(p *ParsedQuery, q *Query) error {
 
 	res := []*storage.RowV2{}
 	for _, row := range q.Result {
-		cleanVal, ok := row.Values[field]
+		rowVal, ok := row.Values[field]
 		if !ok {
 			return fmt.Errorf("field %s not found in row", field)
 		}
-		cleanVal = strings.Trim(cleanVal, "'")
-		if cleanVal == value {
+		if rowVal == value {
 			res = append(res, row)
 		}
 	}
@@ -128,8 +127,10 @@ func DeleteFromTable(p *ParsedQuery, manager *storage.DiskManagerV2, tableObj *s
 		dirPage := tableObj.DirectoryPage
 		pageObj := dirPage.Value[storage.PageID(page.Header.ID)]
 		tuplesInfo := pageObj.PointerArray
+		fmt.Printf("pageID: %d, array: %d\n", page.Header.ID, tuplesInfo)
 
 		for _, location := range tuplesInfo {
+
 			rowBytes := page.Data[location.Offset : location.Offset+location.Length]
 			row, err := storage.DecodeRow(rowBytes)
 			if err != nil {
@@ -243,8 +244,19 @@ func GetTable(parsedQuery *ParsedQuery, bpm *storage.BufferPoolManager, step Que
 func InsertRows(parsedQuery *ParsedQuery, query *Query, bpm *storage.BufferPoolManager, tablePtr *os.File) error {
 	fmt.Println("INSERTING")
 
-	rows := parsedQuery.Predicates[0].(storage.Row)
-	updatedPage, err := storage.FindAvailablePage(tablePtr, spaceNeeded)
+	row := parsedQuery.Predicates[0].(storage.RowV2)
+	rowBytes, err := storage.SerializeRow(&row)
+	if err != nil {
+		return fmt.Errorf("InsertRows: %w", err)
+	}
+
+	spaceNeeded := len(rowBytes)
+	pageFound, err := storage.FindAvailablePage(tablePtr, spaceNeeded)
+	if err != nil {
+		return fmt.Errorf("InsertRows: %w", err)
+	}
+
+	err = pageFound.AddTuple(rowBytes)
 	if err != nil {
 		return fmt.Errorf("InsertRows: %w", err)
 	}
@@ -252,16 +264,21 @@ func InsertRows(parsedQuery *ParsedQuery, query *Query, bpm *storage.BufferPoolM
 	manager := bpm.DiskScheduler.DiskManager
 	tableObj := manager.TableObjs[storage.TableName(parsedQuery.TableReferences[0])]
 
-	offset, found := tableObj.DirectoryPage.Mapping[updatedPage.ID]
+	pageInfObj, found := tableObj.DirectoryPage.Value[storage.PageID(pageFound.Header.ID)]
 
 	if !found {
-		offset, err := manager.WritePageEOF(updatedPage, tableObj)
+		offset, err := manager.WritePageEOFV2(pageFound, tableObj.DataFile)
 		if err != nil {
 			return fmt.Errorf("InsertRows: %w", err)
 		}
 
-		tableObj.DirectoryPage.Mapping[updatedPage.ID] = offset
-		err = manager.UpdateDirectoryPageDisk(tableObj.DirectoryPage, tableObj)
+		pageInfObj = &storage.PageInfo{
+			Offset:       offset,
+			PointerArray: pageFound.PointerArray,
+		}
+
+		tableObj.DirectoryPage.Value[storage.PageID(pageFound.Header.ID)] = pageInfObj
+		err = manager.UpdateDirectoryPageDisk(tableObj.DirectoryPage, tableObj.DirFile)
 		if err != nil {
 			return fmt.Errorf("InsertRows: %w", err)
 		}
@@ -269,7 +286,13 @@ func InsertRows(parsedQuery *ParsedQuery, query *Query, bpm *storage.BufferPoolM
 		return nil
 	}
 
-	err = manager.WritePageBack(updatedPage, offset, tableObj.DataFile)
+	pageInfObj.PointerArray = append(pageInfObj.PointerArray, pageFound.PointerArray...)
+	err = manager.UpdateDirectoryPageDisk(tableObj.DirectoryPage, tableObj.DirFile)
+	if err != nil {
+		return fmt.Errorf("InsertRows: %w", err)
+	}
+
+	err = manager.WritePageBackV2(pageFound, pageInfObj.Offset, tableObj.DataFile)
 	if err != nil {
 		return fmt.Errorf("InsertRows: %w", err)
 	}
@@ -287,42 +310,64 @@ func createColumnMap(columns []string) map[string]string {
 	return columnMap
 }
 
-func FilterByColumns(filePtr *os.File, query *Query, P *ParsedQuery) error {
+func FilterByColumns(tableObj *storage.TableObj, query *Query, P *ParsedQuery) error {
 	columnMap := createColumnMap(P.ColumnsSelected)
-	pageSlice, err := storage.FullTableScan(filePtr)
+	pageSlice, err := storage.FullTableScan(tableObj.DataFile)
 
 	if err != nil {
 		return fmt.Errorf("FilterByColumns: %w", err)
 	}
 
 	for _, page := range pageSlice {
-		for _, tuple := range page.Rows {
-			tempTuple := storage.Row{Values: make(map[string]string)}
+		dirPage := tableObj.DirectoryPage
+		pageObj := dirPage.Value[storage.PageID(page.Header.ID)]
+		tuplesInfo := pageObj.PointerArray
 
-			for key := range tuple.Values {
-				if value, found := columnMap[key]; found {
+		for _, location := range tuplesInfo {
+			rowBytes := page.Data[location.Offset : location.Offset+location.Length]
+			row, err := storage.DecodeRow(rowBytes)
+			if err != nil {
+				return fmt.Errorf("FilterByColumns: %w", err)
+			}
+
+			tempTuple := storage.RowV2{Values: make(map[string]string)}
+
+			for key := range columnMap {
+				if value, found := row.Values[key]; found {
 					tempTuple.Values[key] = value
 				}
 			}
 
-			query.Result = append(query.Result, tempTuple)
+			query.Result = append(query.Result, &tempTuple)
 		}
+
 	}
 
 	return nil
 }
 
-func GetAllColumns(filePtr *os.File, query *Query) error {
-	pageSlice, err := storage.FullTableScan(filePtr)
+func GetAllColumns(tableObj *storage.TableObj, query *Query) error {
+	pageSlice, err := storage.FullTableScan(tableObj.DataFile)
 
 	if err != nil {
 		return fmt.Errorf("GetAllColumns: %w", err)
 	}
 
 	for _, page := range pageSlice {
-		for _, tuple := range page.Rows {
-			query.Result = append(query.Result, tuple)
+		dirPage := tableObj.DirectoryPage
+		pageObj := dirPage.Value[storage.PageID(page.Header.ID)]
+		tuplesInfo := pageObj.PointerArray
+
+		for _, location := range tuplesInfo {
+			rowBytes := page.Data[location.Offset : location.Offset+location.Length]
+			row, err := storage.DecodeRow(rowBytes)
+			if err != nil {
+				return fmt.Errorf("DeleteFromTable: %w", err)
+			}
+
+			query.Result = append(query.Result, row)
 		}
+
 	}
 
 	return err

@@ -14,12 +14,12 @@ const (
 type BufferReq struct {
 	Operation string
 	PageID    PageID
-	Data      []Row
+	Data      []RowV2
 }
 
 type BufferRes struct {
 	PageID  PageID
-	PagePtr *Page
+	PagePtr *PageV2
 	Error   error
 }
 

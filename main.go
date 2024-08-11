@@ -5,82 +5,48 @@ import (
 	"disk-db/storage"
 	"fmt"
 	"log"
-	"os"
 )
 
 const (
 	replacerFrequency = 2
 	dirName           = "A2G_DB"
-	path              = "A2G_DB/Tables/Company/Company"
 	NumPages          = (100 * 1024 * 1024 * 1024) / storage.PageSize
 )
 
 func main() {
-	page := storage.CreatePageV2()
-	rows := []byte("name:alex,age:12,wife:malavika,school:pinole,name:alex,age:12,wife:malavika,school:pinole")
-	tuple := storage.Tuple{
-		Data: rows,
-		Header: storage.TupleHeader{
-			Length: uint16(len(rows)),
-			Flags:  7,
-		},
-	}
+	dm, err := InitDatabase(replacerFrequency, dirName)
 
-	bts := storage.SerializeTuple(tuple)
-
-	for i := 0; i < 30000; i++ {
-		err := page.AddTuple(bts)
-
-		if err != nil {
-			fmt.Println(err)
-		}
-	}
-
-}
-
-func CreateTestFile() {
-	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0777)
 	if err != nil {
-		fmt.Println("Openfile: %w", err)
+		fmt.Println("qryEngine: %w", err)
 	}
 
-	for i := int64(0); i < NumPages; i++ {
-		page := storage.Page{
-			ID:       storage.PageID(i),
-			TABLE:    "TestTable",
-			Rows:     make(map[uint64]storage.Row),
-			IsDirty:  false,
-			IsPinned: false,
-		}
+	dm.QueryEntryPoint(`CREATE TABLE Company (
+		UserID INT AUTO_INCREMENT PRIMARY KEY,
+		Username VARCHAR,
+		PasswordHash VARCHAR
+	);`)
 
-		for j := 0; j < 38; j++ {
-			page.Rows[uint64(j)] = storage.Row{
-				ID:     uint64(j),
-				Values: map[string]string{"column1": "value1", "column2": "value2", "column12": "value1", "column21": "value2"},
-			}
-		}
+	for i := 0; i < 1000; i++ {
+		_, err := dm.QueryEntryPoint(`INSERT INTO Company (Username, PasswordHash) 
+	VALUES ('sander', '123');`)
 
-		encodedPage, err := storage.Encode(page)
+		dm.QueryEntryPoint(`INSERT INTO Company (Username, PasswordHash) 
+	VALUES ('alex', '456');`)
+
+		dm.QueryEntryPoint(`INSERT INTO Company (Username, PasswordHash) 
+	VALUES ('malu', '789');`)
+
 		if err != nil {
-			fmt.Println("Error encoding page:", err)
-			return
-		}
-
-		paddingSize := int(storage.PageSize) - len(encodedPage)
-		if paddingSize < 0 {
-			// Handle case where encodedPage is larger than PageSize
-			paddingSize = 0
-		}
-
-		buffer := append(encodedPage, make([]byte, paddingSize)...)
-
-		_, err = file.Write(buffer)
-		if err != nil {
-			fmt.Println("Error writing page to file:", err)
-			return
+			fmt.Println("qryEngine: %w", err)
 		}
 	}
 
+	res, err := dm.QueryEntryPoint(`SELECT Username, PasswordHash FROM Company WHERE Username = 'sander';`)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	fmt.Println(res.Result)
 }
 
 func InitDatabase(k int, dirName string) (*queryengine.QueryEngine, error) {

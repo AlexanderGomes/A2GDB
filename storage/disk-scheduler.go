@@ -19,7 +19,7 @@ type DiskScheduler struct {
 	RequestChan chan DiskReq
 	ResultChan  chan DiskResult
 	DiskManager *DiskManagerV2
-	Buffer      []*Page
+	Buffer      []*PageV2
 }
 
 func (ds *DiskScheduler) ProccessReq() {
