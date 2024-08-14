@@ -42,16 +42,6 @@ type TupleLocation struct {
 	Length uint16
 }
 
-type TupleHeader struct {
-	Length uint16
-	Flags  uint8
-}
-
-type Tuple struct {
-	Header TupleHeader
-	Data   []byte
-}
-
 type DirectoryPageV2 struct {
 	Value map[PageID]*PageInfo
 }

@@ -3,7 +3,6 @@ package storage
 import (
 	"bytes"
 	"crypto/rand"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"math/big"
@@ -79,28 +78,4 @@ func (w *WrapperWaitGroup) Counter() int {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.count
-}
-
-func SerializeTuple(t Tuple) []byte {
-	var buf bytes.Buffer
-
-	err := binary.Write(&buf, binary.LittleEndian, t.Header.Length)
-	if err != nil {
-		fmt.Println("Failed to write Length:", err)
-		return nil
-	}
-
-	err = binary.Write(&buf, binary.LittleEndian, t.Header.Flags)
-	if err != nil {
-		fmt.Println("Failed to write Flags:", err)
-		return nil
-	}
-
-	_, err = buf.Write(t.Data)
-	if err != nil {
-		fmt.Println("Failed to write Data:", err)
-		return nil
-	}
-
-	return buf.Bytes()
 }

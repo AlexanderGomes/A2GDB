@@ -14,39 +14,24 @@ const (
 )
 
 func main() {
-	dm, err := InitDatabase(replacerFrequency, dirName)
-
-	if err != nil {
-		fmt.Println("qryEngine: %w", err)
+	t := storage.NewTree()
+	for i := 0; i < 2000; i++ {
+		t.Insert(uint64(i), []byte("name inserted"))
 	}
 
-	dm.QueryEntryPoint(`CREATE TABLE Company (
-		UserID INT AUTO_INCREMENT PRIMARY KEY,
-		Username VARCHAR,
-		PasswordHash VARCHAR
-	);`)
-
-	for i := 0; i < 1000; i++ {
-		_, err := dm.QueryEntryPoint(`INSERT INTO Company (Username, PasswordHash) 
-	VALUES ('sander', '123');`)
-
-		dm.QueryEntryPoint(`INSERT INTO Company (Username, PasswordHash) 
-	VALUES ('alex', '456');`)
-
-		dm.QueryEntryPoint(`INSERT INTO Company (Username, PasswordHash) 
-	VALUES ('malu', '789');`)
-
-		if err != nil {
-			fmt.Println("qryEngine: %w", err)
-		}
-	}
-
-	res, err := dm.QueryEntryPoint(`SELECT Username, PasswordHash FROM Company WHERE Username = 'sander';`)
+	visited := make(map[*storage.Node]bool)
+	bts, err := storage.EncodeNode(t.Root, visited)
 	if err != nil {
 		fmt.Println(err)
 	}
 
-	fmt.Println(res.Result)
+	node, err := storage.DecodeNode(bts)
+
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	fmt.Println(node)
 }
 
 func InitDatabase(k int, dirName string) (*queryengine.QueryEngine, error) {

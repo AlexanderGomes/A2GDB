@@ -127,7 +127,6 @@ func DeleteFromTable(p *ParsedQuery, manager *storage.DiskManagerV2, tableObj *s
 		dirPage := tableObj.DirectoryPage
 		pageObj := dirPage.Value[storage.PageID(page.Header.ID)]
 		tuplesInfo := pageObj.PointerArray
-		fmt.Printf("pageID: %d, array: %d\n", page.Header.ID, tuplesInfo)
 
 		for _, location := range tuplesInfo {
 

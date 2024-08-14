@@ -97,7 +97,7 @@ func (bpm *BufferPoolManager) FetchPage(pageID PageID) (*PageV2, error) {
 		}
 	} else {
 
-		// TODO # Why create a page just to pass the ID ?
+		// TODO # Why create a page ? just to pass the ID ?
 		page := PageV2{}
 		page.Header.ID = uint64(pageID)
 
