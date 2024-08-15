@@ -8,7 +8,7 @@ import (
 
 var (
 	err            error
-	order          = 10
+	order          = 20
 	queue          *Node
 	verbose_output = false
 )
@@ -28,6 +28,32 @@ type Node struct {
 	IsLeaf   bool
 	NumKeys  int
 	Next     *Node
+}
+
+func (t *Tree) CreateLeafMap() map[uint64]*Record {
+	leafMap := make(map[uint64]*Record)
+	current := t.getLeftmostLeaf(t.Root)
+
+	for current != nil {
+		for i, key := range current.Keys {
+			if current.Pointers[i] == nil {
+				continue
+			}
+			record := current.Pointers[i].(*Record)
+			leafMap[key] = record
+		}
+
+		current = current.Next
+	}
+
+	return leafMap
+}
+
+func (t *Tree) getLeftmostLeaf(node *Node) *Node {
+	for node != nil && !node.IsLeaf {
+		node = node.Pointers[0].(*Node)
+	}
+	return node
 }
 
 func NewTree() *Tree {
@@ -154,38 +180,6 @@ func (t *Tree) PrintTree() {
 				}
 			}
 			fmt.Printf(" | ")
-		}
-	}
-	fmt.Printf("\n")
-}
-
-func (t *Tree) PrintLeaves() {
-	if t.Root == nil {
-		fmt.Printf("Empty tree.\n")
-		return
-	}
-
-	var i int
-	c := t.Root
-	for !c.IsLeaf {
-		c, _ = c.Pointers[0].(*Node)
-	}
-
-	for {
-		for i = 0; i < c.NumKeys; i++ {
-			if verbose_output {
-				fmt.Printf("%d ", c.Pointers[i])
-			}
-			fmt.Printf("%d ", c.Keys[i])
-		}
-		if verbose_output {
-			fmt.Printf("%d ", c.Pointers[order-1])
-		}
-		if c.Pointers[order-1] != nil {
-			fmt.Printf(" | ")
-			c, _ = c.Pointers[order-1].(*Node)
-		} else {
-			break
 		}
 	}
 	fmt.Printf("\n")
@@ -322,13 +316,7 @@ func makeRecord(value []byte) (*Record, error) {
 func makeNode() (*Node, error) {
 	new_node := new(Node)
 	new_node.Keys = make([]uint64, order-1)
-	if new_node.Keys == nil {
-		return nil, errors.New("error: new node keys array")
-	}
 	new_node.Pointers = make([]interface{}, order)
-	if new_node.Keys == nil {
-		return nil, errors.New("error: new node pointers array")
-	}
 	new_node.IsLeaf = false
 	new_node.NumKeys = 0
 	new_node.Parent = nil
@@ -761,4 +749,35 @@ func (t *Tree) deleteEntry(n *Node, key uint64, pointer interface{}) {
 		return
 	}
 
+}
+func (t *Tree) PrintLeaves() {
+	if t.Root == nil {
+		fmt.Printf("Empty tree.\n")
+		return
+	}
+
+	var i int
+	c := t.Root
+	for !c.IsLeaf {
+		c, _ = c.Pointers[0].(*Node)
+	}
+
+	for {
+		for i = 0; i < c.NumKeys; i++ {
+			if verbose_output {
+				fmt.Printf("%d ", c.Pointers[i])
+			}
+			fmt.Printf("%d ", c.Keys[i])
+		}
+		if verbose_output {
+			fmt.Printf("%d ", c.Pointers[order-1])
+		}
+		if c.Pointers[order-1] != nil {
+			fmt.Printf(" | ")
+			c, _ = c.Pointers[order-1].(*Node)
+		} else {
+			break
+		}
+	}
+	fmt.Printf("\n")
 }

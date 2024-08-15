@@ -15,23 +15,19 @@ const (
 
 func main() {
 	t := storage.NewTree()
-	for i := 0; i < 2000; i++ {
-		t.Insert(uint64(i), []byte("name inserted"))
+	for i := 1; i < 202; i++ {
+		t.Insert(uint64(i), []byte(fmt.Sprintf("number: %d", i)))
 	}
 
-	visited := make(map[*storage.Node]bool)
-	bts, err := storage.EncodeNode(t.Root, visited)
+	leafMap := t.CreateLeafMap()
+	bts, err := storage.EncodeBp(leafMap)
 	if err != nil {
 		fmt.Println(err)
 	}
 
-	node, err := storage.DecodeNode(bts)
+	fmt.Println(leafMap)
 
-	if err != nil {
-		fmt.Println(err)
-	}
-
-	fmt.Println(node)
+	fmt.Println(bts)
 }
 
 func InitDatabase(k int, dirName string) (*queryengine.QueryEngine, error) {
