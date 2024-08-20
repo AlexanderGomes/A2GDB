@@ -3,7 +3,6 @@ package queryengine
 import (
 	"disk-db/storage"
 	"fmt"
-
 	"github.com/xwb1989/sqlparser"
 )
 
@@ -107,13 +106,21 @@ func Parser(query string) (*ParsedQuery, error) {
 				return true, nil
 			}, stmt.Where.Expr)
 		}
-
 	case *sqlparser.DDL:
 		parsedQuery.SQLStatementType = "CREATE TABLE"
 		parsedQuery.TableReferences = append(parsedQuery.TableReferences, sqlparser.String(stmt.NewName))
+
 		for _, col := range stmt.TableSpec.Columns {
-			parsedQuery.ColumnsSelected = append(parsedQuery.ColumnsSelected, col.Name.String())
-			parsedQuery.Predicates = append(parsedQuery.Predicates, col.Type.SQLType().String())
+			columnName := col.Name.String()
+
+			parsedQuery.ColumnsSelected = append(parsedQuery.ColumnsSelected, columnName)
+
+			columnType := storage.ColumnType{
+				Type:    col.Type.SQLType().String(),
+				IsIndex: col.Type.KeyOpt == 1,
+			}
+
+			parsedQuery.Predicates = append(parsedQuery.Predicates, columnType)
 		}
 
 	case *sqlparser.Insert:

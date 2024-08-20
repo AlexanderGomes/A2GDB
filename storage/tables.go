@@ -21,7 +21,15 @@ type TableObj struct {
 	DirFile       *os.File
 }
 
+type ColumnType struct {
+	IsIndex bool
+	Type    string
+}
+
 type TableInfo struct {
+	Schema     map[string]ColumnType
+	NumOfPages uint64
+	Size       uint64 // Size in bytes
 }
 
 func (dm *DiskManagerV2) InMemoryTableSetUp(name TableName) (*TableObj, error) {

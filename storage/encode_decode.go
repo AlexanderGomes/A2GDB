@@ -7,15 +7,6 @@ import (
 	"io"
 )
 
-const (
-	NIL_FLAG        = int32(0)
-	NODE_FLAG       = int32(1)
-	RECORD_FLAG     = int32(2)
-	PARENT_FLAG     = int32(3)
-	NEXT_FLAG       = int32(4)
-	OWN_PARENT_FLAG = int32(-1)
-)
-
 func EncodeDirectory(dir *DirectoryPageV2) ([]byte, error) {
 	var buf bytes.Buffer
 
@@ -257,31 +248,128 @@ func ResetBytesToEmpty(page *PageV2, offset uint16, length uint16) error {
 	return nil
 }
 
-// func EncodeBp(leafMap map[uint64]*Record) ([]byte, error) {
-// 	var buf bytes.Buffer
+func SerializeCatalog(catalog *Catalog) ([]byte, error) {
+	var buf bytes.Buffer
 
-// 	for key, record := range leafMap {
+	numTables := uint32(len(catalog.Tables))
+	if err := binary.Write(&buf, binary.LittleEndian, numTables); err != nil {
+		return nil, err
+	}
 
-// 		if err := binary.Write(&buf, binary.BigEndian, key); err != nil {
-// 			return nil, err
-// 		}
+	for tableName, tableInfo := range catalog.Tables {
+		nameLen := uint32(len(tableName))
+		if err := binary.Write(&buf, binary.LittleEndian, nameLen); err != nil {
+			return nil, err
+		}
+		if _, err := buf.WriteString(string(tableName)); err != nil {
+			return nil, err
+		}
 
-// 		valueLength := uint32(len(record.Value))
-// 		if err := binary.Write(&buf, binary.BigEndian, valueLength); err != nil {
-// 			return nil, err
-// 		}
+		schemaLen := uint32(len(tableInfo.Schema))
+		if err := binary.Write(&buf, binary.LittleEndian, schemaLen); err != nil {
+			return nil, err
+		}
+		for columnName, columnType := range tableInfo.Schema {
+			colNameLen := uint32(len(columnName))
+			if err := binary.Write(&buf, binary.LittleEndian, colNameLen); err != nil {
+				return nil, err
+			}
+			if _, err := buf.WriteString(columnName); err != nil {
+				return nil, err
+			}
 
-// 		if _, err := buf.Write(record.Value); err != nil {
-// 			return nil, err
-// 		}
-// 	}
+			if err := binary.Write(&buf, binary.LittleEndian, columnType.IsIndex); err != nil {
+				return nil, err
+			}
+			colTypeLen := uint32(len(columnType.Type))
+			if err := binary.Write(&buf, binary.LittleEndian, colTypeLen); err != nil {
+				return nil, err
+			}
+			if _, err := buf.WriteString(columnType.Type); err != nil {
+				return nil, err
+			}
+		}
 
-// 	return buf.Bytes(), nil
-// }
+		if err := binary.Write(&buf, binary.LittleEndian, tableInfo.NumOfPages); err != nil {
+			return nil, err
+		}
 
+		if err := binary.Write(&buf, binary.LittleEndian, tableInfo.Size); err != nil {
+			return nil, err
+		}
+	}
 
-// func DecodeBp(data []byte) (*Node, error) {
-// 	var node Node
+	return buf.Bytes(), nil
+}
 
-// 	return &node, nil
-// }
+func DeserializeCatalog(data []byte) (*Catalog, error) {
+	var buf bytes.Buffer
+	buf.Write(data)
+
+	var catalog Catalog
+	catalog.Tables = make(map[TableName]TableInfo)
+
+	var numTables uint32
+	if err := binary.Read(&buf, binary.LittleEndian, &numTables); err != nil {
+		return nil, err
+	}
+
+	for i := uint32(0); i < numTables; i++ {
+		var nameLen uint32
+		if err := binary.Read(&buf, binary.LittleEndian, &nameLen); err != nil {
+			return nil, err
+		}
+		tableName := make([]byte, nameLen)
+		if _, err := buf.Read(tableName); err != nil {
+			return nil, err
+		}
+
+		var tableInfo TableInfo
+
+		var schemaLen uint32
+		if err := binary.Read(&buf, binary.LittleEndian, &schemaLen); err != nil {
+			return nil, err
+		}
+		tableInfo.Schema = make(map[string]ColumnType)
+		for j := uint32(0); j < schemaLen; j++ {
+			var colNameLen uint32
+			if err := binary.Read(&buf, binary.LittleEndian, &colNameLen); err != nil {
+				return nil, err
+			}
+			colName := make([]byte, colNameLen)
+			if _, err := buf.Read(colName); err != nil {
+				return nil, err
+			}
+
+			var isIndex bool
+			if err := binary.Read(&buf, binary.LittleEndian, &isIndex); err != nil {
+				return nil, err
+			}
+			var typeLen uint32
+			if err := binary.Read(&buf, binary.LittleEndian, &typeLen); err != nil {
+				return nil, err
+			}
+			colType := make([]byte, typeLen)
+			if _, err := buf.Read(colType); err != nil {
+				return nil, err
+			}
+
+			tableInfo.Schema[string(colName)] = ColumnType{
+				IsIndex: isIndex,
+				Type:    string(colType),
+			}
+		}
+
+		if err := binary.Read(&buf, binary.LittleEndian, &tableInfo.NumOfPages); err != nil {
+			return nil, err
+		}
+
+		if err := binary.Read(&buf, binary.LittleEndian, &tableInfo.Size); err != nil {
+			return nil, err
+		}
+
+		catalog.Tables[TableName(tableName)] = tableInfo
+	}
+
+	return &catalog, nil
+}

@@ -213,7 +213,20 @@ func JoinTables(query *Query, condition string, tablePtr []*storage.TableObj) er
 func CreateTable(parsedQuery *ParsedQuery, query *Query, bpm *storage.BufferPoolManager) error {
 	table := parsedQuery.TableReferences[0]
 	manager := bpm.DiskScheduler.DiskManager
-	err := manager.CreateTable(storage.TableName(table), storage.TableInfo{})
+	tableInfo := storage.TableInfo{Schema: make(map[string]storage.ColumnType)}
+
+	for i := 0; i < len(parsedQuery.ColumnsSelected); i++ {
+		columnName := parsedQuery.ColumnsSelected[i]
+		columnInfo := parsedQuery.Predicates[i].(storage.ColumnType)
+
+		if columnInfo.IsIndex {
+			columnInfo.Type = "INT64"
+		}
+
+		tableInfo.Schema[columnName] = columnInfo
+	}
+
+	err := manager.CreateTable(storage.TableName(table), tableInfo)
 	if err != nil {
 		return fmt.Errorf("QueryEngine (CreateTable): %w", err)
 	}
@@ -242,24 +255,31 @@ func GetTable(parsedQuery *ParsedQuery, bpm *storage.BufferPoolManager, step Que
 
 func InsertRows(parsedQuery *ParsedQuery, query *Query, bpm *storage.BufferPoolManager, tablePtr *os.File) error {
 	fmt.Println("INSERTING")
+	encodedRows := [][]byte{}
+	rows := parsedQuery.Predicates
 
-	row := parsedQuery.Predicates[0].(storage.RowV2)
-	row.ID = storage.GenerateRandomID()
-	
-	rowBytes, err := storage.SerializeRow(&row)
-	if err != nil {
-		return fmt.Errorf("InsertRows: %w", err)
+	for i := 0; i < len(rows); i++ {
+		row := rows[i].(storage.RowV2)
+		row.ID = storage.GenerateRandomID()
+		rowBytes, err := storage.SerializeRow(&row)
+		if err != nil {
+			return fmt.Errorf("InsertRows: %w", err)
+		}
+
+		encodedRows = append(encodedRows, rowBytes)
 	}
 
-	spaceNeeded := len(rowBytes)
+	spaceNeeded := len(encodedRows)
 	pageFound, err := storage.FindAvailablePage(tablePtr, spaceNeeded)
 	if err != nil {
 		return fmt.Errorf("InsertRows: %w", err)
 	}
 
-	err = pageFound.AddTuple(rowBytes)
-	if err != nil {
-		return fmt.Errorf("InsertRows: %w", err)
+	for _, rowBytes := range encodedRows {
+		err = pageFound.AddTuple(rowBytes)
+		if err != nil {
+			return fmt.Errorf("InsertRows: %w", err)
+		}
 	}
 
 	manager := bpm.DiskScheduler.DiskManager

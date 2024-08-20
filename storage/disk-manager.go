@@ -20,7 +20,8 @@ type Catalog struct {
 	Tables map[TableName]TableInfo
 }
 
-func NewDiskManagerV2(dbDirectory string) (*DiskManagerV2, error) {
+// #TODO - don't start DB from scratch every time
+func NewDiskManagerV2(dbDirectory string) (*DiskManagerV2, error) { 
 	err := os.Mkdir(dbDirectory, 0755)
 	if err != nil {
 		return nil, fmt.Errorf("NewDiskManagerV2 (create db Dir error): %w", err)
@@ -37,8 +38,7 @@ func NewDiskManagerV2(dbDirectory string) (*DiskManagerV2, error) {
 	}
 
 	newCatalog := Catalog{Tables: make(map[TableName]TableInfo)}
-	encodedCatalog, err := Encode(newCatalog)
-
+	encodedCatalog, err := SerializeCatalog(&newCatalog)
 	if err != nil {
 		return nil, fmt.Errorf("NewDiskManagerV2: %w", err)
 	}

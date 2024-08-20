@@ -39,7 +39,7 @@ func DecodeV2(page []byte, dst interface{}) error {
 }
 
 func (dm *DiskManagerV2) UpdateCatalog() error {
-	bytes, err := Encode(dm.PageCatalog)
+	bytes, err := SerializeCatalog(dm.PageCatalog)
 
 	if err != nil {
 		return fmt.Errorf("UpdateCatalog: %w", err)

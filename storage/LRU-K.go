@@ -8,7 +8,7 @@ import (
 )
 
 type LRUKReplacer struct {
-	accessHistory *list.List``
+	accessHistory *list.List
 	frameToElem   map[FrameID]*list.Element
 	k             int
 }

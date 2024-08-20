@@ -14,14 +14,13 @@ const (
 )
 
 func main() {
-	bp := storage.NewTree(10)
+	dm, _ := InitDatabase(replacerFrequency, dirName)
 
-	for i := 0; i < 20000; i++ {
-		bp.ReplaceOrInsert(storage.Item{Key: uint64(i), Value: []byte(fmt.Sprintf("number: %d", i))})
-	}
-
-	items := storage.GetAllItems(bp)
-	fmt.Println(items)
+	dm.QueryEntryPoint(`CREATE TABLE Company (
+			UserID INT PRIMARY KEY,
+			Username VARCHAR,
+			PasswordHash VARCHAR
+		);`)
 }
 
 func InitDatabase(k int, dirName string) (*queryengine.QueryEngine, error) {
