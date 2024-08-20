@@ -244,6 +244,8 @@ func InsertRows(parsedQuery *ParsedQuery, query *Query, bpm *storage.BufferPoolM
 	fmt.Println("INSERTING")
 
 	row := parsedQuery.Predicates[0].(storage.RowV2)
+	row.ID = storage.GenerateRandomID()
+	
 	rowBytes, err := storage.SerializeRow(&row)
 	if err != nil {
 		return fmt.Errorf("InsertRows: %w", err)

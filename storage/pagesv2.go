@@ -55,7 +55,7 @@ type PageInfo struct {
 func CreatePageV2() *PageV2 {
 	return &PageV2{
 		Header: PageHeader{
-			ID:        generateRandomID(),
+			ID:        GenerateRandomID(),
 			LowerPtr:  uint16(HeaderSize + 1),
 			UpperPtr:  uint16(PageDataSize),
 			NumTuples: 0,

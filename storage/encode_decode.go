@@ -257,31 +257,31 @@ func ResetBytesToEmpty(page *PageV2, offset uint16, length uint16) error {
 	return nil
 }
 
-func EncodeBp(leafMap map[uint64]*Record) ([]byte, error) {
-	var buf bytes.Buffer
+// func EncodeBp(leafMap map[uint64]*Record) ([]byte, error) {
+// 	var buf bytes.Buffer
 
-	for key, record := range leafMap {
+// 	for key, record := range leafMap {
 
-		if err := binary.Write(&buf, binary.BigEndian, key); err != nil {
-			return nil, err
-		}
+// 		if err := binary.Write(&buf, binary.BigEndian, key); err != nil {
+// 			return nil, err
+// 		}
 
-		valueLength := uint32(len(record.Value))
-		if err := binary.Write(&buf, binary.BigEndian, valueLength); err != nil {
-			return nil, err
-		}
+// 		valueLength := uint32(len(record.Value))
+// 		if err := binary.Write(&buf, binary.BigEndian, valueLength); err != nil {
+// 			return nil, err
+// 		}
 
-		if _, err := buf.Write(record.Value); err != nil {
-			return nil, err
-		}
-	}
+// 		if _, err := buf.Write(record.Value); err != nil {
+// 			return nil, err
+// 		}
+// 	}
 
-	return buf.Bytes(), nil
-}
+// 	return buf.Bytes(), nil
+// }
 
 
-func DecodeBp(data []byte) (*Node, error) {
-	var node Node
+// func DecodeBp(data []byte) (*Node, error) {
+// 	var node Node
 
-	return &node, nil
-}
+// 	return &node, nil
+// }

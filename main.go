@@ -14,20 +14,14 @@ const (
 )
 
 func main() {
-	t := storage.NewTree()
-	for i := 1; i < 202; i++ {
-		t.Insert(uint64(i), []byte(fmt.Sprintf("number: %d", i)))
+	bp := storage.NewTree(10)
+
+	for i := 0; i < 20000; i++ {
+		bp.ReplaceOrInsert(storage.Item{Key: uint64(i), Value: []byte(fmt.Sprintf("number: %d", i))})
 	}
 
-	leafMap := t.CreateLeafMap()
-	bts, err := storage.EncodeBp(leafMap)
-	if err != nil {
-		fmt.Println(err)
-	}
-
-	fmt.Println(leafMap)
-
-	fmt.Println(bts)
+	items := storage.GetAllItems(bp)
+	fmt.Println(items)
 }
 
 func InitDatabase(k int, dirName string) (*queryengine.QueryEngine, error) {

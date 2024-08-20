@@ -84,7 +84,7 @@ func (bpm *BufferPoolManager) DeletePage(pageID PageID) (FrameID, error) {
 		bpm.freeList = append(bpm.freeList, frameID)
 		return frameID, nil
 	}
-	return 0, errors.New("Page not found")
+	return 0, errors.New("page not found")
 }
 
 func (bpm *BufferPoolManager) FetchPage(pageID PageID) (*PageV2, error) {
@@ -93,7 +93,7 @@ func (bpm *BufferPoolManager) FetchPage(pageID PageID) (*PageV2, error) {
 	if frameID, ok := bpm.pageTable[pageID]; ok {
 		pagePtr = bpm.Pages[frameID]
 		if pagePtr.IsPinned {
-			return nil, errors.New("Page is pinned, cannot access")
+			return nil, errors.New("page is pinned, cannot access")
 		}
 	} else {
 
@@ -133,7 +133,7 @@ func (bpm *BufferPoolManager) Unpin(pageID PageID, isDirty bool) error {
 		return nil
 	}
 
-	return errors.New("Page Not Found")
+	return errors.New("page not found")
 }
 
 func (bpm *BufferPoolManager) Pin(pageID PageID) error {
@@ -145,7 +145,7 @@ func (bpm *BufferPoolManager) Pin(pageID PageID) error {
 		return nil
 	}
 
-	return errors.New("Page Not Found")
+	return errors.New("page not found")
 }
 
 func NewBufferPoolManager(k int, fileName string) (*BufferPoolManager, error) {
