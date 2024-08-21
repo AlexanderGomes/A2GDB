@@ -65,6 +65,7 @@ func CreatePageV2() *PageV2 {
 	}
 }
 
+// # - out of bounds error when not enough space on data array
 func (p *PageV2) AddTuple(data []byte) error {
 	tupleLen := uint16(len(data))
 	offset := p.Header.UpperPtr - tupleLen
@@ -121,13 +122,13 @@ func (ds *DiskManagerV2) WritePageEOFV2(page *PageV2, dataFile *os.File) (Offset
 	return Offset(offset), nil
 }
 
-func ReadDirFileV2(dirFile *os.File) ([]byte, error) {
+func ReadNonPageFile(file *os.File) ([]byte, error) {
 	var buffer bytes.Buffer
 
 	tempBuffer := make([]byte, 1024)
 
 	for {
-		n, err := dirFile.Read(tempBuffer)
+		n, err := file.Read(tempBuffer)
 		if err != nil && err != io.EOF {
 			return nil, fmt.Errorf("ReadFile (error reading directory file): %w", err)
 		}
@@ -140,4 +141,17 @@ func ReadDirFileV2(dirFile *os.File) ([]byte, error) {
 	}
 
 	return buffer.Bytes(), nil
+}
+
+func WriteNonPageFile(file *os.File, data []byte) error {
+	if file == nil {
+		return fmt.Errorf("WriteNonPageFile (file pointer is nil)")
+	}
+
+	_, err := file.Write(data)
+	if err != nil {
+		return fmt.Errorf("WriteNonPageFile (error writing to file): %w", err)
+	}
+
+	return nil
 }

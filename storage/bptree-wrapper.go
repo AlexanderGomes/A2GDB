@@ -1,10 +1,14 @@
 package storage
 
-import "github.com/google/btree"
+import (
+	"fmt"
+
+	"github.com/google/btree"
+)
 
 type Item struct {
 	Key   uint64
-	Value []byte
+	Value Offset
 }
 
 func (i Item) Less(other btree.Item) bool {
@@ -22,4 +26,31 @@ func GetAllItems(t *btree.BTree) []Item {
 
 func NewTree(degree int) *btree.BTree {
 	return btree.New(degree)
+}
+
+func UpdateBp(rows []interface{}, tableObj TableObj, pageInfObj PageInfo) error {
+	for _, row := range rows {
+		rowV2 := row.(*RowV2)
+
+		item := Item{
+			Key:   rowV2.ID,
+			Value: pageInfObj.Offset,
+		}
+
+		tableObj.BpTree.ReplaceOrInsert(item)
+	}
+
+	items := GetAllItems(tableObj.BpTree)
+
+	itemsBytes, err := EncodeItems(items)
+	if err != nil {
+		return fmt.Errorf("UpdateBp: %w", err)
+	}
+
+	err = WriteNonPageFile(tableObj.BpFile, itemsBytes)
+	if err != nil {
+		return fmt.Errorf("UpdateBp: %w", err)
+	}
+
+	return nil
 }

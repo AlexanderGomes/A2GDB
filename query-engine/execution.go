@@ -4,7 +4,7 @@ import (
 	"disk-db/storage"
 	"errors"
 	"fmt"
-	"os"
+	"log"
 	"strings"
 )
 
@@ -38,7 +38,6 @@ func (qe *QueryEngine) QueryEntryPoint(sql string) (Query, error) {
 }
 
 func (qe *QueryEngine) ExecuteQueryPlan(qp ExecutionPlan, P *ParsedQuery) (Query, error) {
-	var tableDataFile *os.File
 	var err error
 
 	query := Query{}
@@ -52,7 +51,7 @@ func (qe *QueryEngine) ExecuteQueryPlan(qp ExecutionPlan, P *ParsedQuery) (Query
 
 		switch steps.Operation {
 		case "GetTable":
-			tableObj, tableDataFile, err = GetTable(P, qe.DB, steps)
+			tableObj, err = GetTable(P, qe.DB, steps)
 		case "GetAllColumns":
 			err = GetAllColumns(&tableObj, &query)
 		case "CollectPointer":
@@ -60,7 +59,7 @@ func (qe *QueryEngine) ExecuteQueryPlan(qp ExecutionPlan, P *ParsedQuery) (Query
 		case "FilterByColumns":
 			err = FilterByColumns(&tableObj, &query, P)
 		case "InsertRows":
-			err = InsertRows(P, &query, qe.DB, tableDataFile)
+			err = InsertRows(P, &query, qe.DB, &tableObj)
 		case "CreateTable":
 			err = CreateTable(P, &query, qe.DB)
 		case "JoinQueryTable":
@@ -231,11 +230,11 @@ func CreateTable(parsedQuery *ParsedQuery, query *Query, bpm *storage.BufferPool
 		return fmt.Errorf("QueryEngine (CreateTable): %w", err)
 	}
 
-	fmt.Println("TABLE CREATED")
+	log.Println("TABLE CREATED")
 	return nil
 }
 
-func GetTable(parsedQuery *ParsedQuery, bpm *storage.BufferPoolManager, step QueryStep) (storage.TableObj, *os.File, error) {
+func GetTable(parsedQuery *ParsedQuery, bpm *storage.BufferPoolManager, step QueryStep) (storage.TableObj, error) {
 	manager := bpm.DiskScheduler.DiskManager
 	tableNAME := parsedQuery.TableReferences[step.index]
 
@@ -245,52 +244,61 @@ func GetTable(parsedQuery *ParsedQuery, bpm *storage.BufferPoolManager, step Que
 	if !found {
 		tableObj, err = manager.InMemoryTableSetUp(storage.TableName(tableNAME))
 		if err != nil {
-			return storage.TableObj{}, nil, fmt.Errorf("GetTable: %w", err)
+			return storage.TableObj{}, fmt.Errorf("GetTable: %w", err)
 		}
 	}
 
-	fmt.Println("GOT TABLE")
-	return *tableObj, tableObj.DataFile, err
+	log.Println("GOT TABLE")
+	return *tableObj, err
 }
 
-func InsertRows(parsedQuery *ParsedQuery, query *Query, bpm *storage.BufferPoolManager, tablePtr *os.File) error {
-	fmt.Println("INSERTING")
-	encodedRows := [][]byte{}
-	rows := parsedQuery.Predicates
+func InsertRows(parsedQuery *ParsedQuery, query *Query, bpm *storage.BufferPoolManager, tableObj *storage.TableObj) error {
+	log.Println("INSERTING ROWS")
 
-	for i := 0; i < len(rows); i++ {
-		row := rows[i].(storage.RowV2)
-		row.ID = storage.GenerateRandomID()
-		rowBytes, err := storage.SerializeRow(&row)
+	var encodedRows [][]byte
+	var spaceNeeded int
+
+	rows := parsedQuery.Predicates
+	for _, row := range rows {
+		rowV2, ok := row.(*storage.RowV2)
+		if !ok {
+			return fmt.Errorf("InsertRows: row type assertion failed")
+		}
+
+		rowV2.ID = storage.GenerateRandomID()
+		rowBytes, err := storage.SerializeRow(rowV2)
 		if err != nil {
-			return fmt.Errorf("InsertRows: %w", err)
+			return fmt.Errorf("InsertRows: serialization error: %w", err)
 		}
 
 		encodedRows = append(encodedRows, rowBytes)
+		spaceNeeded += len(rowBytes)
 	}
 
-	spaceNeeded := len(encodedRows)
-	pageFound, err := storage.FindAvailablePage(tablePtr, spaceNeeded)
+	pageFound, err := storage.FindAvailablePage(tableObj.DataFile, spaceNeeded)
 	if err != nil {
-		return fmt.Errorf("InsertRows: %w", err)
+		return fmt.Errorf("InsertRows: find available page error: %w", err)
 	}
 
 	for _, rowBytes := range encodedRows {
-		err = pageFound.AddTuple(rowBytes)
-		if err != nil {
-			return fmt.Errorf("InsertRows: %w", err)
+		if err := pageFound.AddTuple(rowBytes); err != nil {
+			return fmt.Errorf("InsertRows: add tuple error: %w", err)
 		}
 	}
 
 	manager := bpm.DiskScheduler.DiskManager
-	tableObj := manager.TableObjs[storage.TableName(parsedQuery.TableReferences[0])]
+	tableName := storage.TableName(parsedQuery.TableReferences[0])
+	tableObj, exists := manager.TableObjs[tableName]
+	if !exists {
+		return fmt.Errorf("InsertRows: table %s not found", tableName)
+	}
 
-	pageInfObj, found := tableObj.DirectoryPage.Value[storage.PageID(pageFound.Header.ID)]
-
+	pageID := storage.PageID(pageFound.Header.ID)
+	pageInfObj, found := tableObj.DirectoryPage.Value[pageID]
 	if !found {
 		offset, err := manager.WritePageEOFV2(pageFound, tableObj.DataFile)
 		if err != nil {
-			return fmt.Errorf("InsertRows: %w", err)
+			return fmt.Errorf("InsertRows: write page EOF error: %w", err)
 		}
 
 		pageInfObj = &storage.PageInfo{
@@ -298,24 +306,32 @@ func InsertRows(parsedQuery *ParsedQuery, query *Query, bpm *storage.BufferPoolM
 			PointerArray: pageFound.PointerArray,
 		}
 
-		tableObj.DirectoryPage.Value[storage.PageID(pageFound.Header.ID)] = pageInfObj
-		err = manager.UpdateDirectoryPageDisk(tableObj.DirectoryPage, tableObj.DirFile)
+		tableObj.DirectoryPage.Value[pageID] = pageInfObj
+		if err := manager.UpdateDirectoryPageDisk(tableObj.DirectoryPage, tableObj.DirFile); err != nil {
+			return fmt.Errorf("InsertRows: update directory page error: %w", err)
+		}
+
+		err = storage.UpdateBp(rows, *tableObj, *pageInfObj)
 		if err != nil {
 			return fmt.Errorf("InsertRows: %w", err)
 		}
 
-		return nil
-	}
+	} else {
+		pageInfObj.PointerArray = append(pageInfObj.PointerArray, pageFound.PointerArray...)
+		if err := manager.UpdateDirectoryPageDisk(tableObj.DirectoryPage, tableObj.DirFile); err != nil {
+			return fmt.Errorf("InsertRows: update directory page error: %w", err)
+		}
 
-	pageInfObj.PointerArray = append(pageInfObj.PointerArray, pageFound.PointerArray...)
-	err = manager.UpdateDirectoryPageDisk(tableObj.DirectoryPage, tableObj.DirFile)
-	if err != nil {
-		return fmt.Errorf("InsertRows: %w", err)
-	}
+		if err := manager.WritePageBackV2(pageFound, pageInfObj.Offset, tableObj.DataFile); err != nil {
+			return fmt.Errorf("InsertRows: write page back error: %w", err)
+		}
+		
 
-	err = manager.WritePageBackV2(pageFound, pageInfObj.Offset, tableObj.DataFile)
-	if err != nil {
-		return fmt.Errorf("InsertRows: %w", err)
+		err = storage.UpdateBp(rows, *tableObj, *pageInfObj)
+		if err != nil {
+			return fmt.Errorf("InsertRows: %w", err)
+		}
+
 	}
 
 	return nil

@@ -3,6 +3,7 @@ package queryengine
 import (
 	"disk-db/storage"
 	"fmt"
+
 	"github.com/xwb1989/sqlparser"
 )
 
@@ -144,7 +145,7 @@ func Parser(query string) (*ParsedQuery, error) {
 				value := sqlparser.String(valExpr)
 				currRow.Values[key] = value
 			}
-			parsedQuery.Predicates = append(parsedQuery.Predicates, currRow)
+			parsedQuery.Predicates = append(parsedQuery.Predicates, &currRow)
 		}
 
 	case *sqlparser.Delete:

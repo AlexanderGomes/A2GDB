@@ -3,7 +3,9 @@ package storage
 import (
 	"fmt"
 	"io"
+	"log"
 	"os"
+	"path/filepath"
 )
 
 const PageSize int64 = 4 * 1024
@@ -20,42 +22,88 @@ type Catalog struct {
 	Tables map[TableName]TableInfo
 }
 
-// #TODO - don't start DB from scratch every time
-func NewDiskManagerV2(dbDirectory string) (*DiskManagerV2, error) { 
+func NewDiskManagerV2(dbDirectory string) (*DiskManagerV2, error) {
+	var manager DiskManagerV2
+
+	if _, err := os.Stat(dbDirectory); err != nil && os.IsNotExist(err) {
+		manager, err = CreatDefaultManager(dbDirectory)
+		if err != nil {
+			return nil, fmt.Errorf("NewDiskManagerV2: %w", err)
+		}
+		log.Println("Created Default Manager")
+	} else {
+		manager, err = ReadExistingManager(dbDirectory)
+		if err != nil {
+			return nil, fmt.Errorf("NewDiskManagerV2: %w", err)
+		}
+		log.Println("Loaded Existing Manager")
+	}
+	return &manager, nil
+}
+
+func CreatDefaultManager(dbDirectory string) (DiskManagerV2, error) {
 	err := os.Mkdir(dbDirectory, 0755)
 	if err != nil {
-		return nil, fmt.Errorf("NewDiskManagerV2 (create db Dir error): %w", err)
+		return DiskManagerV2{}, fmt.Errorf("CreatDefaultManager (create db Dir error): %w", err)
 	}
 
 	err = os.Mkdir(dbDirectory+"/Tables", 0755)
 	if err != nil {
-		return nil, fmt.Errorf("NewDiskManagerV2 (create table dir error): %w", err)
+		return DiskManagerV2{}, fmt.Errorf("CreatDefaultManager (create table dir error): %w", err)
 	}
 
 	catalogFilePtr, err := os.Create(dbDirectory + "/catalog")
 	if err != nil {
-		return nil, fmt.Errorf("NewDiskManagerV2 (create catalog file error): %w", err)
+		return DiskManagerV2{}, fmt.Errorf("CreatDefaultManager (create catalog file error): %w", err)
 	}
 
-	newCatalog := Catalog{Tables: make(map[TableName]TableInfo)}
-	encodedCatalog, err := SerializeCatalog(&newCatalog)
+	catalog := Catalog{Tables: make(map[TableName]TableInfo)}
+	encodedCatalog, err := SerializeCatalog(&catalog)
 	if err != nil {
-		return nil, fmt.Errorf("NewDiskManagerV2: %w", err)
+		return DiskManagerV2{}, fmt.Errorf("CreatDefaultManager: %w", err)
 	}
 
 	_, err = catalogFilePtr.Write(encodedCatalog)
 	if err != nil {
-		return nil, fmt.Errorf("NewDiskManagerV2 (catalog writing error): %w", err)
+		return DiskManagerV2{}, fmt.Errorf("CreatDefaultManager (catalog writing error): %w", err)
 	}
 
 	dm := DiskManagerV2{
 		DBdirectory: dbDirectory,
-		PageCatalog: &newCatalog,
+		PageCatalog: &catalog,
 		FileCatalog: catalogFilePtr,
 		TableObjs:   make(map[TableName]*TableObj),
 	}
 
-	return &dm, nil
+	return dm, nil
+}
+
+func ReadExistingManager(dbDirectory string) (DiskManagerV2, error) {
+	catalogPath := filepath.Join(dbDirectory, "catalog")
+
+	file, err := os.OpenFile(catalogPath, os.O_RDWR|os.O_CREATE, 0777)
+	if err != nil {
+		return DiskManagerV2{}, fmt.Errorf("ReadExistingManager: %w", err)
+	}
+
+	bytes, err := ReadNonPageFile(file)
+	if err != nil {
+		return DiskManagerV2{}, fmt.Errorf("ReadExistingManager: %w", err)
+	}
+
+	catalog, err := DeserializeCatalog(bytes)
+	if err != nil {
+		return DiskManagerV2{}, fmt.Errorf("ReadExistingManager: %w", err)
+	}
+
+	dm := DiskManagerV2{
+		DBdirectory: dbDirectory,
+		PageCatalog: catalog,
+		FileCatalog: file,
+		TableObjs:   make(map[TableName]*TableObj),
+	}
+
+	return dm, nil
 }
 
 func (dm *DiskManagerV2) WriteToDisk(page *PageV2) error {

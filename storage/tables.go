@@ -2,11 +2,14 @@ package storage
 
 import (
 	"fmt"
+
 	"io"
 	"math"
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/google/btree"
 )
 
 const (
@@ -17,8 +20,10 @@ const (
 
 type TableObj struct {
 	DirectoryPage *DirectoryPageV2
-	DataFile      *os.File
 	DirFile       *os.File
+	BpTree        *btree.BTree
+	BpFile        *os.File
+	DataFile      *os.File
 }
 
 type ColumnType struct {
@@ -40,7 +45,7 @@ func (dm *DiskManagerV2) InMemoryTableSetUp(name TableName) (*TableObj, error) {
 		return nil, fmt.Errorf("InMemoryTableSetUp (error opening directory_page file): %w", err)
 	}
 
-	byts, err := ReadDirFileV2(dirFile)
+	byts, err := ReadNonPageFile(dirFile)
 	if err != nil {
 		return nil, fmt.Errorf("InMemoryTableSetUp (error reading Dir File): %w", err)
 	}
@@ -56,10 +61,35 @@ func (dm *DiskManagerV2) InMemoryTableSetUp(name TableName) (*TableObj, error) {
 		return nil, fmt.Errorf("InMemoryTableSetUp (error opening data file): %w", err)
 	}
 
+	bpPath := filepath.Join(dm.DBdirectory, "Tables", string(name), "bptree")
+	bpFile, err := os.OpenFile(bpPath, os.O_RDWR|os.O_CREATE, 0777)
+	if err != nil {
+		return nil, fmt.Errorf("InMemoryTableSetUp (error opening bp tree file): %w", err)
+	}
+
+	bpBytes, err := ReadNonPageFile(bpFile)
+	if err != nil {
+		return nil, fmt.Errorf("InMemoryTableSetUp: %w", err)
+	}
+
+	tree := NewTree(20)
+	if len(bpBytes) > 0 {
+		items, err := DecodeItems(bpBytes)
+		if err != nil {
+			return nil, fmt.Errorf("InMemoryTableSetUp: %w", err)
+		}
+
+		for _, item := range items {
+			tree.ReplaceOrInsert(item)
+		}
+	}
+
 	tableObj := &TableObj{
 		DirectoryPage: dirPage,
 		DataFile:      dataFile,
 		DirFile:       dirFile,
+		BpFile:        bpFile,
+		BpTree:        tree,
 	}
 
 	dm.TableObjs[name] = tableObj
@@ -104,6 +134,11 @@ func (dm *DiskManagerV2) CreateTable(name TableName, info TableInfo) error {
 	_, err = dir.WriteAt(bytes, 0)
 	if err != nil {
 		return fmt.Errorf("CreateTable (error writing to disk): %w", err)
+	}
+
+	_, err = os.Create(filepath.Join(tablePath, string(name), "bptree"))
+	if err != nil {
+		return fmt.Errorf("CreateTable (create bptree file error): %w", err)
 	}
 
 	return nil

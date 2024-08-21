@@ -16,11 +16,25 @@ const (
 func main() {
 	dm, _ := InitDatabase(replacerFrequency, dirName)
 
-	dm.QueryEntryPoint(`CREATE TABLE Company (
+	dm.QueryEntryPoint(`CREATE TABLE User (
 			UserID INT PRIMARY KEY,
 			Username VARCHAR,
 			PasswordHash VARCHAR
 		);`)
+
+	for i := 0; i < 1000; i++ {
+		_, err := dm.QueryEntryPoint(`INSERT INTO User (UserID, Username, PasswordHash) VALUES
+			(31, 'john_doe', 'hashed_password_1'),
+			(31, 'john_doe', 'hashed_password_1'),
+			(31, 'john_doe', 'hashed_password_1'),
+			(31, 'john_doe', 'hashed_password_1'),
+			(31, 'john_doe', 'hashed_password_1'),
+			(31, 'john_doe', 'hashed_password_1');`)
+
+		if err != nil {
+			fmt.Println(err)
+		}
+	}
 }
 
 func InitDatabase(k int, dirName string) (*queryengine.QueryEngine, error) {
