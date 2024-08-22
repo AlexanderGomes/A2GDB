@@ -10,7 +10,7 @@ import (
 const (
 	replacerFrequency = 2
 	dirName           = "A2G_DB"
-	NumPages          = (100 * 1024 * 1024 * 1024) / storage.PageSize
+	NumPages          = (100 * 1024 * 1024 * 1024) / storage.PageSizeV2
 )
 
 func main() {
@@ -22,10 +22,9 @@ func main() {
 			PasswordHash VARCHAR
 		);`)
 
-	for i := 0; i < 1000; i++ {
+	for i := 0; i < 10; i++ {
 		_, err := dm.QueryEntryPoint(`INSERT INTO User (UserID, Username, PasswordHash) VALUES
-			(31, 'john_doe', 'hashed_password_1'),
-			(31, 'john_doe', 'hashed_password_1'),
+			(1, 'sander', 'hashed_password_1'),
 			(31, 'john_doe', 'hashed_password_1'),
 			(31, 'john_doe', 'hashed_password_1'),
 			(31, 'john_doe', 'hashed_password_1'),
@@ -35,6 +34,17 @@ func main() {
 			fmt.Println(err)
 		}
 	}
+
+	res, err := dm.QueryEntryPoint(`UPDATE User
+SET UserID = 292992992
+WHERE UserID = 1;`)
+
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	fmt.Println(res)
+
 }
 
 func InitDatabase(k int, dirName string) (*queryengine.QueryEngine, error) {

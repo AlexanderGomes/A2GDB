@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 )
 
-const PageSize int64 = 4 * 1024
 
 type DiskManagerV2 struct {
 	DBdirectory string
@@ -25,7 +24,7 @@ type Catalog struct {
 func NewDiskManagerV2(dbDirectory string) (*DiskManagerV2, error) {
 	var manager DiskManagerV2
 
-	if _, err := os.Stat(dbDirectory); err != nil && os.IsNotExist(err) {
+	if _, err := os.Stat(dbDirectory); os.IsNotExist(err) {
 		manager, err = CreatDefaultManager(dbDirectory)
 		if err != nil {
 			return nil, fmt.Errorf("NewDiskManagerV2: %w", err)
@@ -156,7 +155,7 @@ func FindAvailablePage(tablePtr *os.File, bytesNeeded int) (*PageV2, error) {
 	var page *PageV2
 
 	for {
-		pageBytes := make([]byte, PageSize)
+		pageBytes := make([]byte, PageSizeV2)
 		_, err := tablePtr.ReadAt(pageBytes, int64(offset))
 		if err != nil {
 			if err == io.EOF {
@@ -167,7 +166,7 @@ func FindAvailablePage(tablePtr *os.File, bytesNeeded int) (*PageV2, error) {
 			return nil, fmt.Errorf("FindAvailablePage(erro reading from file non-EOF): %w", err)
 		}
 
-		offset += PageSize
+		offset += PageSizeV2
 		foundPage, err := DecodePageV2(pageBytes)
 		if err != nil {
 			return nil, fmt.Errorf("FindAvailablePage: %w", err)

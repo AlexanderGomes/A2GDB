@@ -130,10 +130,42 @@ func EncodePageInfo(pageInfo *PageInfo) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+func EncodePageHeader(header PageHeader, buf *bytes.Buffer) error {
+	if err := binary.Write(buf, binary.LittleEndian, header.ID); err != nil {
+		return err
+	}
+	if err := binary.Write(buf, binary.LittleEndian, header.LowerPtr); err != nil {
+		return err
+	}
+	if err := binary.Write(buf, binary.LittleEndian, header.UpperPtr); err != nil {
+		return err
+	}
+	if err := binary.Write(buf, binary.LittleEndian, header.NumTuples); err != nil {
+		return err
+	}
+	return nil
+}
+
+func DecodePageHeader(header *PageHeader, buf *bytes.Buffer) error {
+	if err := binary.Read(buf, binary.LittleEndian, &header.ID); err != nil {
+		return err
+	}
+	if err := binary.Read(buf, binary.LittleEndian, &header.LowerPtr); err != nil {
+		return err
+	}
+	if err := binary.Read(buf, binary.LittleEndian, &header.UpperPtr); err != nil {
+		return err
+	}
+	if err := binary.Read(buf, binary.LittleEndian, &header.NumTuples); err != nil {
+		return err
+	}
+	return nil
+}
+
 func EncodePageV2(page *PageV2) ([]byte, error) {
 	var buf bytes.Buffer
 
-	if err := binary.Write(&buf, binary.LittleEndian, page.Header); err != nil {
+	if err := EncodePageHeader(page.Header, &buf); err != nil {
 		return nil, err
 	}
 
@@ -145,19 +177,25 @@ func EncodePageV2(page *PageV2) ([]byte, error) {
 }
 
 func DecodePageV2(data []byte) (*PageV2, error) {
-	buf := bytes.NewReader(data)
-	var page PageV2
+	buf := bytes.NewBuffer(data)
 
-	if err := binary.Read(buf, binary.LittleEndian, &page.Header); err != nil {
+	var header PageHeader
+	if err := DecodePageHeader(&header, buf); err != nil {
 		return nil, err
 	}
 
-	page.Data = make([]byte, PageDataSize)
-	if _, err := buf.Read(page.Data); err != nil {
+	pageData := make([]byte, PageDataSize)
+	if _, err := buf.Read(pageData); err != nil {
 		return nil, err
 	}
 
-	return &page, nil
+	page := &PageV2{
+		Header:       header,
+		Data:         pageData,
+		PointerArray: []TupleLocation{},
+	}
+
+	return page, nil
 }
 
 func SerializeRow(row *RowV2) ([]byte, error) {
@@ -294,9 +332,6 @@ func SerializeCatalog(catalog *Catalog) ([]byte, error) {
 			return nil, err
 		}
 
-		if err := binary.Write(&buf, binary.LittleEndian, tableInfo.Size); err != nil {
-			return nil, err
-		}
 	}
 
 	return buf.Bytes(), nil
@@ -361,10 +396,6 @@ func DeserializeCatalog(data []byte) (*Catalog, error) {
 		}
 
 		if err := binary.Read(&buf, binary.LittleEndian, &tableInfo.NumOfPages); err != nil {
-			return nil, err
-		}
-
-		if err := binary.Read(&buf, binary.LittleEndian, &tableInfo.Size); err != nil {
 			return nil, err
 		}
 

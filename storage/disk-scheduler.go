@@ -26,12 +26,10 @@ func (ds *DiskScheduler) ProccessReq() {
 	for req := range ds.RequestChan {
 		var result DiskResult
 
-		if req.Operation == "WRITE" {
-			err := ds.DiskManager.WriteToDisk(&req.Page)
-			result.Page.Header.ID = req.Page.Header.ID
-			if err != nil {
-				result.Response = errors.New("unable to write to disk: " + err.Error())
-			}
+		err := ds.DiskManager.WriteToDisk(&req.Page)
+		result.Page.Header.ID = req.Page.Header.ID
+		if err != nil {
+			result.Response = errors.New("unable to write to disk: " + err.Error())
 		}
 		select {
 		case ds.ResultChan <- result:

@@ -34,7 +34,6 @@ type ColumnType struct {
 type TableInfo struct {
 	Schema     map[string]ColumnType
 	NumOfPages uint64
-	Size       uint64 // Size in bytes
 }
 
 func (dm *DiskManagerV2) InMemoryTableSetUp(name TableName) (*TableObj, error) {
@@ -149,7 +148,7 @@ func FullTableScan(file *os.File) ([]*PageV2, error) {
 	pageSlice := []*PageV2{}
 
 	for {
-		buffer := make([]byte, PageSize)
+		buffer := make([]byte, PageSizeV2)
 		_, err := file.ReadAt(buffer, int64(offset))
 		if err != nil && err == io.EOF {
 			fmt.Println("FullTableScan (end of file, processing pages...)")
@@ -162,7 +161,7 @@ func FullTableScan(file *os.File) ([]*PageV2, error) {
 		}
 
 		pageSlice = append(pageSlice, page)
-		offset += PageSize
+		offset += PageSizeV2
 	}
 
 	return pageSlice, nil
@@ -245,8 +244,8 @@ func ReadersManager(file *os.File, chunk *Chunk, byteChan chan []byte) {
 }
 
 func ReadWoker(file *os.File, chunk *Chunk, byteChan chan []byte) {
-	for offset := chunk.Beggining; offset < chunk.End; offset += PageSize {
-		buffer := make([]byte, PageSize)
+	for offset := chunk.Beggining; offset < chunk.End; offset += PageSizeV2 {
+		buffer := make([]byte, PageSizeV2)
 
 		_, err := file.ReadAt(buffer, offset)
 		if err != nil {
@@ -262,7 +261,7 @@ func ChunkCreateChunks(chunk *Chunk) []*Chunk {
 	percentageFloat := float64(PERCENTAGE)
 
 	perChunkPageNum := math.Ceil(numPagesFloat * percentageFloat / 100)
-	blockSize := PageSize * int64(perChunkPageNum)
+	blockSize := PageSizeV2 * int64(perChunkPageNum)
 
 	var chunks []*Chunk
 	for i := int64(chunk.Beggining); i < chunk.End; i += int64(blockSize) {
@@ -278,7 +277,7 @@ func ChunkCreateChunks(chunk *Chunk) []*Chunk {
 		chunk := Chunk{
 			Beggining: i,
 			End:       end,
-			NumPages:  int(currBlockSize / PageSize),
+			NumPages:  int(currBlockSize / PageSizeV2),
 			Size:      currBlockSize,
 		}
 
@@ -297,9 +296,9 @@ func FileCreateChunks(file *os.File, percentage int) []*Chunk {
 
 	fileSize := stat.Size()
 
-	numPages := int(fileSize / PageSize)
+	numPages := int(fileSize / PageSizeV2)
 	perChunkPageNum := int(numPages * percentage / 100)
-	blockSize := PageSize * int64(perChunkPageNum)
+	blockSize := PageSizeV2 * int64(perChunkPageNum)
 
 	var chunks []*Chunk
 	for i := int64(0); i < fileSize; i += int64(blockSize) {
@@ -315,7 +314,7 @@ func FileCreateChunks(file *os.File, percentage int) []*Chunk {
 		chunk := Chunk{
 			Beggining: i,
 			End:       end,
-			NumPages:  int(currBlockSize / PageSize),
+			NumPages:  int(currBlockSize / PageSizeV2),
 			Size:      currBlockSize,
 		}
 		chunks = append(chunks, &chunk)

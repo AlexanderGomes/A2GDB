@@ -65,11 +65,10 @@ func CreatePageV2() *PageV2 {
 	}
 }
 
-// # - out of bounds error when not enough space on data array
 func (p *PageV2) AddTuple(data []byte) error {
 	tupleLen := uint16(len(data))
 	offset := p.Header.UpperPtr - tupleLen
-	canInsert := p.Header.UpperPtr-p.Header.LowerPtr > tupleLen
+	canInsert := p.Header.UpperPtr-p.Header.LowerPtr >= tupleLen
 
 	if !canInsert {
 		return fmt.Errorf("AddTuple (can't insert)")
@@ -154,4 +153,14 @@ func WriteNonPageFile(file *os.File, data []byte) error {
 	}
 
 	return nil
+}
+
+func ReadPageAtOffset(file *os.File, offset Offset) ([]byte, error) {
+	pageData := make([]byte, PageSizeV2)
+	_, err := file.ReadAt(pageData, int64(offset))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read page data: %w", err)
+	}
+
+	return pageData, nil
 }

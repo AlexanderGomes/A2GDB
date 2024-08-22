@@ -22,14 +22,27 @@ func GenerateQueryPlan(parsedQuery *ParsedQuery) ExecutionPlan {
 		SelectTablePlan(&executionPlan, parsedQuery)
 	case "DELETE":
 		DeletePlan(&executionPlan, parsedQuery)
+	case "UPDATE":
+		UpdatePlan(&executionPlan, parsedQuery)
 	}
 
 	return executionPlan
 }
 
+func UpdatePlan(executionPlan *ExecutionPlan, P *ParsedQuery) {
+	querySteps := []QueryStep{
+		{Operation: "GetTable", index: 0},
+		{Operation: "DetermineScan"},
+		{Operation: "Update"},
+	}
+
+	executionPlan.Steps = append(executionPlan.Steps, querySteps...)
+}
+
 func DeletePlan(executionPlan *ExecutionPlan, P *ParsedQuery) {
 	querySteps := []QueryStep{
 		{Operation: "GetTable", index: 0},
+		{Operation: "DetermineScan"},
 		{Operation: "DeleteFromTable"},
 	}
 
@@ -40,6 +53,7 @@ func SelectTablePlan(executionPlan *ExecutionPlan, P *ParsedQuery) {
 	filterOperation := determineFilterOperation(P.ColumnsSelected)
 	querySteps := []QueryStep{
 		{Operation: "GetTable", index: 0},
+		{Operation: "DetermineScan"},
 		{Operation: filterOperation},
 	}
 
@@ -53,18 +67,8 @@ func SelectTablePlan(executionPlan *ExecutionPlan, P *ParsedQuery) {
 		}
 	}
 
-	// where clause
-	if len(P.Predicates) > 0 {
+	if len(P.Where) > 0 {
 		querySteps = append(querySteps, QueryStep{Operation: "WhereClause"})
-	}
-
-	executionPlan.Steps = append(executionPlan.Steps, querySteps...)
-}
-
-func InsertTablePlan(executionPlan *ExecutionPlan, P *ParsedQuery) {
-	querySteps := []QueryStep{
-		{Operation: "GetTable", index: 0},
-		{Operation: "InsertRows"},
 	}
 
 	executionPlan.Steps = append(executionPlan.Steps, querySteps...)
@@ -83,4 +87,13 @@ func determineFilterOperation(columnsSelected []string) string {
 		return "GetAllColumns"
 	}
 	return "FilterByColumns"
+}
+
+func InsertTablePlan(executionPlan *ExecutionPlan, P *ParsedQuery) {
+	querySteps := []QueryStep{
+		{Operation: "GetTable", index: 0},
+		{Operation: "InsertRows"},
+	}
+
+	executionPlan.Steps = append(executionPlan.Steps, querySteps...)
 }

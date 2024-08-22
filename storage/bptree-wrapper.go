@@ -54,3 +54,19 @@ func UpdateBp(rows []interface{}, tableObj TableObj, pageInfObj PageInfo) error 
 
 	return nil
 }
+
+func GetItemByKey(t *btree.BTree, key uint64) (*Item, error) {
+	searchItem := Item{Key: key}
+
+	item := t.Get(searchItem)
+	if item == nil {
+		return nil, fmt.Errorf("item with key %d not found", key)
+	}
+
+	resultItem, ok := item.(Item)
+	if !ok {
+		return nil, fmt.Errorf("type assertion failed")
+	}
+
+	return &resultItem, nil
+}
