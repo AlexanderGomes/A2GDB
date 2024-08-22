@@ -56,7 +56,7 @@ func CreatePageV2() *PageV2 {
 	return &PageV2{
 		Header: PageHeader{
 			ID:        GenerateRandomID(),
-			LowerPtr:  uint16(HeaderSize + 1),
+			LowerPtr:  uint16(HeaderSize),
 			UpperPtr:  uint16(PageDataSize),
 			NumTuples: 0,
 		},
@@ -68,7 +68,7 @@ func CreatePageV2() *PageV2 {
 func (p *PageV2) AddTuple(data []byte) error {
 	tupleLen := uint16(len(data))
 	offset := p.Header.UpperPtr - tupleLen
-	canInsert := p.Header.UpperPtr-p.Header.LowerPtr >= tupleLen
+	canInsert := p.Header.UpperPtr-p.Header.LowerPtr > tupleLen || offset < uint16(len(p.Data))
 
 	if !canInsert {
 		return fmt.Errorf("AddTuple (can't insert)")
@@ -113,7 +113,7 @@ func (ds *DiskManagerV2) WritePageEOFV2(page *PageV2, dataFile *os.File) (Offset
 	}
 
 	offset := fileInfo.Size()
-	_, err = dataFile.Write(pageBytes)
+	_, err = dataFile.WriteAt(pageBytes, offset)
 	if err != nil {
 		return 0, fmt.Errorf("WritePageEOF (writing file to disk): %w", err)
 	}
@@ -125,14 +125,16 @@ func ReadNonPageFile(file *os.File) ([]byte, error) {
 	var buffer bytes.Buffer
 
 	tempBuffer := make([]byte, 1024)
+	offset := int64(0)
 
 	for {
-		n, err := file.Read(tempBuffer)
+		n, err := file.ReadAt(tempBuffer, offset)
 		if err != nil && err != io.EOF {
-			return nil, fmt.Errorf("ReadFile (error reading directory file): %w", err)
+			return nil, fmt.Errorf("ReadFile (error reading file): %w", err)
 		}
 		if n > 0 {
 			buffer.Write(tempBuffer[:n])
+			offset += int64(n)
 		}
 		if err == io.EOF {
 			break
@@ -147,7 +149,7 @@ func WriteNonPageFile(file *os.File, data []byte) error {
 		return fmt.Errorf("WriteNonPageFile (file pointer is nil)")
 	}
 
-	_, err := file.Write(data)
+	_, err := file.WriteAt(data, 0)
 	if err != nil {
 		return fmt.Errorf("WriteNonPageFile (error writing to file): %w", err)
 	}

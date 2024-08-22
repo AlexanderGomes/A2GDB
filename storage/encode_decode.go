@@ -65,7 +65,6 @@ func DecodeDirectory(data []byte) (*DirectoryPageV2, error) {
 		if _, err := io.ReadFull(buf, encodedPageInfo); err != nil {
 			return nil, fmt.Errorf("error reading encoded PageInfo data: %w", err)
 		}
-
 		pageInfo, err := DecodePageInfo(encodedPageInfo)
 		if err != nil {
 			return nil, fmt.Errorf("error decoding PageInfo: %w", err)
@@ -106,6 +105,7 @@ func DecodePageInfo(data []byte) (*PageInfo, error) {
 	return &pageInfo, nil
 }
 
+// CHECKED
 func EncodePageInfo(pageInfo *PageInfo) ([]byte, error) {
 	var buf bytes.Buffer
 
@@ -130,6 +130,7 @@ func EncodePageInfo(pageInfo *PageInfo) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// CHECKED
 func EncodePageHeader(header PageHeader, buf *bytes.Buffer) error {
 	if err := binary.Write(buf, binary.LittleEndian, header.ID); err != nil {
 		return err
@@ -146,6 +147,7 @@ func EncodePageHeader(header PageHeader, buf *bytes.Buffer) error {
 	return nil
 }
 
+// CHECKED
 func DecodePageHeader(header *PageHeader, buf *bytes.Buffer) error {
 	if err := binary.Read(buf, binary.LittleEndian, &header.ID); err != nil {
 		return err
@@ -162,6 +164,7 @@ func DecodePageHeader(header *PageHeader, buf *bytes.Buffer) error {
 	return nil
 }
 
+// CHECKED
 func EncodePageV2(page *PageV2) ([]byte, error) {
 	var buf bytes.Buffer
 
@@ -176,6 +179,7 @@ func EncodePageV2(page *PageV2) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// CHECKED
 func DecodePageV2(data []byte) (*PageV2, error) {
 	buf := bytes.NewBuffer(data)
 
@@ -214,6 +218,7 @@ func SerializeRow(row *RowV2) ([]byte, error) {
 		if err := binary.Write(&buf, binary.LittleEndian, uint32(len(key))); err != nil {
 			return nil, err
 		}
+
 		if _, err := buf.WriteString(key); err != nil {
 			return nil, err
 		}

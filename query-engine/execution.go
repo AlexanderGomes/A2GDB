@@ -133,7 +133,7 @@ func Update(p *ParsedQuery, manager *storage.DiskManagerV2, tableObj *storage.Ta
 func getTablePages(tableObj *storage.TableObj, offset storage.Offset) ([]*storage.PageV2, error) {
 	stat, _ := tableObj.DataFile.Stat()
 	size := stat.Size()
-	
+
 	if offset == 0 {
 		if size >= MAX_FILE_SIZE {
 			return storage.FullTableScanBigFiles(tableObj.DataFile)
@@ -370,11 +370,14 @@ func buildTableSchema(parsedQuery *ParsedQuery) (storage.TableInfo, error) {
 }
 
 func GetTable(parsedQuery *ParsedQuery, bpm *storage.BufferPoolManager, step QueryStep) (storage.TableObj, error) {
+	log.Println("GETTING TABLE")
+
 	manager := bpm.DiskScheduler.DiskManager
 	tableNAME := parsedQuery.TableReferences[step.index]
 
 	var tableObj *storage.TableObj
 	var err error
+	
 	tableObj, found := manager.TableObjs[storage.TableName(tableNAME)]
 	if !found {
 		tableObj, err = manager.InMemoryTableSetUp(storage.TableName(tableNAME))
@@ -383,31 +386,26 @@ func GetTable(parsedQuery *ParsedQuery, bpm *storage.BufferPoolManager, step Que
 		}
 	}
 
-	log.Println("GOT TABLE")
 	return *tableObj, err
 }
 
 func InsertRows(parsedQuery *ParsedQuery, query *Query, bpm *storage.BufferPoolManager, tableObj *storage.TableObj) error {
 	log.Println("INSERTING ROWS")
 
-	// Serialize rows and calculate space needed
 	encodedRows, spaceNeeded, err := serializeRows(parsedQuery.Predicates)
 	if err != nil {
 		return fmt.Errorf("InsertRows: %w", err)
 	}
 
-	// Find or create a page with enough space
 	pageFound, err := storage.FindAvailablePage(tableObj.DataFile, spaceNeeded)
 	if err != nil {
 		return fmt.Errorf("InsertRows: %w", err)
 	}
 
-	// Add serialized rows to the found page
 	if err := addRowsToPage(pageFound, encodedRows); err != nil {
 		return fmt.Errorf("InsertRows: %w", err)
 	}
 
-	// Update directory page and write page back
 	pageID := storage.PageID(pageFound.Header.ID)
 	if err := updatePageInfo(pageID, pageFound, tableObj, bpm, parsedQuery); err != nil {
 		return fmt.Errorf("InsertRows: %w", err)
@@ -452,6 +450,7 @@ func updatePageInfo(pageID storage.PageID, pageFound *storage.PageV2, tableObj *
 	manager := bpm.DiskScheduler.DiskManager
 	dirPage := tableObj.DirectoryPage
 	pageInfObj, found := dirPage.Value[pageID]
+
 
 	if !found {
 		offset, err := manager.WritePageEOFV2(pageFound, tableObj.DataFile)

@@ -39,7 +39,7 @@ type TableInfo struct {
 func (dm *DiskManagerV2) InMemoryTableSetUp(name TableName) (*TableObj, error) {
 	dirFilePath := filepath.Join(dm.DBdirectory, "Tables", string(name), "directory_page")
 
-	dirFile, err := os.OpenFile(dirFilePath, os.O_RDWR|os.O_CREATE, 0777)
+	dirFile, err := os.OpenFile(dirFilePath, os.O_RDWR, 0777)
 	if err != nil {
 		return nil, fmt.Errorf("InMemoryTableSetUp (error opening directory_page file): %w", err)
 	}
@@ -55,7 +55,7 @@ func (dm *DiskManagerV2) InMemoryTableSetUp(name TableName) (*TableObj, error) {
 	}
 
 	tableDataPath := filepath.Join(dm.DBdirectory, "Tables", string(name), string(name))
-	dataFile, err := os.OpenFile(tableDataPath, os.O_RDWR|os.O_CREATE, 0777)
+	dataFile, err := os.OpenFile(tableDataPath, os.O_RDWR, 0777)
 	if err != nil {
 		return nil, fmt.Errorf("InMemoryTableSetUp (error opening data file): %w", err)
 	}
@@ -99,26 +99,22 @@ func (dm *DiskManagerV2) InMemoryTableSetUp(name TableName) (*TableObj, error) {
 func (dm *DiskManagerV2) CreateTable(name TableName, info TableInfo) error {
 	tablePath := filepath.Join(dm.DBdirectory, "Tables", string(name))
 
-	// # update catalog
 	dm.PageCatalog.Tables[name] = info
 	err := dm.UpdateCatalog()
 	if err != nil {
 		return fmt.Errorf("CreateTable: %w", err)
 	}
 
-	// # create table directory
 	err = os.Mkdir(tablePath, 0755)
 	if err != nil {
 		return fmt.Errorf("CreateTable (create table dir error): %w", err)
 	}
 
-	// # create the table file
 	_, err = os.Create(filepath.Join(tablePath, string(name)))
 	if err != nil {
 		return fmt.Errorf("CreateTable (create table file error): %w", err)
 	}
 
-	// # create directory page file for table file
 	dirPage := DirectoryPageV2{}
 	bytes, err := EncodeDirectory(&dirPage)
 	if err != nil {

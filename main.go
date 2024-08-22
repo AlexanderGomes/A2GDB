@@ -16,13 +16,8 @@ const (
 func main() {
 	dm, _ := InitDatabase(replacerFrequency, dirName)
 
-	dm.QueryEntryPoint(`CREATE TABLE User (
-			UserID INT PRIMARY KEY,
-			Username VARCHAR,
-			PasswordHash VARCHAR
-		);`)
-
-	for i := 0; i < 10; i++ {
+		
+	for i := 0; i < 100; i++ {
 		_, err := dm.QueryEntryPoint(`INSERT INTO User (UserID, Username, PasswordHash) VALUES
 			(1, 'sander', 'hashed_password_1'),
 			(31, 'john_doe', 'hashed_password_1'),
@@ -35,15 +30,15 @@ func main() {
 		}
 	}
 
-	res, err := dm.QueryEntryPoint(`UPDATE User
-SET UserID = 292992992
-WHERE UserID = 1;`)
+// 	res, err := dm.QueryEntryPoint(`UPDATE User
+// SET UserID = 292992992
+// WHERE UserID = 1;`)
 
-	if err != nil {
-		fmt.Println(err)
-	}
+// 	if err != nil {
+// 		fmt.Println(err)
+// 	}
 
-	fmt.Println(res)
+// 	fmt.Println(res)
 
 }
 
