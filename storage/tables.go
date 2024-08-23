@@ -147,7 +147,7 @@ func FullTableScan(file *os.File) ([]*PageV2, error) {
 		buffer := make([]byte, PageSizeV2)
 		_, err := file.ReadAt(buffer, int64(offset))
 		if err != nil && err == io.EOF {
-			fmt.Println("FullTableScan (end of file, processing pages...)")
+			fmt.Println("FullTableScan (end of file)")
 			break
 		}
 

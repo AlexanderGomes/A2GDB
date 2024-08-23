@@ -173,7 +173,7 @@ func FindAvailablePage(tablePtr *os.File, bytesNeeded int) (*PageV2, error) {
 			return nil, fmt.Errorf("FindAvailablePage: %w", err)
 		}
 
-		canInsert := foundPage.Header.UpperPtr-foundPage.Header.LowerPtr >= uint16(bytesNeeded)
+		canInsert := foundPage.Header.UpperPtr-foundPage.Header.LowerPtr > uint16(bytesNeeded)
 		if canInsert {
 			page = foundPage
 			break

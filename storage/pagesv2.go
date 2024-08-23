@@ -68,7 +68,7 @@ func CreatePageV2() *PageV2 {
 func (p *PageV2) AddTuple(data []byte) error {
 	tupleLen := uint16(len(data))
 	offset := p.Header.UpperPtr - tupleLen
-	canInsert := p.Header.UpperPtr-p.Header.LowerPtr > tupleLen || offset < uint16(len(p.Data))
+	canInsert := p.Header.UpperPtr-p.Header.LowerPtr > tupleLen && offset < uint16(len(p.Data))
 
 	if !canInsert {
 		return fmt.Errorf("AddTuple (can't insert)")

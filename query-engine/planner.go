@@ -67,10 +67,6 @@ func SelectTablePlan(executionPlan *ExecutionPlan, P *ParsedQuery) {
 		}
 	}
 
-	if len(P.Where) > 0 {
-		querySteps = append(querySteps, QueryStep{Operation: "WhereClause"})
-	}
-
 	executionPlan.Steps = append(executionPlan.Steps, querySteps...)
 }
 

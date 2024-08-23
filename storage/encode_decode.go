@@ -130,7 +130,6 @@ func EncodePageInfo(pageInfo *PageInfo) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// CHECKED
 func EncodePageHeader(header PageHeader, buf *bytes.Buffer) error {
 	if err := binary.Write(buf, binary.LittleEndian, header.ID); err != nil {
 		return err
@@ -147,7 +146,6 @@ func EncodePageHeader(header PageHeader, buf *bytes.Buffer) error {
 	return nil
 }
 
-// CHECKED
 func DecodePageHeader(header *PageHeader, buf *bytes.Buffer) error {
 	if err := binary.Read(buf, binary.LittleEndian, &header.ID); err != nil {
 		return err
@@ -164,7 +162,6 @@ func DecodePageHeader(header *PageHeader, buf *bytes.Buffer) error {
 	return nil
 }
 
-// CHECKED
 func EncodePageV2(page *PageV2) ([]byte, error) {
 	var buf bytes.Buffer
 
@@ -179,7 +176,6 @@ func EncodePageV2(page *PageV2) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// CHECKED
 func DecodePageV2(data []byte) (*PageV2, error) {
 	buf := bytes.NewBuffer(data)
 

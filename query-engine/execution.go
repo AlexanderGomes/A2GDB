@@ -2,7 +2,6 @@ package queryengine
 
 import (
 	"disk-db/storage"
-	"errors"
 	"fmt"
 	"log"
 	"strconv"
@@ -53,7 +52,7 @@ func (qe *QueryEngine) ExecuteQueryPlan(qp ExecutionPlan, P *ParsedQuery) (Query
 		case "GetTable":
 			tableObj, err = GetTable(P, qe.DB, steps)
 		case "GetAllColumns":
-			err = GetAllColumns(&tableObj, &query, offset)
+			err = GetAllColumns(P, &tableObj, &query, offset)
 		case "CollectPointer":
 			tablesPtr = append(tablesPtr, &tableObj)
 		case "FilterByColumns":
@@ -66,8 +65,6 @@ func (qe *QueryEngine) ExecuteQueryPlan(qp ExecutionPlan, P *ParsedQuery) (Query
 			err = JoinTables(&query, P.Joins[0].Condition, tablesPtr)
 		case "DeleteFromTable":
 			err = DeleteFromTable(P, qe.DB.DiskScheduler.DiskManager, &tableObj, offset)
-		case "WhereClause":
-			err = WhereClause(P, &query)
 		case "Update":
 			err = Update(P, qe.DB.DiskScheduler.DiskManager, &tableObj, offset)
 		case "DetermineScan":
@@ -82,10 +79,6 @@ func DetermineScan(p *ParsedQuery, dm *storage.DiskManagerV2) (storage.Offset, e
 	var offset storage.Offset
 	whereField := p.Where[0]
 	whereValue := p.Where[1]
-	uintValue, err := strconv.ParseUint(whereValue, 10, 64)
-	if err != nil {
-		return 0, fmt.Errorf("failed to convert string to uint64: %w", err)
-	}
 
 	tableName := storage.TableName(p.TableReferences[0])
 	tableInfo := dm.PageCatalog.Tables[tableName]
@@ -93,9 +86,17 @@ func DetermineScan(p *ParsedQuery, dm *storage.DiskManagerV2) (storage.Offset, e
 
 	if columnType.IsIndex {
 		tableObj := dm.TableObjs[tableName]
+
+		uintValue, err := strconv.ParseUint(whereValue, 10, 64)
+		if err != nil {
+			log.Println("DetermineScan (The value isn't a primary key)")
+			return 0, nil
+		}
+
 		item, err := storage.GetItemByKey(tableObj.BpTree, uintValue)
 		if err != nil {
-			return 0, fmt.Errorf("DetermineScan (wrong primary key): %w", err)
+			log.Println("DetermineScan (wrong primary key)")
+			return 0, nil
 		}
 
 		offset = item.Value
@@ -145,6 +146,7 @@ func getTablePages(tableObj *storage.TableObj, offset storage.Offset) ([]*storag
 	if err != nil {
 		return nil, fmt.Errorf("getTablePages: %w", err)
 	}
+
 	page, err := storage.DecodePageV2(bytes)
 	if err != nil {
 		return nil, fmt.Errorf("getTablePages: %w", err)
@@ -184,43 +186,6 @@ func writeUpdatedPages(pages []*storage.PageV2, manager *storage.DiskManagerV2, 
 	return nil
 }
 
-func WhereClause(p *ParsedQuery, q *Query) error {
-	if len(p.Predicates) < 3 {
-		return errors.New("WhereClause (insufficient predicates)")
-	}
-
-	field, ok := p.Predicates[0].(string)
-	if !ok {
-		return errors.New("WhereClause (first predicate is not a string)")
-	}
-	condition, ok := p.Predicates[1].(string)
-	if !ok {
-		return errors.New("WhereClause (second predicate is not a string)")
-	}
-	value, ok := p.Predicates[2].(string)
-	if !ok {
-		return errors.New("WhereClause (third predicate is not a string)")
-	}
-
-	if condition != "=" {
-		return errors.New("WhereClause (unsupported condition)")
-	}
-
-	res := []*storage.RowV2{}
-	for _, row := range q.Result {
-		rowVal, ok := row.Values[field]
-		if !ok {
-			return fmt.Errorf("field %s not found in row", field)
-		}
-		if rowVal == value {
-			res = append(res, row)
-		}
-	}
-
-	q.Result = res
-	return nil
-}
-
 func DeleteFromTable(p *ParsedQuery, manager *storage.DiskManagerV2, tableObj *storage.TableObj, offset storage.Offset) error {
 	var tablePages []*storage.PageV2
 	var err error
@@ -233,7 +198,7 @@ func DeleteFromTable(p *ParsedQuery, manager *storage.DiskManagerV2, tableObj *s
 	field := p.Where[0]
 	value := p.Where[1]
 
-	if err := processPagesForDeletion(tablePages, field, value); err != nil {
+	if err := processPagesForDeletion(tablePages, field, value, tableObj); err != nil {
 		return fmt.Errorf("DELETE: %w", err)
 	}
 
@@ -244,9 +209,10 @@ func DeleteFromTable(p *ParsedQuery, manager *storage.DiskManagerV2, tableObj *s
 	return nil
 }
 
-func processPagesForDeletion(pages []*storage.PageV2, field, value string) error {
+func processPagesForDeletion(pages []*storage.PageV2, field, value string, tableObj *storage.TableObj) error {
 	for _, page := range pages {
-		for _, location := range page.PointerArray {
+		pageObj := tableObj.DirectoryPage.Value[storage.PageID(page.Header.ID)]
+		for _, location := range pageObj.PointerArray {
 			rowBytes := page.Data[location.Offset : location.Offset+location.Length]
 			row, err := storage.DecodeRow(rowBytes)
 			if err != nil {
@@ -377,7 +343,7 @@ func GetTable(parsedQuery *ParsedQuery, bpm *storage.BufferPoolManager, step Que
 
 	var tableObj *storage.TableObj
 	var err error
-	
+
 	tableObj, found := manager.TableObjs[storage.TableName(tableNAME)]
 	if !found {
 		tableObj, err = manager.InMemoryTableSetUp(storage.TableName(tableNAME))
@@ -392,7 +358,8 @@ func GetTable(parsedQuery *ParsedQuery, bpm *storage.BufferPoolManager, step Que
 func InsertRows(parsedQuery *ParsedQuery, query *Query, bpm *storage.BufferPoolManager, tableObj *storage.TableObj) error {
 	log.Println("INSERTING ROWS")
 
-	encodedRows, spaceNeeded, err := serializeRows(parsedQuery.Predicates)
+	catalog := bpm.DiskScheduler.DiskManager.PageCatalog
+	encodedRows, spaceNeeded, err := serializeRows(parsedQuery.Predicates, catalog, parsedQuery.TableReferences[0])
 	if err != nil {
 		return fmt.Errorf("InsertRows: %w", err)
 	}
@@ -414,9 +381,19 @@ func InsertRows(parsedQuery *ParsedQuery, query *Query, bpm *storage.BufferPoolM
 	return nil
 }
 
-func serializeRows(rows []interface{}) ([][]byte, int, error) {
+func serializeRows(rows []interface{}, catalog *storage.Catalog, tableName interface{}) ([][]byte, int, error) {
 	var encodedRows [][]byte
 	var spaceNeeded int
+
+	tableNameStr := tableName.(string)
+	tableInfo := catalog.Tables[storage.TableName(tableNameStr)]
+	var primaryIdField string
+
+	for key, val := range tableInfo.Schema {
+		if val.IsIndex {
+			primaryIdField = key
+		}
+	}
 
 	for _, row := range rows {
 		rowV2, ok := row.(*storage.RowV2)
@@ -425,6 +402,9 @@ func serializeRows(rows []interface{}) ([][]byte, int, error) {
 		}
 
 		rowV2.ID = storage.GenerateRandomID()
+
+		rowV2.Values[primaryIdField] = strconv.FormatUint(rowV2.ID, 10)
+
 		rowBytes, err := storage.SerializeRow(rowV2)
 		if err != nil {
 			return nil, 0, fmt.Errorf("serialization error: %w", err)
@@ -450,7 +430,6 @@ func updatePageInfo(pageID storage.PageID, pageFound *storage.PageV2, tableObj *
 	manager := bpm.DiskScheduler.DiskManager
 	dirPage := tableObj.DirectoryPage
 	pageInfObj, found := dirPage.Value[pageID]
-
 
 	if !found {
 		offset, err := manager.WritePageEOFV2(pageFound, tableObj.DataFile)
@@ -504,6 +483,11 @@ func FilterByColumns(tableObj *storage.TableObj, query *Query, P *ParsedQuery, o
 	columnMap := createColumnMap(P.ColumnsSelected)
 	dirPage := tableObj.DirectoryPage
 	dirPageValues := dirPage.Value
+	hasWhereClause := len(P.Where) > 0
+	var field, value string
+	if hasWhereClause {
+		field, value = P.Where[0], P.Where[1]
+	}
 
 	for _, page := range pageSlice {
 		pageID := storage.PageID(page.Header.ID)
@@ -519,28 +503,34 @@ func FilterByColumns(tableObj *storage.TableObj, query *Query, P *ParsedQuery, o
 				return fmt.Errorf("FilterByColumns: failed to decode row: %w", err)
 			}
 
-			tempTuple := storage.RowV2{Values: make(map[string]string)}
-			for col := range columnMap {
-				if value, found := row.Values[col]; found {
-					tempTuple.Values[col] = value
+			if !hasWhereClause || row.Values[field] == value {
+				tempTuple := storage.RowV2{Values: make(map[string]string)}
+				for col := range columnMap {
+					if value, found := row.Values[col]; found {
+						tempTuple.Values[col] = value
+					}
 				}
+				query.Result = append(query.Result, &tempTuple)
 			}
 
-			query.Result = append(query.Result, &tempTuple)
 		}
 	}
 
 	return nil
 }
 
-func GetAllColumns(tableObj *storage.TableObj, query *Query, offset storage.Offset) error {
+func GetAllColumns(p *ParsedQuery, tableObj *storage.TableObj, query *Query, offset storage.Offset) error {
 	pageSlice, err := getTablePages(tableObj, offset)
 	if err != nil {
 		return fmt.Errorf("GetAllColumns: %w", err)
 	}
 
-	dirPage := tableObj.DirectoryPage
-	dirPageValues := dirPage.Value
+	dirPageValues := tableObj.DirectoryPage.Value
+	hasWhereClause := len(p.Where) > 0
+	var field, value string
+	if hasWhereClause {
+		field, value = p.Where[0], p.Where[1]
+	}
 
 	for _, page := range pageSlice {
 		pageID := storage.PageID(page.Header.ID)
@@ -556,7 +546,9 @@ func GetAllColumns(tableObj *storage.TableObj, query *Query, offset storage.Offs
 				return fmt.Errorf("GetAllColumns: failed to decode row: %w", err)
 			}
 
-			query.Result = append(query.Result, row)
+			if !hasWhereClause || row.Values[field] == value {
+				query.Result = append(query.Result, row)
+			}
 		}
 	}
 
