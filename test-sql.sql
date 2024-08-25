@@ -6,9 +6,7 @@ INSERT INTO User (UserID, Username, PasswordHash) VALUES
 			(5, 'john_doe', 'hashed_password_1');
 
 
-UPDATE User
-SET UserID = 292992992
-WHERE UserID = 1;
+UPDATE User SET UserID = 292992992 WHERE UserID = 1;
 
 
 CREATE TABLE User (
@@ -17,4 +15,15 @@ CREATE TABLE User (
 			PasswordHash VARCHAR
 );
 
+CREATE TABLE Student (
+			UserID INT PRIMARY KEY,
+			Username VARCHAR,
+			PasswordHash VARCHAR
+);
+
 DELETE FROM User WHERE Username = 'john_doe';
+
+SELECT * 
+FROM User 
+JOIN Student ON Username = Username;
+

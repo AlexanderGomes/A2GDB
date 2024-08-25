@@ -109,7 +109,6 @@ func (dm *DiskManagerV2) WriteToDisk(page *PageV2) error {
 	pageObj, found := tableInfo.DirectoryPage.Value[PageID(page.Header.ID)]
 
 	if !found {
-		//CHECKED
 		pageOffset, err := dm.WritePageEOFV2(page, tableInfo.DataFile)
 		if err != nil {
 			return fmt.Errorf("WriteToDisk: %w", err)
@@ -122,7 +121,6 @@ func (dm *DiskManagerV2) WriteToDisk(page *PageV2) error {
 
 		tableInfo.DirectoryPage.Value[PageID(page.Header.ID)] = &pageInfo
 
-		//
 		err = dm.UpdateDirectoryPageDisk(tableInfo.DirectoryPage, tableInfo.DirFile)
 		if err != nil {
 			return fmt.Errorf("WriteToDisk: %w", err)

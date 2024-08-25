@@ -2,6 +2,7 @@ package storage
 
 import (
 	"fmt"
+	"log"
 
 	"io"
 	"math"
@@ -171,6 +172,8 @@ type Chunk struct {
 }
 
 func FullTableScanBigFiles(file *os.File) ([]*PageV2, error) {
+	log.Println("FullTableScanBigFiles")
+
 	chunks := FileCreateChunks(file, PERCENTAGE)
 	byteChan := make(chan []byte, BUFFER_SIZE)
 	pageChan := make(chan *PageV2, BUFFER_SIZE)

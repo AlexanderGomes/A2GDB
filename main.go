@@ -16,12 +16,37 @@ const (
 func main() {
 	dm, _ := InitDatabase(replacerFrequency, dirName)
 
-	res, err := dm.QueryEntryPoint(`SELECT * FROM User WHERE Username = 'sander';`)
+	res, err := dm.QueryEntryPoint(`UPDATE User SET Username = '1912992992929292991929192919291929192' WHERE UserID = 15476753473141262555;`)
+
 	if err != nil {
 		fmt.Println(err)
 	}
 
-	fmt.Println(res.Result[0])
+	fmt.Println(res)
+}
+
+func Testing(dm *queryengine.QueryEngine) (queryengine.Query, error) {
+	dm.QueryEntryPoint(`CREATE TABLE User (
+		UserID INT PRIMARY KEY,
+		Username VARCHAR,
+		PasswordHash VARCHAR
+);`)
+
+	for i := 0; i < 2000; i++ {
+		dm.QueryEntryPoint(`INSERT INTO User (Username, PasswordHash) VALUES
+		('sander', 'hashed_password_1'),
+		('john_doe', 'hashed_password_1'),
+		('john_doe', 'hashed_password_1'),
+		('john_doe', 'hashed_password_1'),
+		('john_doe', 'hashed_password_1');`)
+	}
+
+	res, err := dm.QueryEntryPoint(`SELECT * FROM User WHERE Username = 'sander';`)
+	if err != nil {
+		return queryengine.Query{}, err
+	}
+
+	return res, nil
 }
 
 func InitDatabase(k int, dirName string) (*queryengine.QueryEngine, error) {

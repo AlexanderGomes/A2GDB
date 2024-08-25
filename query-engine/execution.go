@@ -4,6 +4,7 @@ import (
 	"disk-db/storage"
 	"fmt"
 	"log"
+	"os"
 	"strconv"
 	"strings"
 )
@@ -37,11 +38,11 @@ func (qe *QueryEngine) QueryEntryPoint(sql string) (Query, error) {
 
 func (qe *QueryEngine) ExecuteQueryPlan(qp ExecutionPlan, P *ParsedQuery) (Query, error) {
 	var err error
-	var offset storage.Offset
+	var offset *storage.Offset
 
 	query := Query{}
 	tablesPtr := []*storage.TableObj{}
-	tableObj := storage.TableObj{}
+	var tableObj *storage.TableObj
 
 	for _, steps := range qp.Steps {
 		if err != nil {
@@ -52,21 +53,21 @@ func (qe *QueryEngine) ExecuteQueryPlan(qp ExecutionPlan, P *ParsedQuery) (Query
 		case "GetTable":
 			tableObj, err = GetTable(P, qe.DB, steps)
 		case "GetAllColumns":
-			err = GetAllColumns(P, &tableObj, &query, offset)
+			err = GetAllColumns(P, tableObj, &query, offset)
 		case "CollectPointer":
-			tablesPtr = append(tablesPtr, &tableObj)
+			tablesPtr = append(tablesPtr, tableObj)
 		case "FilterByColumns":
-			err = FilterByColumns(&tableObj, &query, P, offset)
+			err = FilterByColumns(tableObj, &query, P, offset)
 		case "InsertRows":
-			err = InsertRows(P, &query, qe.DB, &tableObj)
+			err = InsertRows(P, &query, qe.DB, tableObj)
 		case "CreateTable":
 			err = CreateTable(P, &query, qe.DB)
 		case "JoinQueryTable":
 			err = JoinTables(&query, P.Joins[0].Condition, tablesPtr)
 		case "DeleteFromTable":
-			err = DeleteFromTable(P, qe.DB.DiskScheduler.DiskManager, &tableObj, offset)
+			err = DeleteFromTable(P, qe.DB.DiskScheduler.DiskManager, tableObj, offset)
 		case "Update":
-			err = Update(P, qe.DB.DiskScheduler.DiskManager, &tableObj, offset)
+			err = Update(P, qe.DB.DiskScheduler.DiskManager, tableObj, offset)
 		case "DetermineScan":
 			offset, err = DetermineScan(P, qe.DB.DiskScheduler.DiskManager)
 		}
@@ -75,8 +76,7 @@ func (qe *QueryEngine) ExecuteQueryPlan(qp ExecutionPlan, P *ParsedQuery) (Query
 	return query, nil
 }
 
-func DetermineScan(p *ParsedQuery, dm *storage.DiskManagerV2) (storage.Offset, error) {
-	var offset storage.Offset
+func DetermineScan(p *ParsedQuery, dm *storage.DiskManagerV2) (*storage.Offset, error) {
 	whereField := p.Where[0]
 	whereValue := p.Where[1]
 
@@ -90,26 +90,26 @@ func DetermineScan(p *ParsedQuery, dm *storage.DiskManagerV2) (storage.Offset, e
 		uintValue, err := strconv.ParseUint(whereValue, 10, 64)
 		if err != nil {
 			log.Println("DetermineScan (The value isn't a primary key)")
-			return 0, nil
+			return nil, nil
 		}
 
 		item, err := storage.GetItemByKey(tableObj.BpTree, uintValue)
 		if err != nil {
 			log.Println("DetermineScan (wrong primary key)")
-			return 0, nil
+			return nil, nil
 		}
 
-		offset = item.Value
+		return &item.Value, nil
 	}
 
-	return offset, nil
+	return nil, nil
 }
 
-func Update(p *ParsedQuery, manager *storage.DiskManagerV2, tableObj *storage.TableObj, offset storage.Offset) error {
+func Update(p *ParsedQuery, manager *storage.DiskManagerV2, tableObj *storage.TableObj, offset *storage.Offset) error {
 	var tablePages []*storage.PageV2
 	var err error
 
-	tablePages, err = getTablePages(tableObj, offset)
+	tablePages, err = getTablePages(tableObj.DataFile, offset)
 	if err != nil {
 		return fmt.Errorf("UPDATE: %w", err)
 	}
@@ -120,7 +120,7 @@ func Update(p *ParsedQuery, manager *storage.DiskManagerV2, tableObj *storage.Ta
 	changingField := p.Predicates[0].(string)
 	newValue := p.Predicates[1].(string)
 
-	if err := processPages(tablePages, findField, findValue, changingField, newValue); err != nil {
+	if err := processPagesUpdate(tablePages, findField, findValue, changingField, newValue, tableObj); err != nil {
 		return fmt.Errorf("UPDATE: %w", err)
 	}
 
@@ -128,21 +128,26 @@ func Update(p *ParsedQuery, manager *storage.DiskManagerV2, tableObj *storage.Ta
 		return fmt.Errorf("UPDATE: %w", err)
 	}
 
+	err = manager.UpdateDirectoryPageDisk(tableObj.DirectoryPage, tableObj.DirFile)
+	if err != nil {
+		return fmt.Errorf("UPDATE: %w", err)
+	}
+
 	return nil
 }
 
-func getTablePages(tableObj *storage.TableObj, offset storage.Offset) ([]*storage.PageV2, error) {
-	stat, _ := tableObj.DataFile.Stat()
+func getTablePages(dataFile *os.File, offset *storage.Offset) ([]*storage.PageV2, error) {
+	stat, _ := dataFile.Stat()
 	size := stat.Size()
 
-	if offset == 0 {
+	if offset == nil {
 		if size >= MAX_FILE_SIZE {
-			return storage.FullTableScanBigFiles(tableObj.DataFile)
+			return storage.FullTableScanBigFiles(dataFile)
 		}
-		return storage.FullTableScan(tableObj.DataFile)
+		return storage.FullTableScan(dataFile)
 	}
 
-	bytes, err := storage.ReadPageAtOffset(tableObj.DataFile, offset)
+	bytes, err := storage.ReadPageAtOffset(dataFile, *offset)
 	if err != nil {
 		return nil, fmt.Errorf("getTablePages: %w", err)
 	}
@@ -151,28 +156,60 @@ func getTablePages(tableObj *storage.TableObj, offset storage.Offset) ([]*storag
 	if err != nil {
 		return nil, fmt.Errorf("getTablePages: %w", err)
 	}
+
+	log.Println("Index Scan")
 	return []*storage.PageV2{page}, nil
 }
 
-func processPages(pages []*storage.PageV2, findField, findValue, changingField, newValue string) error {
+func processPagesUpdate(pages []*storage.PageV2, findField, findValue, changingField, newValue string, tableObj *storage.TableObj) error {
 	for _, page := range pages {
-		for _, location := range page.PointerArray {
+		var newPtrArray []storage.TupleLocation
+		pageObj := tableObj.DirectoryPage.Value[storage.PageID(page.Header.ID)]
+
+		for _, location := range pageObj.PointerArray {
 			rowBytes := page.Data[location.Offset : location.Offset+location.Length]
 			row, err := storage.DecodeRow(rowBytes)
 			if err != nil {
-				return fmt.Errorf("processPages: %w", err)
+				return fmt.Errorf("processPagesUpdate: failed to decode row: %w", err)
 			}
 
 			if row.Values[findField] == findValue {
 				row.Values[changingField] = newValue
 				updatedBytes, err := storage.SerializeRow(row)
 				if err != nil {
-					return fmt.Errorf("processPages: %w", err)
+					return fmt.Errorf("processPagesUpdate: failed to serialize row: %w", err)
 				}
-				page.AddTuple(updatedBytes)
+
+				updatedTupleLength := len(updatedBytes)
+
+				if updatedTupleLength <= int(location.Length) {
+					err := storage.ResetBytesToEmpty(page, location.Offset, location.Length)
+					if err != nil {
+						return fmt.Errorf("processPagesUpdate: failed to reset bytes: %w", err)
+					}
+
+					copy(page.Data[location.Offset:], updatedBytes)
+					location.Length = uint16(updatedTupleLength)
+					newPtrArray = append(newPtrArray, location)
+				} else {
+					err := storage.ResetBytesToEmpty(page, location.Offset, location.Length)
+					if err != nil {
+						return fmt.Errorf("processPagesUpdate: failed to reset bytes: %w", err)
+					}
+
+					err = page.AddTuple(updatedBytes)
+					if err != nil {
+						return fmt.Errorf("processPagesUpdate: failed to add updated tuple: %w", err)
+					}
+
+					newPtrArray = append(newPtrArray, page.PointerArray...)
+				}
 			}
 		}
+
+		pageObj.PointerArray = append(pageObj.PointerArray, newPtrArray...)
 	}
+
 	return nil
 }
 
@@ -186,11 +223,11 @@ func writeUpdatedPages(pages []*storage.PageV2, manager *storage.DiskManagerV2, 
 	return nil
 }
 
-func DeleteFromTable(p *ParsedQuery, manager *storage.DiskManagerV2, tableObj *storage.TableObj, offset storage.Offset) error {
+func DeleteFromTable(p *ParsedQuery, manager *storage.DiskManagerV2, tableObj *storage.TableObj, offset *storage.Offset) error {
 	var tablePages []*storage.PageV2
 	var err error
 
-	tablePages, err = getTablePages(tableObj, offset)
+	tablePages, err = getTablePages(tableObj.DataFile, offset)
 	if err != nil {
 		return fmt.Errorf("DELETE: %w", err)
 	}
@@ -232,12 +269,12 @@ func JoinTables(query *Query, condition string, tablePtrs []*storage.TableObj) e
 		return fmt.Errorf("JoinTables: expected exactly two tables")
 	}
 
-	slicePage1, err := storage.FullTableScan(tablePtrs[0].DataFile)
+	slicePage1, err := getTablePages(tablePtrs[0].DataFile, nil)
 	if err != nil {
 		return fmt.Errorf("JoinTables (error reading table one): %w", err)
 	}
 
-	slicePage2, err := storage.FullTableScan(tablePtrs[1].DataFile)
+	slicePage2, err := getTablePages(tablePtrs[0].DataFile, nil)
 	if err != nil {
 		return fmt.Errorf("JoinTables (error reading table two): %w", err)
 	}
@@ -335,7 +372,7 @@ func buildTableSchema(parsedQuery *ParsedQuery) (storage.TableInfo, error) {
 	return tableInfo, nil
 }
 
-func GetTable(parsedQuery *ParsedQuery, bpm *storage.BufferPoolManager, step QueryStep) (storage.TableObj, error) {
+func GetTable(parsedQuery *ParsedQuery, bpm *storage.BufferPoolManager, step QueryStep) (*storage.TableObj, error) {
 	log.Println("GETTING TABLE")
 
 	manager := bpm.DiskScheduler.DiskManager
@@ -348,11 +385,11 @@ func GetTable(parsedQuery *ParsedQuery, bpm *storage.BufferPoolManager, step Que
 	if !found {
 		tableObj, err = manager.InMemoryTableSetUp(storage.TableName(tableNAME))
 		if err != nil {
-			return storage.TableObj{}, fmt.Errorf("GetTable: %w", err)
+			return nil, fmt.Errorf("GetTable: %w", err)
 		}
 	}
 
-	return *tableObj, err
+	return tableObj, err
 }
 
 func InsertRows(parsedQuery *ParsedQuery, query *Query, bpm *storage.BufferPoolManager, tableObj *storage.TableObj) error {
@@ -402,7 +439,6 @@ func serializeRows(rows []interface{}, catalog *storage.Catalog, tableName inter
 		}
 
 		rowV2.ID = storage.GenerateRandomID()
-
 		rowV2.Values[primaryIdField] = strconv.FormatUint(rowV2.ID, 10)
 
 		rowBytes, err := storage.SerializeRow(rowV2)
@@ -474,8 +510,8 @@ func createColumnMap(columns []string) map[string]string {
 	return columnMap
 }
 
-func FilterByColumns(tableObj *storage.TableObj, query *Query, P *ParsedQuery, offset storage.Offset) error {
-	pageSlice, err := getTablePages(tableObj, offset)
+func FilterByColumns(tableObj *storage.TableObj, query *Query, P *ParsedQuery, offset *storage.Offset) error {
+	pageSlice, err := getTablePages(tableObj.DataFile, offset)
 	if err != nil {
 		return fmt.Errorf("GetAllColumns: %w", err)
 	}
@@ -519,14 +555,15 @@ func FilterByColumns(tableObj *storage.TableObj, query *Query, P *ParsedQuery, o
 	return nil
 }
 
-func GetAllColumns(p *ParsedQuery, tableObj *storage.TableObj, query *Query, offset storage.Offset) error {
-	pageSlice, err := getTablePages(tableObj, offset)
+func GetAllColumns(p *ParsedQuery, tableObj *storage.TableObj, query *Query, offset *storage.Offset) error {
+	pageSlice, err := getTablePages(tableObj.DataFile, offset)
 	if err != nil {
 		return fmt.Errorf("GetAllColumns: %w", err)
 	}
 
 	dirPageValues := tableObj.DirectoryPage.Value
 	hasWhereClause := len(p.Where) > 0
+
 	var field, value string
 	if hasWhereClause {
 		field, value = p.Where[0], p.Where[1]
