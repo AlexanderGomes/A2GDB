@@ -149,13 +149,13 @@ func (dm *DiskManagerV2) UpdateDirectoryPageDisk(page *DirectoryPageV2, dirFile 
 	return nil
 }
 
-func FindAvailablePage(tablePtr *os.File, bytesNeeded int) (*PageV2, error) {
+func FindAvailablePage(tableObj *TableObj, bytesNeeded int, manager *DiskManagerV2) (*PageV2, error) {
 	var offset int64
 	var page *PageV2
 
 	for {
 		pageBytes := make([]byte, PageSizeV2)
-		_, err := tablePtr.ReadAt(pageBytes, int64(offset))
+		_, err := tableObj.DataFile.ReadAt(pageBytes, int64(offset))
 		if err != nil {
 			if err == io.EOF {
 				fmt.Println("FindAvailablePage (End of file reached, creating new page)")
@@ -171,7 +171,9 @@ func FindAvailablePage(tablePtr *os.File, bytesNeeded int) (*PageV2, error) {
 			return nil, fmt.Errorf("FindAvailablePage: %w", err)
 		}
 
-		canInsert := foundPage.Header.UpperPtr-foundPage.Header.LowerPtr > uint16(bytesNeeded)
+		pageInfo := tableObj.DirectoryPage.Value[PageID(foundPage.Header.ID)]
+		canInsert := foundPage.Header.UpperPtr-foundPage.Header.LowerPtr > uint16(bytesNeeded) || len(pageInfo.FSM) > 0
+
 		if canInsert {
 			page = foundPage
 			break

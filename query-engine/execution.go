@@ -417,7 +417,8 @@ func processPagesUpdate(pages []*storage.PageV2, findField, findValue, changingF
 		var newPtrArray []storage.TupleLocation
 		pageObj := tableObj.DirectoryPage.Value[storage.PageID(page.Header.ID)]
 
-		for _, location := range pageObj.PointerArray {
+		for i := range pageObj.PointerArray {
+			location := &pageObj.PointerArray[i]
 			rowBytes := page.Data[location.Offset : location.Offset+location.Length]
 			row, err := storage.DecodeRow(rowBytes)
 			if err != nil {
@@ -433,16 +434,34 @@ func processPagesUpdate(pages []*storage.PageV2, findField, findValue, changingF
 
 				updatedTupleLength := len(updatedBytes)
 
+				pageObj.FSM = append(pageObj.FSM, i)
+				location.Free = false
+
 				err = storage.ResetBytesToEmpty(page, location.Offset, location.Length)
 				if err != nil {
 					return fmt.Errorf("processPagesUpdate: failed to reset bytes: %w", err)
 				}
 
+				// may make FSM harder putting into the same location again
 				if updatedTupleLength <= int(location.Length) {
 					copy(page.Data[location.Offset:], updatedBytes)
 					location.Length = uint16(updatedTupleLength)
-					newPtrArray = append(newPtrArray, location)
+					newPtrArray = append(newPtrArray, *location)
 				} else {
+					var newFSM []int
+					for _, index := range pageObj.FSM {
+						freeSpace := &pageObj.PointerArray[index]
+
+						if freeSpace.Length >= uint16(updatedTupleLength) {
+							copy(page.Data[freeSpace.Offset:], updatedBytes)
+							freeSpace.Length = uint16(updatedTupleLength)
+							freeSpace.Free = false
+							newFSM = append(pageObj.FSM[:i], pageObj.FSM[i+1:]...)
+							pageObj.FSM = newFSM
+							return nil
+						}
+					}
+
 					err = page.AddTuple(updatedBytes)
 					if err != nil {
 						return fmt.Errorf("processPagesUpdate: failed to add updated tuple: %w", err)
@@ -495,7 +514,8 @@ func DeleteFromTable(p *ParsedQuery, manager *storage.DiskManagerV2, tableObj *s
 func processPagesForDeletion(pages []*storage.PageV2, field, value string, tableObj *storage.TableObj) error {
 	for _, page := range pages {
 		pageObj := tableObj.DirectoryPage.Value[storage.PageID(page.Header.ID)]
-		for _, location := range pageObj.PointerArray {
+		for i := range pageObj.PointerArray {
+			location := &pageObj.PointerArray[i]
 			rowBytes := page.Data[location.Offset : location.Offset+location.Length]
 			row, err := storage.DecodeRow(rowBytes)
 			if err != nil {
@@ -503,6 +523,8 @@ func processPagesForDeletion(pages []*storage.PageV2, field, value string, table
 			}
 
 			if row.Values[field] == value {
+				location.Free = true
+				pageObj.FSM = append(pageObj.FSM, i)
 				storage.ResetBytesToEmpty(page, location.Offset, location.Length)
 			}
 		}
@@ -647,12 +669,14 @@ func InsertRows(parsedQuery *ParsedQuery, query *Query, bpm *storage.BufferPoolM
 		return fmt.Errorf("InsertRows: %w", err)
 	}
 
-	pageFound, err := storage.FindAvailablePage(tableObj.DataFile, spaceNeeded)
+	manager := bpm.DiskScheduler.DiskManager
+
+	pageFound, err := storage.FindAvailablePage(tableObj, spaceNeeded, manager)
 	if err != nil {
 		return fmt.Errorf("InsertRows: %w", err)
 	}
 
-	if err := addRowsToPage(pageFound, encodedRows); err != nil {
+	if err := addRowsToPage(pageFound, encodedRows, tableObj); err != nil {
 		return fmt.Errorf("InsertRows: %w", err)
 	}
 
@@ -699,8 +723,27 @@ func serializeRows(rows []interface{}, catalog *storage.Catalog, tableName inter
 	return encodedRows, spaceNeeded, nil
 }
 
-func addRowsToPage(page *storage.PageV2, rows [][]byte) error {
+func addRowsToPage(page *storage.PageV2, rows [][]byte, tableObj *storage.TableObj) error {
+	pageObj := tableObj.DirectoryPage.Value[storage.PageID(page.Header.ID)]
+
+	var newFSM []int
+
 	for _, rowBytes := range rows {
+		if len(pageObj.FSM) > 0 {
+			for i, index := range pageObj.FSM {
+				location := &pageObj.PointerArray[index]
+
+				if location.Length >= uint16(len(rowBytes)) {
+					copy(page.Data[location.Offset:], rowBytes)
+					location.Free = false
+					location.Length = uint16(len(rowBytes))
+					newFSM = append(pageObj.FSM[:i], pageObj.FSM[i+1:]...)
+					pageObj.FSM = newFSM
+					return nil
+				}
+			}
+		}
+
 		if err := page.AddTuple(rowBytes); err != nil {
 			return fmt.Errorf("add tuple error: %w", err)
 		}

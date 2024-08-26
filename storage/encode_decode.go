@@ -76,6 +76,40 @@ func DecodeDirectory(data []byte) (*DirectoryPageV2, error) {
 	return &dir, nil
 }
 
+func EncodePageInfo(pageInfo *PageInfo) ([]byte, error) {
+	var buf bytes.Buffer
+
+	if err := binary.Write(&buf, binary.LittleEndian, pageInfo.Offset); err != nil {
+		return nil, err
+	}
+
+	numTuples := uint32(len(pageInfo.PointerArray))
+	if err := binary.Write(&buf, binary.LittleEndian, numTuples); err != nil {
+		return nil, err
+	}
+
+	for _, tuple := range pageInfo.PointerArray {
+		if err := binary.Write(&buf, binary.LittleEndian, tuple.Offset); err != nil {
+			return nil, err
+		}
+		if err := binary.Write(&buf, binary.LittleEndian, tuple.Length); err != nil {
+			return nil, err
+		}
+	}
+
+	numFSM := uint32(len(pageInfo.FSM))
+	if err := binary.Write(&buf, binary.LittleEndian, numFSM); err != nil {
+		return nil, err
+	}
+	for _, fsmValue := range pageInfo.FSM {
+		if err := binary.Write(&buf, binary.LittleEndian, int32(fsmValue)); err != nil {
+			return nil, err
+		}
+	}
+
+	return buf.Bytes(), nil
+}
+
 func DecodePageInfo(data []byte) (*PageInfo, error) {
 	buf := bytes.NewReader(data)
 
@@ -102,32 +136,21 @@ func DecodePageInfo(data []byte) (*PageInfo, error) {
 		pageInfo.PointerArray[i] = tuple
 	}
 
+	var numFSM uint32
+	if err := binary.Read(buf, binary.LittleEndian, &numFSM); err != nil {
+		return nil, fmt.Errorf("error reading number of FSM elements: %w", err)
+	}
+
+	pageInfo.FSM = make([]int, numFSM)
+	for i := uint32(0); i < numFSM; i++ {
+		var fsmValue int32
+		if err := binary.Read(buf, binary.LittleEndian, &fsmValue); err != nil {
+			return nil, fmt.Errorf("error reading FSM value: %w", err)
+		}
+		pageInfo.FSM[i] = int(fsmValue)
+	}
+
 	return &pageInfo, nil
-}
-
-// CHECKED
-func EncodePageInfo(pageInfo *PageInfo) ([]byte, error) {
-	var buf bytes.Buffer
-
-	if err := binary.Write(&buf, binary.LittleEndian, pageInfo.Offset); err != nil {
-		return nil, err
-	}
-
-	numTuples := uint32(len(pageInfo.PointerArray))
-	if err := binary.Write(&buf, binary.LittleEndian, numTuples); err != nil {
-		return nil, err
-	}
-
-	for _, tuple := range pageInfo.PointerArray {
-		if err := binary.Write(&buf, binary.LittleEndian, tuple.Offset); err != nil {
-			return nil, err
-		}
-		if err := binary.Write(&buf, binary.LittleEndian, tuple.Length); err != nil {
-			return nil, err
-		}
-	}
-
-	return buf.Bytes(), nil
 }
 
 func EncodePageHeader(header PageHeader, buf *bytes.Buffer) error {

@@ -40,6 +40,7 @@ type PageV2 struct {
 type TupleLocation struct {
 	Offset uint16
 	Length uint16
+	Free   bool
 }
 
 type DirectoryPageV2 struct {
@@ -50,6 +51,7 @@ type Offset uint64
 type PageInfo struct {
 	Offset       Offset
 	PointerArray []TupleLocation
+	FSM          []int
 }
 
 func CreatePageV2() *PageV2 {
@@ -79,6 +81,7 @@ func (p *PageV2) AddTuple(data []byte) error {
 	tupleLocation := TupleLocation{
 		Offset: offset,
 		Length: tupleLen,
+		Free:   false,
 	}
 
 	p.PointerArray = append(p.PointerArray, tupleLocation)
