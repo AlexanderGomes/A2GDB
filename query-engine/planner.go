@@ -67,6 +67,15 @@ func SelectTablePlan(executionPlan *ExecutionPlan, P *ParsedQuery) {
 		}
 	}
 
+	if P.GroupBy != "" {
+		querySteps = []QueryStep{
+			{Operation: "GetTable", index: 0},
+			{Operation: "GroupByColumn"},
+			{Operation: "GroupByFunction"},
+			{Operation: "CollectGroupBy"},
+		}
+	}
+
 	executionPlan.Steps = append(executionPlan.Steps, querySteps...)
 }
 

@@ -4,6 +4,7 @@ import (
 	"disk-db/storage"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -43,12 +44,10 @@ func (qe *QueryEngine) ExecuteQueryPlan(qp ExecutionPlan, P *ParsedQuery) (Query
 	query := Query{}
 	tablesPtr := []*storage.TableObj{}
 	var tableObj *storage.TableObj
+	var groupByMap map[string][]string
+	var resMap interface{}
 
 	for _, steps := range qp.Steps {
-		if err != nil {
-			return Query{}, fmt.Errorf("ExecuteQueryPlan: %w", err)
-		}
-
 		switch steps.Operation {
 		case "GetTable":
 			tableObj, err = GetTable(P, qe.DB, steps)
@@ -70,10 +69,204 @@ func (qe *QueryEngine) ExecuteQueryPlan(qp ExecutionPlan, P *ParsedQuery) (Query
 			err = Update(P, qe.DB.DiskScheduler.DiskManager, tableObj, offset)
 		case "DetermineScan":
 			offset, err = DetermineScan(P, qe.DB.DiskScheduler.DiskManager)
+		case "GroupByColumn":
+			groupByMap, err = GroupByColumn(P, tableObj)
+		case "GroupByFunction":
+			resMap, err = GroupByFunction(P, groupByMap)
+		case "CollectGroupBy":
+			CollectGroupBy(resMap, &query, P)
+		}
+		if err != nil {
+			return Query{}, fmt.Errorf("ExecuteQueryPlan: %w", err)
 		}
 	}
 
 	return query, nil
+}
+
+func CollectGroupBy(resMap interface{}, query *Query, p *ParsedQuery) {
+	switch p.SelectFunc.FuncName {
+	case "AVG":
+		floatMap := resMap.(map[string]float64)
+		for k, v := range floatMap {
+			row := storage.RowV2{Values: map[string]string{}}
+			row.Values[k] = fmt.Sprintf("%f", v)
+			query.Result = append(query.Result, &row)
+		}
+
+	case "SUM", "MAX", "MIN", "COUNT":
+		intMap := resMap.(map[string]int64)
+		for k, v := range intMap {
+			row := storage.RowV2{Values: map[string]string{}}
+			row.Values[k] = fmt.Sprintf("%d", v)
+			query.Result = append(query.Result, &row)
+		}
+	}
+}
+
+func GroupByFunction(p *ParsedQuery, groupMap map[string][]string) (interface{}, error) {
+	var resMap interface{}
+	var err error
+
+	switch p.SelectFunc.FuncName {
+	case "AVG":
+		resMap, err = Average(groupMap)
+		if err != nil {
+			return nil, fmt.Errorf("GroupByFunction: %w", err)
+		}
+	case "SUM":
+		resMap, err = Sum(groupMap)
+		if err != nil {
+			return nil, fmt.Errorf("GroupByFunction: %w", err)
+		}
+	case "MAX":
+		resMap, err = Max(groupMap)
+		if err != nil {
+			return nil, fmt.Errorf("GroupByFunction: %w", err)
+		}
+	case "MIN":
+		resMap, err = Min(groupMap)
+		if err != nil {
+			return nil, fmt.Errorf("GroupByFunction: %w", err)
+		}
+
+	case "COUNT":
+		resMap, err = Count(groupMap)
+		if err != nil {
+			return nil, fmt.Errorf("GroupByFunction: %w", err)
+		}
+	}
+
+	return resMap, nil
+}
+
+func Count(groupMap map[string][]string) (map[string]int64, error) {
+	countMap := make(map[string]int64)
+	for key, vals := range groupMap {
+		countMap[key] = int64(len(vals))
+	}
+
+	return countMap, nil
+}
+
+func Min(groupMap map[string][]string) (map[string]int64, error) {
+	minMap := make(map[string]int64)
+
+	for key, vals := range groupMap {
+		var min int64 = math.MaxInt64
+
+		for _, val := range vals {
+			num, err := strconv.ParseInt(val, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("GroupByFunction: %w", err)
+			}
+
+			if num < min {
+				min = num
+			}
+		}
+
+		minMap[key] = min
+	}
+
+	return minMap, nil
+}
+
+func Max(groupMap map[string][]string) (map[string]int64, error) {
+	maxMap := make(map[string]int64)
+
+	for key, vals := range groupMap {
+		var max int64 = math.MinInt64
+
+		for _, val := range vals {
+			num, err := strconv.ParseInt(val, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("GroupByFunction: %w", err)
+			}
+
+			if num > max {
+				max = num
+			}
+		}
+
+		maxMap[key] = max
+	}
+
+	return maxMap, nil
+}
+
+func Sum(groupMap map[string][]string) (map[string]int64, error) {
+	sumMap := make(map[string]int64)
+
+	for key, vals := range groupMap {
+		var sum int64
+
+		for _, val := range vals {
+			num, err := strconv.ParseInt(val, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("GroupByFunction(string => float error): %w", err)
+			}
+			sum += num
+		}
+
+		sumMap[key] = sum
+	}
+
+	return sumMap, nil
+}
+
+func Average(groupMap map[string][]string) (map[string]float64, error) {
+	avgMap := make(map[string]float64)
+
+	for key, vals := range groupMap {
+		var sum float64
+		var count int
+
+		for _, val := range vals {
+			num, err := strconv.ParseFloat(val, 64)
+			if err != nil {
+				return nil, fmt.Errorf("GroupByFunction(string => float error): %w", err)
+			}
+			sum += num
+			count++
+		}
+
+		if count > 0 {
+			avgMap[key] = sum / float64(count)
+		}
+	}
+
+	return avgMap, nil
+}
+
+func GroupByColumn(p *ParsedQuery, tableObj *storage.TableObj) (map[string][]string, error) {
+	pageSlice, err := getTablePages(tableObj.DataFile, nil)
+	if err != nil {
+		return nil, fmt.Errorf("GroupByColumn: %w", err)
+	}
+
+	hashmap := make(map[string][]string)
+	field := p.GroupBy
+	value := p.SelectFunc.FuncParameter
+
+	for _, page := range pageSlice {
+		pageObj := tableObj.DirectoryPage.Value[storage.PageID(page.Header.ID)]
+
+		for _, location := range pageObj.PointerArray {
+			rowBytes := page.Data[location.Offset : location.Offset+location.Length]
+			row, err := storage.DecodeRow(rowBytes)
+			if err != nil {
+				return nil, fmt.Errorf("processPagesUpdate: failed to decode row: %w", err)
+			}
+
+			groupKey := row.Values[field]
+			groupVal := row.Values[value]
+
+			hashmap[groupKey] = append(hashmap[groupKey], groupVal)
+		}
+
+	}
+	return hashmap, nil
 }
 
 func DetermineScan(p *ParsedQuery, dm *storage.DiskManagerV2) (*storage.Offset, error) {
@@ -182,27 +375,22 @@ func processPagesUpdate(pages []*storage.PageV2, findField, findValue, changingF
 
 				updatedTupleLength := len(updatedBytes)
 
-				if updatedTupleLength <= int(location.Length) {
-					err := storage.ResetBytesToEmpty(page, location.Offset, location.Length)
-					if err != nil {
-						return fmt.Errorf("processPagesUpdate: failed to reset bytes: %w", err)
-					}
+				err = storage.ResetBytesToEmpty(page, location.Offset, location.Length)
+				if err != nil {
+					return fmt.Errorf("processPagesUpdate: failed to reset bytes: %w", err)
+				}
 
+				if updatedTupleLength <= int(location.Length) {
 					copy(page.Data[location.Offset:], updatedBytes)
 					location.Length = uint16(updatedTupleLength)
 					newPtrArray = append(newPtrArray, location)
 				} else {
-					err := storage.ResetBytesToEmpty(page, location.Offset, location.Length)
-					if err != nil {
-						return fmt.Errorf("processPagesUpdate: failed to reset bytes: %w", err)
-					}
-
 					err = page.AddTuple(updatedBytes)
 					if err != nil {
 						return fmt.Errorf("processPagesUpdate: failed to add updated tuple: %w", err)
 					}
 
-					newPtrArray = append(newPtrArray, page.PointerArray...)
+					newPtrArray = append(newPtrArray, page.PointerArray[len(page.PointerArray)-1])
 				}
 			}
 		}

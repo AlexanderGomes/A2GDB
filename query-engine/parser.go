@@ -3,6 +3,7 @@ package queryengine
 import (
 	"disk-db/storage"
 	"fmt"
+	"strings"
 
 	"github.com/xwb1989/sqlparser"
 )
@@ -14,6 +15,14 @@ type ParsedQuery struct {
 	Predicates       []interface{}
 	Joins            []Join
 	Where            []string
+	SelectFunc       SelectFunc
+	GroupBy          string
+}
+
+type SelectFunc struct {
+	FuncName      string
+	FuncParameter string
+	FuncAlias     string
 }
 
 type Join struct {
@@ -54,9 +63,23 @@ func processSelect(stmt *sqlparser.Select, parsedQuery *ParsedQuery) {
 	parsedQuery.SQLStatementType = "SELECT"
 
 	for _, expr := range stmt.SelectExprs {
-		col, ok := expr.(*sqlparser.AliasedExpr)
-		if ok {
-			parsedQuery.ColumnsSelected = append(parsedQuery.ColumnsSelected, col.Expr.(*sqlparser.ColName).Name.String())
+		if aliasedExpr, ok := expr.(*sqlparser.AliasedExpr); ok {
+			switch e := aliasedExpr.Expr.(type) {
+			case *sqlparser.FuncExpr:
+				funcName := e.Name.String()
+				funcParams := make([]string, len(e.Exprs))
+				for i, param := range e.Exprs {
+					funcParams[i] = sqlparser.String(param)
+				}
+				parsedQuery.SelectFunc = SelectFunc{
+					FuncName:      funcName,
+					FuncParameter: strings.Join(funcParams, ", "),
+					FuncAlias:     aliasedExpr.As.String(),
+				}
+
+			case *sqlparser.ColName:
+				parsedQuery.ColumnsSelected = append(parsedQuery.ColumnsSelected, e.Name.String())
+			}
 		} else {
 			parsedQuery.ColumnsSelected = append(parsedQuery.ColumnsSelected, "*")
 		}
@@ -85,6 +108,15 @@ func processSelect(stmt *sqlparser.Select, parsedQuery *ParsedQuery) {
 			}
 			return true, nil
 		}, stmt.Where.Expr)
+	}
+
+	if stmt.GroupBy != nil {
+		for _, expr := range stmt.GroupBy {
+			col, ok := expr.(*sqlparser.ColName)
+			if ok {
+				parsedQuery.GroupBy = col.Name.String()
+			}
+		}
 	}
 }
 

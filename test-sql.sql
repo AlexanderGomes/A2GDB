@@ -12,7 +12,8 @@ UPDATE User SET UserID = 292992992 WHERE UserID = 1;
 CREATE TABLE User (
 			UserID INT PRIMARY KEY,
 			Username VARCHAR,
-			PasswordHash VARCHAR
+			Age INT
+			City VARCHAR
 );
 
 CREATE TABLE Student (
@@ -27,3 +28,7 @@ SELECT *
 FROM User 
 JOIN Student ON Username = Username;
 
+
+SELECT city, AVG(age) as average_age
+FROM User
+GROUP BY city;
