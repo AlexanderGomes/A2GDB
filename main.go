@@ -15,16 +15,15 @@ const (
 func main() {
 	dm, _ := InitDatabase(replacerFrequency, dirName)
 
-	res, err := dm.QueryEntryPoint(`SELECT City, COUNT(Age) as average_age
-	FROM User
-	GROUP BY City;
+	res, err := dm.QueryEntryPoint(`SELECT City, MIN(Age) as min_age
+FROM User
+GROUP BY City;
 	`)
-
 	if err != nil {
 		fmt.Println(err)
 	}
 
-	fmt.Println(res.Result[0].Values, res.Result[1].Values, res.Result[2].Values)
+	fmt.Println(res.Result[0].Values)
 }
 
 func Testing(dm *queryengine.QueryEngine) error {

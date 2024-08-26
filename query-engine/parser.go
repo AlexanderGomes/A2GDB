@@ -17,6 +17,12 @@ type ParsedQuery struct {
 	Where            []string
 	SelectFunc       SelectFunc
 	GroupBy          string
+	OrderBy          *OrderBy
+}
+
+type OrderBy struct {
+	Column    string
+	Operation string
 }
 
 type SelectFunc struct {
@@ -116,6 +122,24 @@ func processSelect(stmt *sqlparser.Select, parsedQuery *ParsedQuery) {
 			if ok {
 				parsedQuery.GroupBy = col.Name.String()
 			}
+		}
+	}
+
+	if stmt.OrderBy != nil {
+		for _, expr := range stmt.OrderBy {
+			direction := expr.Direction
+
+			var columnName string
+			if colName, ok := expr.Expr.(*sqlparser.ColName); ok {
+				columnName = colName.Name.String()
+			}
+
+			orderBy := OrderBy{
+				Operation: direction,
+				Column:    columnName,
+			}
+
+			parsedQuery.OrderBy = &orderBy
 		}
 	}
 }

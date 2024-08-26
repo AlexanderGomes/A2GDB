@@ -76,6 +76,10 @@ func SelectTablePlan(executionPlan *ExecutionPlan, P *ParsedQuery) {
 		}
 	}
 
+	if P.OrderBy != nil {
+		querySteps = append(querySteps, QueryStep{Operation: "OrderBy"})
+	}
+
 	executionPlan.Steps = append(executionPlan.Steps, querySteps...)
 }
 

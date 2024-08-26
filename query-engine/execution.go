@@ -6,6 +6,7 @@ import (
 	"log"
 	"math"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -75,6 +76,8 @@ func (qe *QueryEngine) ExecuteQueryPlan(qp ExecutionPlan, P *ParsedQuery) (Query
 			resMap, err = GroupByFunction(P, groupByMap)
 		case "CollectGroupBy":
 			CollectGroupBy(resMap, &query, P)
+		case "OrderBy":
+			OrderByExecution(&query, P)
 		}
 		if err != nil {
 			return Query{}, fmt.Errorf("ExecuteQueryPlan: %w", err)
@@ -82,6 +85,57 @@ func (qe *QueryEngine) ExecuteQueryPlan(qp ExecutionPlan, P *ParsedQuery) (Query
 	}
 
 	return query, nil
+}
+
+func OrderByExecution(q *Query, p *ParsedQuery) {
+	switch p.OrderBy.Operation {
+	case "desc":
+		Desc(q, p.OrderBy.Column)
+	case "asc":
+		Asc(q, p.OrderBy.Column)
+	}
+}
+
+func Desc(q *Query, column string) {
+	rows := q.Result
+	sort.Slice(rows, func(i, j int) bool {
+		valI, okI := rows[i].Values[column]
+		valJ, okJ := rows[j].Values[column]
+
+		if !okI || !okJ {
+			return false
+		}
+
+		numI, errI := strconv.ParseFloat(valI, 64)
+		numJ, errJ := strconv.ParseFloat(valJ, 64)
+
+		if errI != nil || errJ != nil {
+			return valI > valJ
+		}
+
+		return numI > numJ
+	})
+}
+
+func Asc(q *Query, column string) {
+	rows := q.Result
+	sort.Slice(rows, func(i, j int) bool {
+		valI, okI := rows[i].Values[column]
+		valJ, okJ := rows[j].Values[column]
+
+		if !okI || !okJ {
+			return false
+		}
+
+		numI, errI := strconv.ParseFloat(valI, 64)
+		numJ, errJ := strconv.ParseFloat(valJ, 64)
+
+		if errI != nil || errJ != nil {
+			return valI < valJ
+		}
+
+		return numI < numJ
+	})
 }
 
 func CollectGroupBy(resMap interface{}, query *Query, p *ParsedQuery) {
@@ -270,6 +324,10 @@ func GroupByColumn(p *ParsedQuery, tableObj *storage.TableObj) (map[string][]str
 }
 
 func DetermineScan(p *ParsedQuery, dm *storage.DiskManagerV2) (*storage.Offset, error) {
+	if len(p.Where) == 0 {
+		return nil, nil
+	}
+
 	whereField := p.Where[0]
 	whereValue := p.Where[1]
 
