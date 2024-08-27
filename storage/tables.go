@@ -2,10 +2,8 @@ package storage
 
 import (
 	"fmt"
-	"log"
-
 	"io"
-	"math"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -14,9 +12,10 @@ import (
 )
 
 const (
-	PERCENTAGE   = 10
-	BUFFER_SIZE  = 20000
-	NUM_DECODERS = 1000
+	PERCENTAGE     = 20
+	BUFFER_SIZE    = 200000
+	NUM_DECODERS   = 150
+	PAGES_PER_READ = 10
 )
 
 type TableObj struct {
@@ -178,14 +177,13 @@ func FullTableScanBigFiles(file *os.File) ([]*PageV2, error) {
 	byteChan := make(chan []byte, BUFFER_SIZE)
 	pageChan := make(chan *PageV2, BUFFER_SIZE)
 
-	var pages []*PageV2
-
 	var wgManagers sync.WaitGroup
 	for _, c := range chunks {
+		fmt.Println(c)
 		wgManagers.Add(1)
 		go func(chunk *Chunk) {
 			defer wgManagers.Done()
-			ReadersManager(file, chunk, byteChan)
+			ReadWorker(file, chunk, byteChan, PAGES_PER_READ)
 		}(c)
 	}
 
@@ -208,6 +206,7 @@ func FullTableScanBigFiles(file *os.File) ([]*PageV2, error) {
 		close(pageChan)
 	}()
 
+	var pages []*PageV2
 	for page := range pageChan {
 		pages = append(pages, page)
 	}
@@ -215,109 +214,84 @@ func FullTableScanBigFiles(file *os.File) ([]*PageV2, error) {
 	return pages, nil
 }
 
-func DecoderWorker(byteChan chan []byte, pageChan chan *PageV2) {
-	for pageByte := range byteChan {
-		page, err := DecodePageV2(pageByte)
-		if err != nil {
-			fmt.Println("Decoder: %w", err)
-		}
-		pageChan <- page
-	}
-	fmt.Println("Decoder has finished processing all data and byteChan is closed")
-}
-
-func ReadersManager(file *os.File, chunk *Chunk, byteChan chan []byte) {
-	chunks := ChunkCreateChunks(chunk)
-
-	var wg WrapperWaitGroup
-
-	for _, c := range chunks {
-		wg.Add(1)
-		go func(chunk *Chunk) {
-			defer wg.Done()
-			ReadWoker(file, chunk, byteChan)
-		}(c)
-	}
-
-	wg.Wait()
-}
-
-func ReadWoker(file *os.File, chunk *Chunk, byteChan chan []byte) {
-	for offset := chunk.Beggining; offset < chunk.End; offset += PageSizeV2 {
-		buffer := make([]byte, PageSizeV2)
-
-		_, err := file.ReadAt(buffer, offset)
-		if err != nil {
-			fmt.Println("ReadWoker: %w", err)
-			break
-		}
-		byteChan <- buffer
-	}
-}
-
-func ChunkCreateChunks(chunk *Chunk) []*Chunk {
-	numPagesFloat := float64(chunk.NumPages)
-	percentageFloat := float64(PERCENTAGE)
-
-	perChunkPageNum := math.Ceil(numPagesFloat * percentageFloat / 100)
-	blockSize := PageSizeV2 * int64(perChunkPageNum)
-
-	var chunks []*Chunk
-	for i := int64(chunk.Beggining); i < chunk.End; i += int64(blockSize) {
-		end := i + blockSize - 1
-		currBlockSize := blockSize
-
-		isEndBlock := end > chunk.End
-		if isEndBlock {
-			end = chunk.End - 1
-			currBlockSize = chunk.End - i + 1
-		}
-
-		chunk := Chunk{
-			Beggining: i,
-			End:       end,
-			NumPages:  int(currBlockSize / PageSizeV2),
-			Size:      currBlockSize,
-		}
-
-		chunks = append(chunks, &chunk)
-	}
-
-	return chunks
-}
-
 func FileCreateChunks(file *os.File, percentage int) []*Chunk {
 	stat, err := file.Stat()
 	if err != nil {
-		fmt.Println("FullTableScanBigFiles (getting file stat)")
+		fmt.Println("FileCreateChunks (getting file stat):", err)
 		return nil
 	}
 
 	fileSize := stat.Size()
-
 	numPages := int(fileSize / PageSizeV2)
 	perChunkPageNum := int(numPages * percentage / 100)
 	blockSize := PageSizeV2 * int64(perChunkPageNum)
 
 	var chunks []*Chunk
-	for i := int64(0); i < fileSize; i += int64(blockSize) {
-		end := i + blockSize - 1
-		currBlockSize := blockSize
-
-		isEndBlock := end > fileSize
-		if isEndBlock {
-			end = fileSize - 1
-			currBlockSize = end - i + 1
+	for i := int64(0); i < fileSize; i += blockSize {
+		end := i + blockSize
+		if end > fileSize {
+			end = fileSize
 		}
 
+		currBlockSize := end - i
 		chunk := Chunk{
 			Beggining: i,
-			End:       end,
+			End:       end - 1,
 			NumPages:  int(currBlockSize / PageSizeV2),
 			Size:      currBlockSize,
 		}
+
 		chunks = append(chunks, &chunk)
+
+		if end == fileSize {
+			break
+		}
 	}
 
 	return chunks
+}
+
+func ReadWorker(file *os.File, chunk *Chunk, byteChan chan []byte, pagesPerRead int) {
+	bufferSize := PageSizeV2 * pagesPerRead
+
+	for offset := chunk.Beggining; offset <= chunk.End; {
+		bytesToRead := bufferSize
+		if offset+int64(bufferSize) > chunk.End+1 {
+			bytesToRead = int(chunk.End - offset + 1)
+		}
+
+		buffer := make([]byte, bytesToRead)
+
+		n, err := file.ReadAt(buffer, offset)
+		if err == io.EOF && n < bytesToRead {
+			buffer = buffer[:n]
+		} else if err != nil {
+			fmt.Println("ReadWorker (reading file):", err)
+			return
+		}
+
+		offset += int64(n)
+		byteChan <- buffer
+	}
+}
+
+func DecoderWorker(byteChan chan []byte, pageChan chan *PageV2) {
+	for buffer := range byteChan {
+		numPages := len(buffer) / PageSizeV2
+
+		for i := 0; i < numPages; i++ {
+			start := i * PageSizeV2
+			end := start + PageSizeV2
+			if end > len(buffer) {
+				end = len(buffer)
+			}
+			pageBuffer := buffer[start:end]
+			page, err := DecodePageV2(pageBuffer)
+			if err != nil {
+				fmt.Printf("Decoder: %v\n", err)
+				continue
+			}
+			pageChan <- page
+		}
+	}
 }

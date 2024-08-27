@@ -14,17 +14,13 @@ const (
 
 func main() {
 	dm, _ := InitDatabase(replacerFrequency, dirName)
-	Testing(dm)
 
-// 	res, err := dm.QueryEntryPoint(`SELECT City, MIN(Age) as min_age
-// FROM User
-// GROUP BY City;
-// 	`)
-// 	if err != nil {
-// 		fmt.Println(err)
-// 	}
+	res, err := dm.QueryEntryPoint(`SELECT * FROM User`)
+	if err != nil {
+		fmt.Println(err)
+	}
 
-// 	fmt.Println(res.Result[0].Values)
+	fmt.Println(res.Result[0])
 }
 
 func Testing(dm *queryengine.QueryEngine) error {
@@ -35,7 +31,7 @@ func Testing(dm *queryengine.QueryEngine) error {
 			City VARCHAR
 );`)
 
-	for i := 0; i < 20000; i++ {
+	for i := 0; i < 10000; i++ {
 		dm.QueryEntryPoint(`INSERT INTO User (Username, Age, City) VALUES
 		('sander1', 12, 'richmond'),
 		('sander2', 15, 'richmond'),

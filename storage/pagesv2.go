@@ -90,7 +90,7 @@ func (p *PageV2) AddTuple(data []byte) error {
 	return nil
 }
 
-func (dm *DiskManagerV2) WritePageBackV2(page *PageV2, offset Offset, tableDataFile *os.File) error {
+func WritePageBackV2(page *PageV2, offset Offset, tableDataFile *os.File) error {
 	pageBytes, err := EncodePageV2(page)
 	if err != nil {
 		return fmt.Errorf("WritePageBack: %w", err)
@@ -104,7 +104,7 @@ func (dm *DiskManagerV2) WritePageBackV2(page *PageV2, offset Offset, tableDataF
 	return nil
 }
 
-func (ds *DiskManagerV2) WritePageEOFV2(page *PageV2, dataFile *os.File) (Offset, error) {
+func WritePageEOFV2(page *PageV2, dataFile *os.File) (Offset, error) {
 	pageBytes, err := EncodePageV2(page)
 	if err != nil {
 		return 0, fmt.Errorf("WritePageEOF: %w", err)

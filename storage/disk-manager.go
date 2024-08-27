@@ -109,7 +109,7 @@ func (dm *DiskManagerV2) WriteToDisk(page *PageV2) error {
 	pageObj, found := tableInfo.DirectoryPage.Value[PageID(page.Header.ID)]
 
 	if !found {
-		pageOffset, err := dm.WritePageEOFV2(page, tableInfo.DataFile)
+		pageOffset, err := WritePageEOFV2(page, tableInfo.DataFile)
 		if err != nil {
 			return fmt.Errorf("WriteToDisk: %w", err)
 		}
@@ -121,12 +121,12 @@ func (dm *DiskManagerV2) WriteToDisk(page *PageV2) error {
 
 		tableInfo.DirectoryPage.Value[PageID(page.Header.ID)] = &pageInfo
 
-		err = dm.UpdateDirectoryPageDisk(tableInfo.DirectoryPage, tableInfo.DirFile)
+		err = UpdateDirectoryPageDisk(tableInfo.DirectoryPage, tableInfo.DirFile)
 		if err != nil {
 			return fmt.Errorf("WriteToDisk: %w", err)
 		}
 	} else {
-		err := dm.WritePageBackV2(page, pageObj.Offset, tableInfo.DataFile)
+		err := WritePageBackV2(page, pageObj.Offset, tableInfo.DataFile)
 		if err != nil {
 			return fmt.Errorf("WriteToDisk: %w", err)
 		}
@@ -135,7 +135,7 @@ func (dm *DiskManagerV2) WriteToDisk(page *PageV2) error {
 	return nil
 }
 
-func (dm *DiskManagerV2) UpdateDirectoryPageDisk(page *DirectoryPageV2, dirFile *os.File) error {
+func UpdateDirectoryPageDisk(page *DirectoryPageV2, dirFile *os.File) error {
 	pageBytes, err := EncodeDirectory(page)
 	if err != nil {
 		return fmt.Errorf("UpdateDirectoryPageDisk: %w", err)
@@ -149,7 +149,7 @@ func (dm *DiskManagerV2) UpdateDirectoryPageDisk(page *DirectoryPageV2, dirFile 
 	return nil
 }
 
-func FindAvailablePage(tableObj *TableObj, bytesNeeded int, manager *DiskManagerV2) (*PageV2, error) {
+func FindAvailablePage(tableObj *TableObj, bytesNeeded int) (*PageV2, error) {
 	var offset int64
 	var page *PageV2
 
@@ -171,9 +171,7 @@ func FindAvailablePage(tableObj *TableObj, bytesNeeded int, manager *DiskManager
 			return nil, fmt.Errorf("FindAvailablePage: %w", err)
 		}
 
-		pageInfo := tableObj.DirectoryPage.Value[PageID(foundPage.Header.ID)]
-		canInsert := foundPage.Header.UpperPtr-foundPage.Header.LowerPtr > uint16(bytesNeeded) || len(pageInfo.FSM) > 0
-
+		canInsert := foundPage.Header.UpperPtr-foundPage.Header.LowerPtr > uint16(bytesNeeded)
 		if canInsert {
 			page = foundPage
 			break
