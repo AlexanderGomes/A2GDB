@@ -287,6 +287,7 @@ func Average(groupMap map[string][]string) (map[string]float64, error) {
 		}
 	}
 
+	//testingsas
 	return avgMap, nil
 }
 
