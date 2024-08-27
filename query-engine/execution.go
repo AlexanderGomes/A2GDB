@@ -449,18 +449,6 @@ func processPagesUpdate(pages []*storage.PageV2, findField, findValue, changingF
 					newPtrArray = append(newPtrArray, *location)
 				} else {
 					// #Edge case: new tuple may be too big for the page
-					for _, index := range pageObj.FSM {
-						freeSpace := &pageObj.PointerArray[index]
-
-						if freeSpace.Length >= uint16(updatedTupleLength) {
-							copy(page.Data[freeSpace.Offset:], updatedBytes)
-							freeSpace.Length = uint16(updatedTupleLength)
-							freeSpace.Free = false
-							pageObj.FSM = append(pageObj.FSM[:i], pageObj.FSM[i+1:]...)
-							return nil
-						}
-					}
-
 					err = page.AddTuple(updatedBytes)
 					if err != nil {
 						return fmt.Errorf("processPagesUpdate: failed to add updated tuple: %w", err)
