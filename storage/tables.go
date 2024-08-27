@@ -12,18 +12,20 @@ import (
 )
 
 const (
-	PERCENTAGE     = 20
-	BUFFER_SIZE    = 200000
-	NUM_DECODERS   = 150
-	PAGES_PER_READ = 10
+	PERCENTAGE     = 25
+	BUFFER_SIZE    = 20000
+	NUM_DECODERS   = 100
+	PAGES_PER_READ = 50
+	MAX_FILE_SIZE  = 100 * 1024
 )
 
 type TableObj struct {
-	DirectoryPage *DirectoryPageV2
-	DirFile       *os.File
-	BpTree        *btree.BTree
-	BpFile        *os.File
-	DataFile      *os.File
+	DirectoryPage   *DirectoryPageV2
+	DirFile         *os.File
+	BpTree          *btree.BTree
+	BpFile          *os.File
+	DataFile        *os.File
+	RearrangedPages []*RearrangedPage
 }
 
 type ColumnType struct {
@@ -37,50 +39,19 @@ type TableInfo struct {
 }
 
 func (dm *DiskManagerV2) InMemoryTableSetUp(name TableName) (*TableObj, error) {
-	dirFilePath := filepath.Join(dm.DBdirectory, "Tables", string(name), "directory_page")
-
-	dirFile, err := os.OpenFile(dirFilePath, os.O_RDWR, 0777)
-	if err != nil {
-		return nil, fmt.Errorf("InMemoryTableSetUp (error opening directory_page file): %w", err)
-	}
-
-	byts, err := ReadNonPageFile(dirFile)
-	if err != nil {
-		return nil, fmt.Errorf("InMemoryTableSetUp (error reading Dir File): %w", err)
-	}
-
-	dirPage, err := DecodeDirectory(byts)
+	dirFile, dirPage, err := GetDirInfo(dm.DBdirectory, string(name))
 	if err != nil {
 		return nil, fmt.Errorf("InMemoryTableSetUp: %w", err)
 	}
 
-	tableDataPath := filepath.Join(dm.DBdirectory, "Tables", string(name), string(name))
-	dataFile, err := os.OpenFile(tableDataPath, os.O_RDWR, 0777)
-	if err != nil {
-		return nil, fmt.Errorf("InMemoryTableSetUp (error opening data file): %w", err)
-	}
-
-	bpPath := filepath.Join(dm.DBdirectory, "Tables", string(name), "bptree")
-	bpFile, err := os.OpenFile(bpPath, os.O_RDWR|os.O_CREATE, 0777)
-	if err != nil {
-		return nil, fmt.Errorf("InMemoryTableSetUp (error opening bp tree file): %w", err)
-	}
-
-	bpBytes, err := ReadNonPageFile(bpFile)
+	dataFile, err := GetDataFileInfo(dm.DBdirectory, string(name))
 	if err != nil {
 		return nil, fmt.Errorf("InMemoryTableSetUp: %w", err)
 	}
 
-	tree := NewTree(20)
-	if len(bpBytes) > 0 {
-		items, err := DecodeItems(bpBytes)
-		if err != nil {
-			return nil, fmt.Errorf("InMemoryTableSetUp: %w", err)
-		}
-
-		for _, item := range items {
-			tree.ReplaceOrInsert(item)
-		}
+	tree, bpFile, err := GetBpTree(dm.DBdirectory, string(name))
+	if err != nil {
+		return nil, fmt.Errorf("InMemoryTableSetUp: %w", err)
 	}
 
 	tableObj := &TableObj{
@@ -91,9 +62,101 @@ func (dm *DiskManagerV2) InMemoryTableSetUp(name TableName) (*TableObj, error) {
 		BpTree:        tree,
 	}
 
-	dm.TableObjs[name] = tableObj
+	err = GetRearrangedPages(tableObj)
 
+	if err != nil {
+		return nil, fmt.Errorf("InMemoryTableSetUp: %w", err)
+	}
+
+	dm.TableObjs[name] = tableObj
 	return tableObj, nil
+}
+
+func GetRearrangedPages(tableObj *TableObj) error {
+	pages, err := GetTablePages(tableObj.DataFile, nil)
+	if err != nil {
+		return fmt.Errorf("GetRearrangedPages: %w", err)
+	}
+
+	dirMap := tableObj.DirectoryPage.Value
+	for _, page := range pages {
+		pageObj, ok := dirMap[PageID(page.Header.ID)]
+		if !ok {
+			return fmt.Errorf("GetRearrangedPages (pageObj not found)")
+		}
+
+		if !pageObj.Rearranged {
+			continue
+		}
+
+		rearrengedObj := RearrangedPage{
+			PageID: PageID(page.Header.ID),
+			Offset: pageObj.Offset,
+			Size:   pageObj.Size,
+		}
+
+		tableObj.RearrangedPages = append(tableObj.RearrangedPages, &rearrengedObj)
+	}
+
+	log.Printf("Total Rearranged pages: %d", len(tableObj.RearrangedPages))
+	return nil
+}
+
+func GetBpTree(dbDirName, tableName string) (*btree.BTree, *os.File, error) {
+	bpPath := filepath.Join(dbDirName, "Tables", tableName, "bptree")
+	bpFile, err := os.OpenFile(bpPath, os.O_RDWR|os.O_CREATE, 0777)
+	if err != nil {
+		return nil, nil, fmt.Errorf("GetBpTree (error opening bp tree file): %w", err)
+	}
+
+	bpBytes, err := ReadNonPageFile(bpFile)
+	if err != nil {
+		return nil, nil, fmt.Errorf("GetBpTree: %w", err)
+	}
+
+	tree := NewTree(20)
+	if len(bpBytes) > 0 {
+		items, err := DecodeItems(bpBytes)
+		if err != nil {
+			return nil, nil, fmt.Errorf("GetBpTree: %w", err)
+		}
+
+		for _, item := range items {
+			tree.ReplaceOrInsert(item)
+		}
+	}
+
+	return tree, bpFile, nil
+}
+
+func GetDataFileInfo(dbDirName, tableName string) (*os.File, error) {
+	tableDataPath := filepath.Join(dbDirName, "Tables", tableName, tableName)
+	dataFile, err := os.OpenFile(tableDataPath, os.O_RDWR, 0777)
+	if err != nil {
+		return nil, fmt.Errorf("GetDataFileInfo (error opening data file): %w", err)
+	}
+
+	return dataFile, nil
+}
+
+func GetDirInfo(dbDirName, tableName string) (*os.File, *DirectoryPageV2, error) {
+	dirFilePath := filepath.Join(dbDirName, "Tables", tableName, "directory_page")
+	dirFile, err := os.OpenFile(dirFilePath, os.O_RDWR, 0777)
+	if err != nil {
+		return nil, nil, fmt.Errorf("GetDirInfo (error opening directory_page file): %w", err)
+	}
+
+	byts, err := ReadNonPageFile(dirFile)
+	if err != nil {
+		return nil, nil, fmt.Errorf("GetDirInfo (error reading Dir File): %w", err)
+	}
+
+	dirPage, err := DecodeDirectory(byts)
+	if err != nil {
+		return nil, nil, fmt.Errorf("GetDirInfo: %w", err)
+	}
+
+	return dirFile, dirPage, nil
 }
 
 func (dm *DiskManagerV2) CreateTable(name TableName, info TableInfo) error {
@@ -294,4 +357,29 @@ func DecoderWorker(byteChan chan []byte, pageChan chan *PageV2) {
 			pageChan <- page
 		}
 	}
+}
+
+func GetTablePages(dataFile *os.File, offset *Offset) ([]*PageV2, error) {
+	stat, _ := dataFile.Stat()
+	size := stat.Size()
+
+	if offset == nil {
+		if size >= MAX_FILE_SIZE {
+			return FullTableScanBigFiles(dataFile)
+		}
+		return FullTableScan(dataFile)
+	}
+
+	bytes, err := ReadPageAtOffset(dataFile, *offset)
+	if err != nil {
+		return nil, fmt.Errorf("getTablePages: %w", err)
+	}
+
+	page, err := DecodePageV2(bytes)
+	if err != nil {
+		return nil, fmt.Errorf("getTablePages: %w", err)
+	}
+
+	log.Println("Index Scan")
+	return []*PageV2{page}, nil
 }

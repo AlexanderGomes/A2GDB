@@ -5,13 +5,10 @@ import (
 	"fmt"
 	"log"
 	"math"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
 )
-
-const MAX_FILE_SIZE = 100 * 1024
 
 type Query struct {
 	Result  []*storage.RowV2
@@ -294,7 +291,7 @@ func Average(groupMap map[string][]string) (map[string]float64, error) {
 }
 
 func GroupByColumn(p *ParsedQuery, tableObj *storage.TableObj) (map[string][]string, error) {
-	pageSlice, err := getTablePages(tableObj.DataFile, nil)
+	pageSlice, err := storage.GetTablePages(tableObj.DataFile, nil)
 	if err != nil {
 		return nil, fmt.Errorf("GroupByColumn: %w", err)
 	}
@@ -360,7 +357,7 @@ func Update(p *ParsedQuery, manager *storage.DiskManagerV2, tableObj *storage.Ta
 	var tablePages []*storage.PageV2
 	var err error
 
-	tablePages, err = getTablePages(tableObj.DataFile, offset)
+	tablePages, err = storage.GetTablePages(tableObj.DataFile, offset)
 	if err != nil {
 		return fmt.Errorf("UPDATE: %w", err)
 	}
@@ -385,31 +382,6 @@ func Update(p *ParsedQuery, manager *storage.DiskManagerV2, tableObj *storage.Ta
 	}
 
 	return nil
-}
-
-func getTablePages(dataFile *os.File, offset *storage.Offset) ([]*storage.PageV2, error) {
-	stat, _ := dataFile.Stat()
-	size := stat.Size()
-
-	if offset == nil {
-		if size >= MAX_FILE_SIZE {
-			return storage.FullTableScanBigFiles(dataFile)
-		}
-		return storage.FullTableScan(dataFile)
-	}
-
-	bytes, err := storage.ReadPageAtOffset(dataFile, *offset)
-	if err != nil {
-		return nil, fmt.Errorf("getTablePages: %w", err)
-	}
-
-	page, err := storage.DecodePageV2(bytes)
-	if err != nil {
-		return nil, fmt.Errorf("getTablePages: %w", err)
-	}
-
-	log.Println("Index Scan")
-	return []*storage.PageV2{page}, nil
 }
 
 func processPagesUpdate(pages []*storage.PageV2, findField, findValue, changingField, newValue string, tableObj *storage.TableObj) error {
@@ -449,18 +421,6 @@ func processPagesUpdate(pages []*storage.PageV2, findField, findValue, changingF
 					newPtrArray = append(newPtrArray, *location)
 				} else {
 					// #Edge case: new tuple may be too big for the page
-					for _, index := range pageObj.FSM {
-						freeSpace := &pageObj.PointerArray[index]
-
-						if freeSpace.Length >= uint16(updatedTupleLength) {
-							copy(page.Data[freeSpace.Offset:], updatedBytes)
-							freeSpace.Length = uint16(updatedTupleLength)
-							freeSpace.Free = false
-							pageObj.FSM = append(pageObj.FSM[:i], pageObj.FSM[i+1:]...)
-							return nil
-						}
-					}
-
 					err = page.AddTuple(updatedBytes)
 					if err != nil {
 						return fmt.Errorf("processPagesUpdate: failed to add updated tuple: %w", err)
@@ -491,7 +451,7 @@ func DeleteFromTable(p *ParsedQuery, tableObj *storage.TableObj, offset *storage
 	var tablePages []*storage.PageV2
 	var err error
 
-	tablePages, err = getTablePages(tableObj.DataFile, offset)
+	tablePages, err = storage.GetTablePages(tableObj.DataFile, offset)
 	if err != nil {
 		return fmt.Errorf("DELETE: %w", err)
 	}
@@ -540,12 +500,12 @@ func JoinTables(query *Query, condition string, tablePtrs []*storage.TableObj) e
 		return fmt.Errorf("JoinTables: expected exactly two tables")
 	}
 
-	slicePage1, err := getTablePages(tablePtrs[0].DataFile, nil)
+	slicePage1, err := storage.GetTablePages(tablePtrs[0].DataFile, nil)
 	if err != nil {
 		return fmt.Errorf("JoinTables (error reading table one): %w", err)
 	}
 
-	slicePage2, err := getTablePages(tablePtrs[0].DataFile, nil)
+	slicePage2, err := storage.GetTablePages(tablePtrs[0].DataFile, nil)
 	if err != nil {
 		return fmt.Errorf("JoinTables (error reading table two): %w", err)
 	}
@@ -672,7 +632,7 @@ func InsertRows(parsedQuery *ParsedQuery, query *Query, bpm *storage.BufferPoolM
 		return fmt.Errorf("InsertRows: %w", err)
 	}
 
-	pageFound, err := storage.FindAvailablePage(tableObj, spaceNeeded)
+	pageFound, err := storage.FindAvailablePage(tableObj.DataFile, spaceNeeded)
 	if err != nil {
 		return fmt.Errorf("InsertRows: %w", err)
 	}
@@ -781,7 +741,7 @@ func createColumnMap(columns []string) map[string]string {
 }
 
 func FilterByColumns(tableObj *storage.TableObj, query *Query, P *ParsedQuery, offset *storage.Offset) error {
-	pageSlice, err := getTablePages(tableObj.DataFile, offset)
+	pageSlice, err := storage.GetTablePages(tableObj.DataFile, offset)
 	if err != nil {
 		return fmt.Errorf("GetAllColumns: %w", err)
 	}
@@ -826,7 +786,7 @@ func FilterByColumns(tableObj *storage.TableObj, query *Query, P *ParsedQuery, o
 }
 
 func GetAllColumns(p *ParsedQuery, tableObj *storage.TableObj, query *Query, offset *storage.Offset) error {
-	pageSlice, err := getTablePages(tableObj.DataFile, offset)
+	pageSlice, err := storage.GetTablePages(tableObj.DataFile, offset)
 	if err != nil {
 		return fmt.Errorf("GetAllColumns: %w", err)
 	}

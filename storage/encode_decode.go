@@ -107,8 +107,17 @@ func EncodePageInfo(pageInfo *PageInfo) ([]byte, error) {
 		}
 	}
 
+	if err := binary.Write(&buf, binary.LittleEndian, pageInfo.Rearranged); err != nil {
+		return nil, err
+	}
+
+	if err := binary.Write(&buf, binary.LittleEndian, pageInfo.Size); err != nil {
+		return nil, err
+	}
+
 	return buf.Bytes(), nil
 }
+
 
 func DecodePageInfo(data []byte) (*PageInfo, error) {
 	buf := bytes.NewReader(data)
@@ -150,8 +159,17 @@ func DecodePageInfo(data []byte) (*PageInfo, error) {
 		pageInfo.FSM[i] = int(fsmValue)
 	}
 
+	if err := binary.Read(buf, binary.LittleEndian, &pageInfo.Rearranged); err != nil {
+		return nil, fmt.Errorf("error reading Rearranged flag: %w", err)
+	}
+
+	if err := binary.Read(buf, binary.LittleEndian, &pageInfo.Size); err != nil {
+		return nil, fmt.Errorf("error reading Size: %w", err)
+	}
+
 	return &pageInfo, nil
 }
+
 
 func EncodePageHeader(header PageHeader, buf *bytes.Buffer) error {
 	if err := binary.Write(buf, binary.LittleEndian, header.ID); err != nil {

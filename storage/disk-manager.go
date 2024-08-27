@@ -149,13 +149,22 @@ func UpdateDirectoryPageDisk(page *DirectoryPageV2, dirFile *os.File) error {
 	return nil
 }
 
-func FindAvailablePage(tableObj *TableObj, bytesNeeded int) (*PageV2, error) {
+func FindAvailablePage(dataFile *os.File, bytesNeeded int) (*PageV2, error) {
 	var offset int64
 	var page *PageV2
 
+	stat, err := dataFile.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("FindAvailablePage: %w", err)
+	}
+
+	if stat.Size() != 0 {
+		offset = stat.Size() - PageSizeV2
+	}
+
 	for {
 		pageBytes := make([]byte, PageSizeV2)
-		_, err := tableObj.DataFile.ReadAt(pageBytes, int64(offset))
+		_, err := dataFile.ReadAt(pageBytes, int64(offset))
 		if err != nil {
 			if err == io.EOF {
 				fmt.Println("FindAvailablePage (End of file reached, creating new page)")

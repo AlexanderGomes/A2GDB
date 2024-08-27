@@ -14,13 +14,14 @@ const (
 
 func main() {
 	dm, _ := InitDatabase(replacerFrequency, dirName)
+	Testing(dm)
 
-	res, err := dm.QueryEntryPoint(`SELECT * FROM User`)
+	res, err := dm.QueryEntryPoint(`SELECT * FROM User;`)
 	if err != nil {
 		fmt.Println(err)
 	}
 
-	fmt.Println(res.Result[0])
+	fmt.Println(len(res.Result))
 }
 
 func Testing(dm *queryengine.QueryEngine) error {

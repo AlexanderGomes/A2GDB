@@ -52,6 +52,8 @@ type PageInfo struct {
 	Offset       Offset
 	PointerArray []TupleLocation
 	FSM          []int
+	Rearranged   bool
+	Size         uint16
 }
 
 func CreatePageV2() *PageV2 {
