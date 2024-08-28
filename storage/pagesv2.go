@@ -10,6 +10,7 @@ import (
 const (
 	PageSizeV2     = 4 * 1024
 	HeaderSize     = 14
+
 	PageDataSize   = PageSizeV2 - HeaderSize
 	TupleEntrySize = 4
 )
@@ -26,6 +27,7 @@ type PageHeader struct {
 	LowerPtr  uint16
 	UpperPtr  uint16
 	NumTuples uint16
+
 }
 
 type PageV2 struct {

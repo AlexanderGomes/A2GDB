@@ -16,12 +16,6 @@ func main() {
 	dm, _ := InitDatabase(replacerFrequency, dirName)
 	Testing(dm)
 
-	res, err := dm.QueryEntryPoint(`SELECT * FROM User;`)
-	if err != nil {
-		fmt.Println(err)
-	}
-
-	fmt.Println(len(res.Result))
 }
 
 func Testing(dm *queryengine.QueryEngine) error {
@@ -32,7 +26,7 @@ func Testing(dm *queryengine.QueryEngine) error {
 			City VARCHAR
 );`)
 
-	for i := 0; i < 10000; i++ {
+	for i := 0; i < 500; i++ {
 		dm.QueryEntryPoint(`INSERT INTO User (Username, Age, City) VALUES
 		('sander1', 12, 'richmond'),
 		('sander2', 15, 'richmond'),
@@ -62,6 +56,11 @@ func Testing(dm *queryengine.QueryEngine) error {
 		('sander20', 91, 'san francisco');`)
 	}
 
+	_, err := dm.QueryEntryPoint(`DELETE FROM User WHERE Username = 'sander';`)
+	if err != nil {
+		fmt.Println(err)
+	}
+
 	return nil
 }
 
@@ -72,10 +71,9 @@ func InitDatabase(k int, dirName string) (*queryengine.QueryEngine, error) {
 	}
 
 	queryPtr := &queryengine.QueryEngine{
-		DB: bufferPool,
+		Disk: bufferPool.DiskManager,
 	}
 
-	go bufferPool.DiskScheduler.ProccessReq()
 	log.Println("Database initialized successfully")
 	return queryPtr, nil
 }

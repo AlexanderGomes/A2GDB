@@ -2,6 +2,7 @@ package queryengine
 
 import (
 	"disk-db/storage"
+	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -16,7 +17,7 @@ type Query struct {
 }
 
 type QueryEngine struct {
-	DB *storage.BufferPoolManager
+	Disk *storage.DiskManagerV2
 }
 
 func (qe *QueryEngine) QueryEntryPoint(sql string) (Query, error) {
@@ -48,7 +49,7 @@ func (qe *QueryEngine) ExecuteQueryPlan(qp ExecutionPlan, P *ParsedQuery) (Query
 	for _, steps := range qp.Steps {
 		switch steps.Operation {
 		case "GetTable":
-			tableObj, err = GetTable(P, qe.DB, steps)
+			tableObj, err = GetTable(P, qe.Disk, steps)
 		case "GetAllColumns":
 			err = GetAllColumns(P, tableObj, &query, offset)
 		case "CollectPointer":
@@ -56,17 +57,17 @@ func (qe *QueryEngine) ExecuteQueryPlan(qp ExecutionPlan, P *ParsedQuery) (Query
 		case "FilterByColumns":
 			err = FilterByColumns(tableObj, &query, P, offset)
 		case "InsertRows":
-			err = InsertRows(P, &query, qe.DB, tableObj)
+			err = InsertRows(P, &query, qe.Disk, tableObj)
 		case "CreateTable":
-			err = CreateTable(P, &query, qe.DB)
+			err = CreateTable(P, &query, qe.Disk)
 		case "JoinQueryTable":
 			err = JoinTables(&query, P.Joins[0].Condition, tablesPtr)
 		case "DeleteFromTable":
 			err = DeleteFromTable(P, tableObj, offset)
 		case "Update":
-			err = Update(P, qe.DB.DiskScheduler.DiskManager, tableObj, offset)
+			err = Update(P, qe.Disk, tableObj, offset)
 		case "DetermineScan":
-			offset, err = DetermineScan(P, qe.DB.DiskScheduler.DiskManager)
+			offset, err = DetermineScan(P, qe.Disk)
 		case "GroupByColumn":
 			groupByMap, err = GroupByColumn(P, tableObj)
 		case "GroupByFunction":
@@ -287,7 +288,6 @@ func Average(groupMap map[string][]string) (map[string]float64, error) {
 		}
 	}
 
-	//testingsas
 	return avgMap, nil
 }
 
@@ -369,11 +369,12 @@ func Update(p *ParsedQuery, manager *storage.DiskManagerV2, tableObj *storage.Ta
 	changingField := p.Predicates[0].(string)
 	newValue := p.Predicates[1].(string)
 
-	if err := processPagesUpdate(tablePages, findField, findValue, changingField, newValue, tableObj); err != nil {
+	items, err := processPagesUpdate(&tablePages, findField, findValue, changingField, newValue, tableObj)
+	if err != nil {
 		return fmt.Errorf("UPDATE: %w", err)
 	}
 
-	if err := writeUpdatedPages(tablePages, tableObj); err != nil {
+	if err := writeUpdatedPages(tablePages, tableObj, items); err != nil {
 		return fmt.Errorf("UPDATE: %w", err)
 	}
 
@@ -385,8 +386,11 @@ func Update(p *ParsedQuery, manager *storage.DiskManagerV2, tableObj *storage.Ta
 	return nil
 }
 
-func processPagesUpdate(pages []*storage.PageV2, findField, findValue, changingField, newValue string, tableObj *storage.TableObj) error {
-	for _, page := range pages {
+func processPagesUpdate(pages *[]*storage.PageV2, findField, findValue, changingField, newValue string, tableObj *storage.TableObj) (map[storage.PageID][]uint64, error) {
+	bptreeMapInfo := make(map[storage.PageID][]uint64)
+	var createdPages []*storage.PageV2
+
+	for _, page := range *pages {
 		var newPtrArray []storage.TupleLocation
 		pageObj := tableObj.DirectoryPage.Value[storage.PageID(page.Header.ID)]
 
@@ -395,57 +399,144 @@ func processPagesUpdate(pages []*storage.PageV2, findField, findValue, changingF
 			rowBytes := page.Data[location.Offset : location.Offset+location.Length]
 			row, err := storage.DecodeRow(rowBytes)
 			if err != nil {
-				return fmt.Errorf("processPagesUpdate: failed to decode row: %w", err)
+				return nil, fmt.Errorf("processPagesUpdate: failed to decode row: %w", err)
 			}
 
 			if row.Values[findField] == findValue {
-				row.Values[changingField] = newValue
-				updatedBytes, err := storage.SerializeRow(row)
+				updatedBytes, updatedTupleLength, err := UpdateTuple(row, changingField, newValue)
 				if err != nil {
-					return fmt.Errorf("processPagesUpdate: failed to serialize row: %w", err)
+					return nil, fmt.Errorf("processPagesUpdate: %w", err)
 				}
 
-				updatedTupleLength := len(updatedBytes)
-
-				pageObj.FSM = append(pageObj.FSM, i)
-				location.Free = false
-
-				err = storage.ResetBytesToEmpty(page, location.Offset, location.Length)
+				err = CleanOldTupleSpace(row, pageObj, tableObj, page, location, i)
 				if err != nil {
-					return fmt.Errorf("processPagesUpdate: failed to reset bytes: %w", err)
+					return nil, fmt.Errorf("processPagesUpdate: %w", err)
 				}
 
-				// may make create fragmentation adding a smaller tuple to the same place
-				if updatedTupleLength <= int(location.Length) {
-					copy(page.Data[location.Offset:], updatedBytes)
-					location.Length = uint16(updatedTupleLength)
-					newPtrArray = append(newPtrArray, *location)
-				} else {
-					// #Edge case: new tuple may be too big for the page
-					err = page.AddTuple(updatedBytes)
+				err = page.AddTuple(updatedBytes)
+				if err != nil {
+					err := FindSpaceAndInsert(tableObj, updatedTupleLength, page, bptreeMapInfo, row, updatedBytes, &createdPages)
 					if err != nil {
-						return fmt.Errorf("processPagesUpdate: failed to add updated tuple: %w", err)
+						return nil, fmt.Errorf("processPagesUpdate: %w", err)
 					}
-
-					newPtrArray = append(newPtrArray, page.PointerArray[len(page.PointerArray)-1])
+					continue
 				}
+
+				newPtrArray = append(newPtrArray, page.PointerArray[len(page.PointerArray)-1])
 			}
 		}
 
 		pageObj.PointerArray = append(pageObj.PointerArray, newPtrArray...)
 	}
 
+	*pages = append(*pages, createdPages...)
+
+	return bptreeMapInfo, nil
+}
+
+func FindSpaceAndInsert(tableObj *storage.TableObj, updatedTupleLength int, page *storage.PageV2, bptreeMapInfo map[storage.PageID][]uint64, row *storage.RowV2, updatedBytes []byte, createdPages *[]*storage.PageV2) error {
+	newpage, err := storage.FindAvailablePage(tableObj.DataFile, updatedTupleLength)
+	if err != nil {
+		return fmt.Errorf("GetNewPage: %w", err)
+	}
+
+	pageId := storage.PageID(page.Header.ID)
+	bptreeMapInfo[pageId] = append(bptreeMapInfo[pageId], row.ID)
+
+	newpage.AddTuple(updatedBytes)
+	*createdPages = append(*createdPages, newpage)
+
 	return nil
 }
 
-func writeUpdatedPages(pages []*storage.PageV2, tableObj *storage.TableObj) error {
+func CleanOldTupleSpace(row *storage.RowV2, pageObj *storage.PageInfo, tableObj *storage.TableObj, page *storage.PageV2, location *storage.TupleLocation, i int) error {
+	item := storage.Item{
+		Key:   row.ID,
+		Value: pageObj.Offset,
+	}
+
+	tableObj.BpTree.Delete(item)
+
+	location.Free = false
+	pageObj.FSM = append(pageObj.FSM, i)
+	err := storage.ResetBytesToEmpty(page, location.Offset, location.Length)
+	if err != nil {
+		return fmt.Errorf("CleanOldTupleSpace: failed to reset bytes: %w", err)
+	}
+
+	return nil
+}
+
+func UpdateTuple(row *storage.RowV2, changingField, newValue string) ([]byte, int, error) {
+	row.Values[changingField] = newValue
+	updatedBytes, err := storage.SerializeRow(row)
+	if err != nil {
+		return nil, 0, fmt.Errorf("UpdatingTuple: failed to serialize row: %w", err)
+	}
+
+	updatedTupleLength := len(updatedBytes)
+	if updatedTupleLength > storage.PageDataSize {
+		return nil, 0, errors.New("UpdatingTuple: tuple is bigger than page")
+	}
+
+	return updatedBytes, updatedTupleLength, nil
+}
+
+func writeUpdatedPages(pages []*storage.PageV2, tableObj *storage.TableObj, itemsMap map[storage.PageID][]uint64) error {
 	for _, page := range pages {
-		pageObj := tableObj.DirectoryPage.Value[storage.PageID(page.Header.ID)]
+		pageObj, ok := tableObj.DirectoryPage.Value[storage.PageID(page.Header.ID)]
+		if !ok {
+			offset, err := storage.WritePageEOFV2(page, tableObj.DataFile)
+			if err != nil {
+				return fmt.Errorf("writeUpdatedPages: %w", err)
+			}
+
+			itemsBytes, err := UpdateNonPageFiles(page, offset, tableObj, itemsMap)
+			if err != nil {
+				return fmt.Errorf("writeUpdatedPages: %w", err)
+			}
+
+			err = storage.WriteNonPageFile(tableObj.BpFile, itemsBytes)
+			if err != nil {
+				return fmt.Errorf("UpdateBp: %w", err)
+			}
+			return nil
+		}
+
 		if err := storage.WritePageBackV2(page, pageObj.Offset, tableObj.DataFile); err != nil {
 			return fmt.Errorf("writeUpdatedPages: %w", err)
 		}
 	}
 	return nil
+}
+
+func UpdateNonPageFiles(page *storage.PageV2, offset storage.Offset, tableObj *storage.TableObj, itemsMap map[storage.PageID][]uint64) ([]byte, error) {
+	pageInfo := storage.PageInfo{
+		Offset:       offset,
+		PointerArray: page.PointerArray,
+	}
+
+	dirPage := tableObj.DirectoryPage
+	dirPage.Value[storage.PageID(page.Header.ID)] = &pageInfo
+
+	updatedRows := itemsMap[storage.PageID(page.Header.ID)]
+	var items []storage.Item
+	for _, key := range updatedRows {
+		item := storage.Item{
+			Key:   key,
+			Value: offset,
+		}
+
+		items = append(items, item)
+		tableObj.BpTree.ReplaceOrInsert(item)
+	}
+
+	itemsBytes, err := storage.EncodeItems(items)
+	if err != nil {
+		return nil, fmt.Errorf("UpdateBp: %w", err)
+	}
+
+	return itemsBytes, nil
 }
 
 func DeleteFromTable(p *ParsedQuery, tableObj *storage.TableObj, offset *storage.Offset) error {
@@ -464,11 +555,22 @@ func DeleteFromTable(p *ParsedQuery, tableObj *storage.TableObj, offset *storage
 		return fmt.Errorf("DELETE: %w", err)
 	}
 
-	if err := writeUpdatedPages(tablePages, tableObj); err != nil {
+	if err := writeUpdatedPages(tablePages, tableObj, nil); err != nil {
 		return fmt.Errorf("DELETE: %w", err)
 	}
 
 	if err = storage.UpdateDirectoryPageDisk(tableObj.DirectoryPage, tableObj.DirFile); err != nil {
+		return fmt.Errorf("DELETE: %w", err)
+	}
+
+	items := storage.GetAllItems(tableObj.BpTree)
+	bytes, err := storage.EncodeItems(items)
+	if err != nil {
+		return fmt.Errorf("DELETE: %w", err)
+	}
+
+	err = storage.WriteNonPageFile(tableObj.BpFile, bytes)
+	if err != nil {
 		return fmt.Errorf("DELETE: %w", err)
 	}
 
@@ -490,9 +592,17 @@ func processPagesForDeletion(pages []*storage.PageV2, field, value string, table
 				location.Free = true
 				pageObj.FSM = append(pageObj.FSM, i)
 				storage.ResetBytesToEmpty(page, location.Offset, location.Length)
+
+				item := storage.Item{
+					Key:   row.ID,
+					Value: pageObj.Offset,
+				}
+
+				tableObj.BpTree.Delete(item)
 			}
 		}
 	}
+
 	return nil
 }
 
@@ -568,9 +678,8 @@ func joinAndStoreResults(pages []*storage.PageV2, dirPage *storage.DirectoryPage
 	return nil
 }
 
-func CreateTable(parsedQuery *ParsedQuery, query *Query, bpm *storage.BufferPoolManager) error {
+func CreateTable(parsedQuery *ParsedQuery, query *Query, manager *storage.DiskManagerV2) error {
 	tableName := parsedQuery.TableReferences[0]
-	manager := bpm.DiskScheduler.DiskManager
 
 	tableSchema, err := buildTableSchema(parsedQuery)
 	if err != nil {
@@ -604,10 +713,9 @@ func buildTableSchema(parsedQuery *ParsedQuery) (storage.TableInfo, error) {
 	return tableInfo, nil
 }
 
-func GetTable(parsedQuery *ParsedQuery, bpm *storage.BufferPoolManager, step QueryStep) (*storage.TableObj, error) {
+func GetTable(parsedQuery *ParsedQuery, manager *storage.DiskManagerV2, step QueryStep) (*storage.TableObj, error) {
 	log.Println("GETTING TABLE")
 
-	manager := bpm.DiskScheduler.DiskManager
 	tableNAME := parsedQuery.TableReferences[step.index]
 
 	var tableObj *storage.TableObj
@@ -624,10 +732,10 @@ func GetTable(parsedQuery *ParsedQuery, bpm *storage.BufferPoolManager, step Que
 	return tableObj, err
 }
 
-func InsertRows(parsedQuery *ParsedQuery, query *Query, bpm *storage.BufferPoolManager, tableObj *storage.TableObj) error {
+func InsertRows(parsedQuery *ParsedQuery, query *Query, manager *storage.DiskManagerV2, tableObj *storage.TableObj) error {
 	log.Println("INSERTING ROWS")
 
-	catalog := bpm.DiskScheduler.DiskManager.PageCatalog
+	catalog := manager.PageCatalog
 	encodedRows, spaceNeeded, err := serializeRows(parsedQuery.Predicates, catalog, parsedQuery.TableReferences[0])
 	if err != nil {
 		return fmt.Errorf("InsertRows: %w", err)
@@ -676,6 +784,10 @@ func serializeRows(rows []interface{}, catalog *storage.Catalog, tableName inter
 		rowBytes, err := storage.SerializeRow(rowV2)
 		if err != nil {
 			return nil, 0, fmt.Errorf("serialization error: %w", err)
+		}
+
+		if spaceNeeded > storage.PageDataSize {
+			return nil, 0, fmt.Errorf("serializeRows: space needed bigger than a single page")
 		}
 
 		encodedRows = append(encodedRows, rowBytes)
@@ -750,6 +862,7 @@ func FilterByColumns(tableObj *storage.TableObj, query *Query, P *ParsedQuery, o
 	columnMap := createColumnMap(P.ColumnsSelected)
 	dirPage := tableObj.DirectoryPage
 	dirPageValues := dirPage.Value
+
 	hasWhereClause := len(P.Where) > 0
 	var field, value string
 	if hasWhereClause {

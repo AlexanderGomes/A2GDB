@@ -25,22 +25,15 @@ type BufferRes struct {
 
 type FrameID int
 type BufferPoolManager struct {
-	Pages         [MaxPoolSize]*PageV2
-	freeList      []FrameID
-	pageTable     map[PageID]FrameID
-	Replacer      *LRUKReplacer
-	DiskScheduler *DiskScheduler
+	Pages       [MaxPoolSize]*PageV2
+	freeList    []FrameID
+	pageTable   map[PageID]FrameID
+	Replacer    *LRUKReplacer
+	DiskManager *DiskManagerV2
 }
 
 func (bpm *BufferPoolManager) FlushAll() {
-	for _, FrameID := range bpm.pageTable {
-		page := bpm.Pages[FrameID]
-		req := DiskReq{
-			Page:      *page,
-			Operation: "WRITE",
-		}
-		bpm.DiskScheduler.AddReq(req)
-	}
+	
 }
 
 func (bpm *BufferPoolManager) InsertPage(page *PageV2) error {
@@ -65,12 +58,8 @@ func (bpm *BufferPoolManager) Evict() error {
 	}
 	page := bpm.Pages[frameID]
 
-	req := DiskReq{
-		Page:      *page,
-		Operation: "WRITE",
-	}
+	// #TODO - write page to disk
 
-	bpm.DiskScheduler.AddReq(req)
 	bpm.DeletePage(PageID(page.Header.ID))
 
 	fmt.Println("PAGE EVICTED:", page.Header.ID)
@@ -97,28 +86,8 @@ func (bpm *BufferPoolManager) FetchPage(pageID PageID) (*PageV2, error) {
 		}
 	} else {
 
-		// TODO # Why create a page ? just to pass the ID ?
-		page := PageV2{}
-		page.Header.ID = uint64(pageID)
+		// TODO # what if page not in memory
 
-		req := DiskReq{
-			Page:      page,
-			Operation: "READ",
-		}
-
-		bpm.DiskScheduler.AddReq(req)
-		for result := range bpm.DiskScheduler.ResultChan {
-			if result.Response != nil {
-				return nil, result.Response
-			}
-
-			if PageID(result.Page.Header.ID) == pageID {
-				bpm.InsertPage(&result.Page)
-				bpm.Pin(PageID(result.Page.Header.ID))
-				pagePtr = &result.Page
-				break
-			}
-		}
 	}
 
 	bpm.Pin(PageID(pagePtr.Header.ID))
@@ -159,10 +128,9 @@ func NewBufferPoolManager(k int, fileName string) (*BufferPoolManager, error) {
 
 	replacer := NewLRUKReplacer(k)
 	diskManager, err := NewDiskManagerV2(fileName)
-	DiskScheduler := NewDiskScheduler(diskManager)
 	if err != nil {
 		return nil, err
 	}
 
-	return &BufferPoolManager{pages, freeList, pageTable, replacer, DiskScheduler}, nil
+	return &BufferPoolManager{pages, freeList, pageTable, replacer, diskManager}, nil
 }

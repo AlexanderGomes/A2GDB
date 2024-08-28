@@ -104,7 +104,7 @@ func GetRearrangedPages(tableObj *TableObj) error {
 
 func GetBpTree(dbDirName, tableName string) (*btree.BTree, *os.File, error) {
 	bpPath := filepath.Join(dbDirName, "Tables", tableName, "bptree")
-	bpFile, err := os.OpenFile(bpPath, os.O_RDWR|os.O_CREATE, 0777)
+	bpFile, err := os.OpenFile(bpPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
 	if err != nil {
 		return nil, nil, fmt.Errorf("GetBpTree (error opening bp tree file): %w", err)
 	}
@@ -131,7 +131,7 @@ func GetBpTree(dbDirName, tableName string) (*btree.BTree, *os.File, error) {
 
 func GetDataFileInfo(dbDirName, tableName string) (*os.File, error) {
 	tableDataPath := filepath.Join(dbDirName, "Tables", tableName, tableName)
-	dataFile, err := os.OpenFile(tableDataPath, os.O_RDWR, 0777)
+	dataFile, err := os.OpenFile(tableDataPath, os.O_RDWR, 0666)
 	if err != nil {
 		return nil, fmt.Errorf("GetDataFileInfo (error opening data file): %w", err)
 	}
@@ -141,7 +141,7 @@ func GetDataFileInfo(dbDirName, tableName string) (*os.File, error) {
 
 func GetDirInfo(dbDirName, tableName string) (*os.File, *DirectoryPageV2, error) {
 	dirFilePath := filepath.Join(dbDirName, "Tables", tableName, "directory_page")
-	dirFile, err := os.OpenFile(dirFilePath, os.O_RDWR, 0777)
+	dirFile, err := os.OpenFile(dirFilePath, os.O_RDWR|os.O_TRUNC, 0666)
 	if err != nil {
 		return nil, nil, fmt.Errorf("GetDirInfo (error opening directory_page file): %w", err)
 	}
@@ -242,7 +242,6 @@ func FullTableScanBigFiles(file *os.File) ([]*PageV2, error) {
 
 	var wgManagers sync.WaitGroup
 	for _, c := range chunks {
-		fmt.Println(c)
 		wgManagers.Add(1)
 		go func(chunk *Chunk) {
 			defer wgManagers.Done()
