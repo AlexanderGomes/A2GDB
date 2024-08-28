@@ -60,9 +60,11 @@ func SelectTablePlan(executionPlan *ExecutionPlan, P *ParsedQuery) {
 	if len(P.Joins) > 0 {
 		querySteps = []QueryStep{
 			{Operation: "GetTable", index: 0},
-			{Operation: "CollectPointer", index: 0},
+			{Operation: filterOperation},
+			{Operation: "CollectData", index: 0},
 			{Operation: "GetTable", index: 1},
-			{Operation: "CollectPointer", index: 1},
+			{Operation: filterOperation},
+			{Operation: "CollectData", index: 1},
 			{Operation: "JoinQueryTable"},
 		}
 	}

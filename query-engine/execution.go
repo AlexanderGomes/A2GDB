@@ -41,7 +41,7 @@ func (qe *QueryEngine) ExecuteQueryPlan(qp ExecutionPlan, P *ParsedQuery) (Query
 	var offset *storage.Offset
 
 	query := Query{}
-	tablesPtr := []*storage.TableObj{}
+	filteredJoinRows := [][]*storage.RowV2{}
 	var tableObj *storage.TableObj
 	var groupByMap map[string][]string
 	var resMap interface{}
@@ -52,8 +52,9 @@ func (qe *QueryEngine) ExecuteQueryPlan(qp ExecutionPlan, P *ParsedQuery) (Query
 			tableObj, err = GetTable(P, qe.Disk, steps)
 		case "GetAllColumns":
 			err = GetAllColumns(P, tableObj, &query, offset)
-		case "CollectPointer":
-			tablesPtr = append(tablesPtr, tableObj)
+		case "CollectData":
+			filteredJoinRows = append(filteredJoinRows, query.Result)
+			query.Result = []*storage.RowV2{}
 		case "FilterByColumns":
 			err = FilterByColumns(tableObj, &query, P, offset)
 		case "InsertRows":
@@ -61,7 +62,7 @@ func (qe *QueryEngine) ExecuteQueryPlan(qp ExecutionPlan, P *ParsedQuery) (Query
 		case "CreateTable":
 			err = CreateTable(P, &query, qe.Disk)
 		case "JoinQueryTable":
-			err = JoinTables(&query, P.Joins[0].Condition, tablesPtr)
+			err = JoinTables(&query, P.Joins[0].Condition, filteredJoinRows)
 		case "DeleteFromTable":
 			err = DeleteFromTable(P, tableObj, offset)
 		case "Update":
@@ -606,32 +607,39 @@ func processPagesForDeletion(pages []*storage.PageV2, field, value string, table
 	return nil
 }
 
-func JoinTables(query *Query, condition string, tablePtrs []*storage.TableObj) error {
-	if len(tablePtrs) != 2 {
-		return fmt.Errorf("JoinTables: expected exactly two tables")
-	}
-
-	slicePage1, err := storage.GetTablePages(tablePtrs[0].DataFile, nil)
-	if err != nil {
-		return fmt.Errorf("JoinTables (error reading table one): %w", err)
-	}
-
-	slicePage2, err := storage.GetTablePages(tablePtrs[0].DataFile, nil)
-	if err != nil {
-		return fmt.Errorf("JoinTables (error reading table two): %w", err)
-	}
-
+func JoinTables(query *Query, condition string, filteredRows [][]*storage.RowV2) error {
 	leftTableCondition, rightTableCondition, err := parseJoinCondition(condition)
 	if err != nil {
 		return fmt.Errorf("JoinTables (error parsing condition): %w", err)
 	}
 
-	hashTable := buildHashTable(slicePage1, tablePtrs[0].DirectoryPage, leftTableCondition)
-	if err := joinAndStoreResults(slicePage2, tablePtrs[1].DirectoryPage, rightTableCondition, hashTable, query); err != nil {
+	hashTable := buildHashTable(filteredRows[0], leftTableCondition)
+	if err := joinAndStoreResults(filteredRows[1], rightTableCondition, hashTable, query); err != nil {
 		return fmt.Errorf("JoinTables (error joining and storing results): %w", err)
 	}
 
 	return nil
+}
+
+func joinAndStoreResults(filteredRows []*storage.RowV2, conditionField string, hashTable map[string]*storage.RowV2, query *Query) error {
+	for _, row := range filteredRows {
+		joinKey := row.Values[conditionField]
+		if matchedRow, exists := hashTable[joinKey]; exists {
+			query.Result = append(query.Result, matchedRow)
+		}
+	}
+	return nil
+}
+
+func buildHashTable(rows []*storage.RowV2, conditionField string) map[string]*storage.RowV2 {
+	hashTable := make(map[string]*storage.RowV2)
+
+	for _, row := range rows {
+		joinKey := row.Values[conditionField]
+		hashTable[joinKey] = row
+	}
+
+	return hashTable
 }
 
 func parseJoinCondition(condition string) (string, string, error) {
@@ -640,42 +648,6 @@ func parseJoinCondition(condition string) (string, string, error) {
 		return "", "", fmt.Errorf("invalid join condition format")
 	}
 	return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]), nil
-}
-
-func buildHashTable(pages []*storage.PageV2, dirPage *storage.DirectoryPageV2, conditionField string) map[string]*storage.RowV2 {
-	hashTable := make(map[string]*storage.RowV2)
-
-	for _, page := range pages {
-		pageObj := dirPage.Value[storage.PageID(page.Header.ID)]
-		for _, location := range pageObj.PointerArray {
-			rowBytes := page.Data[location.Offset : location.Offset+location.Length]
-			row, err := storage.DecodeRow(rowBytes)
-			if err != nil {
-				continue
-			}
-			joinKey := row.Values[conditionField]
-			hashTable[joinKey] = row
-		}
-	}
-	return hashTable
-}
-
-func joinAndStoreResults(pages []*storage.PageV2, dirPage *storage.DirectoryPageV2, conditionField string, hashTable map[string]*storage.RowV2, query *Query) error {
-	for _, page := range pages {
-		pageObj := dirPage.Value[storage.PageID(page.Header.ID)]
-		for _, location := range pageObj.PointerArray {
-			rowBytes := page.Data[location.Offset : location.Offset+location.Length]
-			row, err := storage.DecodeRow(rowBytes)
-			if err != nil {
-				return fmt.Errorf("joinAndStoreResults: %w", err)
-			}
-			joinKey := row.Values[conditionField]
-			if matchedRow, exists := hashTable[joinKey]; exists {
-				query.Result = append(query.Result, matchedRow)
-			}
-		}
-	}
-	return nil
 }
 
 func CreateTable(parsedQuery *ParsedQuery, query *Query, manager *storage.DiskManagerV2) error {
