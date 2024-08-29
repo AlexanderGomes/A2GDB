@@ -369,6 +369,7 @@ func GetTablePages(dataFile *os.File, offset *Offset) ([]*PageV2, error) {
 		return FullTableScan(dataFile)
 	}
 
+	///
 	bytes, err := ReadPageAtOffset(dataFile, *offset)
 	if err != nil {
 		return nil, fmt.Errorf("getTablePages: %w", err)
