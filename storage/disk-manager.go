@@ -149,7 +149,7 @@ func UpdateDirectoryPageDisk(page *DirectoryPageV2, dirFile *os.File) error {
 	return nil
 }
 
-func FindAvailablePage(dataFile *os.File, bytesNeeded int) (*PageV2, error) {
+func FindAvailablePage(dataFile *os.File, bytesNeeded int, endFlag bool) (*PageV2, error) {
 	var offset int64
 	var page *PageV2
 
@@ -158,9 +158,11 @@ func FindAvailablePage(dataFile *os.File, bytesNeeded int) (*PageV2, error) {
 		return nil, fmt.Errorf("FindAvailablePage: %w", err)
 	}
 
-	if stat.Size() != 0 {
-		offset = stat.Size() - PageSizeV2
+	if endFlag || stat.Size() == 0 {
+		return CreatePageV2(), nil
 	}
+
+	offset = stat.Size() - PageSizeV2
 
 	for {
 		pageBytes := make([]byte, PageSizeV2)
@@ -171,7 +173,7 @@ func FindAvailablePage(dataFile *os.File, bytesNeeded int) (*PageV2, error) {
 				return CreatePageV2(), nil
 			}
 
-			return nil, fmt.Errorf("FindAvailablePage(erro reading from file non-EOF): %w", err)
+			return nil, fmt.Errorf("FindAvailablePage (error reading from file non-EOF): %w", err)
 		}
 
 		foundPage, err := DecodePageV2(pageBytes)
@@ -184,7 +186,7 @@ func FindAvailablePage(dataFile *os.File, bytesNeeded int) (*PageV2, error) {
 			page = foundPage
 			break
 		}
-		
+
 		offset += PageSizeV2
 	}
 
