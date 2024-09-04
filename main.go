@@ -12,11 +12,11 @@ const (
 	dirName           = "A2G_DB"
 )
 
+// 17227
 func main() {
 	dm, _ := InitDatabase(replacerFrequency, dirName)
 
-	_, err := dm.QueryEntryPoint(`UPDATE User SET Username = 'testingsansknaklsnklansklansklnaklsnkasn' WHERE Username = 'testing';`)
-
+	_, err := dm.QueryEntryPoint(`SELECT * FROM User WHERE Username = 'umtestingsansknaklsnklansklansklnaklsnkasn';`)
 	if err != nil {
 		fmt.Println(err)
 	}
