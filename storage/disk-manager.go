@@ -174,7 +174,6 @@ func FindAvailablePage(dataFile *os.File, bytesNeeded int) (*PageV2, error) {
 			return nil, fmt.Errorf("FindAvailablePage(erro reading from file non-EOF): %w", err)
 		}
 
-		offset += PageSizeV2
 		foundPage, err := DecodePageV2(pageBytes)
 		if err != nil {
 			return nil, fmt.Errorf("FindAvailablePage: %w", err)
@@ -185,6 +184,8 @@ func FindAvailablePage(dataFile *os.File, bytesNeeded int) (*PageV2, error) {
 			page = foundPage
 			break
 		}
+		
+		offset += PageSizeV2
 	}
 
 	return page, nil

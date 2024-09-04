@@ -8,8 +8,8 @@ import (
 )
 
 const (
-	PageSizeV2     = 4 * 1024
-	HeaderSize     = 14
+	PageSizeV2 = 4 * 1024
+	HeaderSize = 14
 
 	PageDataSize   = PageSizeV2 - HeaderSize
 	TupleEntrySize = 4
@@ -27,7 +27,6 @@ type PageHeader struct {
 	LowerPtr  uint16
 	UpperPtr  uint16
 	NumTuples uint16
-
 }
 
 type PageV2 struct {
@@ -130,21 +129,18 @@ func WritePageEOFV2(page *PageV2, dataFile *os.File) (Offset, error) {
 
 func ReadNonPageFile(file *os.File) ([]byte, error) {
 	var buffer bytes.Buffer
-
 	tempBuffer := make([]byte, 1024)
-	offset := int64(0)
 
 	for {
-		n, err := file.ReadAt(tempBuffer, offset)
-		if err != nil && err != io.EOF {
-			return nil, fmt.Errorf("ReadFile (error reading file): %w", err)
-		}
+		n, err := file.Read(tempBuffer)
 		if n > 0 {
 			buffer.Write(tempBuffer[:n])
-			offset += int64(n)
 		}
-		if err == io.EOF {
-			break
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return nil, fmt.Errorf("ReadNonPageFile: error reading file: %w", err)
 		}
 	}
 

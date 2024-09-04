@@ -438,25 +438,28 @@ func processPagesUpdate(pages *[]*storage.PageV2, findField, findValue, changing
 func FindSpaceAndInsert(tableObj *storage.TableObj, updatedTupleLength int, page *storage.PageV2, bptreeMapInfo map[storage.PageID][]uint64, row *storage.RowV2, updatedBytes []byte, createdPages *[]*storage.PageV2) error {
 	newpage, err := storage.FindAvailablePage(tableObj.DataFile, updatedTupleLength)
 	if err != nil {
-		return fmt.Errorf("GetNewPage: %w", err)
+		return fmt.Errorf("FindSpaceAndInsert: %w", err)
+	}
+
+	err = newpage.AddTuple(updatedBytes)
+	if err != nil {
+		return fmt.Errorf("FindSpaceAndInsert: %w", err)
 	}
 
 	pageId := storage.PageID(page.Header.ID)
 	bptreeMapInfo[pageId] = append(bptreeMapInfo[pageId], row.ID)
 
-	newpage.AddTuple(updatedBytes)
 	*createdPages = append(*createdPages, newpage)
 
 	return nil
 }
 
 func CleanOldTupleSpace(row *storage.RowV2, pageObj *storage.PageInfo, tableObj *storage.TableObj, page *storage.PageV2, location *storage.TupleLocation, i int) error {
-	item := storage.Item{
-		Key:   row.ID,
-		Value: pageObj.Offset,
+	itemToDelete := storage.Item{
+		Key: row.ID,
 	}
 
-	tableObj.BpTree.Delete(item)
+	tableObj.BpTree.Delete(itemToDelete)
 
 	location.Free = false
 	pageObj.FSM = append(pageObj.FSM, i)
@@ -492,7 +495,7 @@ func writeUpdatedPages(pages []*storage.PageV2, tableObj *storage.TableObj, item
 				return fmt.Errorf("writeUpdatedPages: %w", err)
 			}
 
-			itemsBytes, err := UpdateNonPageFiles(page, offset, tableObj, itemsMap)
+			itemsBytes, err := UpdateIndexStructures(page, offset, tableObj, itemsMap)
 			if err != nil {
 				return fmt.Errorf("writeUpdatedPages: %w", err)
 			}
@@ -511,7 +514,8 @@ func writeUpdatedPages(pages []*storage.PageV2, tableObj *storage.TableObj, item
 	return nil
 }
 
-func UpdateNonPageFiles(page *storage.PageV2, offset storage.Offset, tableObj *storage.TableObj, itemsMap map[storage.PageID][]uint64) ([]byte, error) {
+// Update bpp and dir files
+func UpdateIndexStructures(page *storage.PageV2, offset storage.Offset, tableObj *storage.TableObj, itemsMap map[storage.PageID][]uint64) ([]byte, error) {
 	pageInfo := storage.PageInfo{
 		Offset:       offset,
 		PointerArray: page.PointerArray,
@@ -560,19 +564,27 @@ func DeleteFromTable(p *ParsedQuery, tableObj *storage.TableObj, offset *storage
 		return fmt.Errorf("DELETE: %w", err)
 	}
 
-	if err = storage.UpdateDirectoryPageDisk(tableObj.DirectoryPage, tableObj.DirFile); err != nil {
+	if err := storage.UpdateDirectoryPageDisk(tableObj.DirectoryPage, tableObj.DirFile); err != nil {
 		return fmt.Errorf("DELETE: %w", err)
 	}
 
+	if err := UpdateBp(tableObj); err != nil {
+		return fmt.Errorf("DELETE: %w", err)
+	}
+
+	return nil
+}
+
+func UpdateBp(tableObj *storage.TableObj) error {
 	items := storage.GetAllItems(tableObj.BpTree)
 	bytes, err := storage.EncodeItems(items)
 	if err != nil {
-		return fmt.Errorf("DELETE: %w", err)
+		return fmt.Errorf("UpdateBp: %w", err)
 	}
 
 	err = storage.WriteNonPageFile(tableObj.BpFile, bytes)
 	if err != nil {
-		return fmt.Errorf("DELETE: %w", err)
+		return fmt.Errorf("UpdateBp: %w", err)
 	}
 
 	return nil
@@ -594,12 +606,11 @@ func processPagesForDeletion(pages []*storage.PageV2, field, value string, table
 				pageObj.FSM = append(pageObj.FSM, i)
 				storage.ResetBytesToEmpty(page, location.Offset, location.Length)
 
-				item := storage.Item{
-					Key:   row.ID,
-					Value: pageObj.Offset,
+				itemToDelete := storage.Item{
+					Key: row.ID,
 				}
 
-				tableObj.BpTree.Delete(item)
+				tableObj.BpTree.Delete(itemToDelete)
 			}
 		}
 	}
@@ -794,18 +805,15 @@ func updatePageInfo(pageID storage.PageID, pageFound *storage.PageV2, tableObj *
 		}
 
 		dirPage.Value[pageID] = pageInfObj
-		if err := storage.UpdateDirectoryPageDisk(dirPage, tableObj.DirFile); err != nil {
-			return fmt.Errorf("update directory page error: %w", err)
-		}
 	} else {
 		pageInfObj.PointerArray = append(pageInfObj.PointerArray, pageFound.PointerArray...)
-		if err := storage.UpdateDirectoryPageDisk(dirPage, tableObj.DirFile); err != nil {
-			return fmt.Errorf("update directory page error: %w", err)
-		}
-
 		if err := storage.WritePageBackV2(pageFound, pageInfObj.Offset, tableObj.DataFile); err != nil {
 			return fmt.Errorf("write page back error: %w", err)
 		}
+	}
+
+	if err := storage.UpdateDirectoryPageDisk(dirPage, tableObj.DirFile); err != nil {
+		return fmt.Errorf("update directory page error: %w", err)
 	}
 
 	if err := storage.UpdateBp(pq.Predicates, *tableObj, *pageInfObj); err != nil {

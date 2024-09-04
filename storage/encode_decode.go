@@ -101,6 +101,7 @@ func EncodePageInfo(pageInfo *PageInfo) ([]byte, error) {
 	if err := binary.Write(&buf, binary.LittleEndian, numFSM); err != nil {
 		return nil, err
 	}
+	
 	for _, fsmValue := range pageInfo.FSM {
 		if err := binary.Write(&buf, binary.LittleEndian, int32(fsmValue)); err != nil {
 			return nil, err

@@ -78,6 +78,10 @@ func GetRearrangedPages(tableObj *TableObj) error {
 		return fmt.Errorf("GetRearrangedPages: %w", err)
 	}
 
+	if len(pages) == 0 {
+		return nil
+	}
+
 	dirMap := tableObj.DirectoryPage.Value
 	for _, page := range pages {
 		pageObj, ok := dirMap[PageID(page.Header.ID)]
@@ -88,6 +92,8 @@ func GetRearrangedPages(tableObj *TableObj) error {
 		if !pageObj.Rearranged {
 			continue
 		}
+
+		fmt.Println("here")
 
 		rearrengedObj := RearrangedPage{
 			PageID: PageID(page.Header.ID),
@@ -104,7 +110,7 @@ func GetRearrangedPages(tableObj *TableObj) error {
 
 func GetBpTree(dbDirName, tableName string) (*btree.BTree, *os.File, error) {
 	bpPath := filepath.Join(dbDirName, "Tables", tableName, "bptree")
-	bpFile, err := os.OpenFile(bpPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
+	bpFile, err := os.OpenFile(bpPath, os.O_RDWR|os.O_CREATE, 0777)
 	if err != nil {
 		return nil, nil, fmt.Errorf("GetBpTree (error opening bp tree file): %w", err)
 	}
@@ -141,19 +147,26 @@ func GetDataFileInfo(dbDirName, tableName string) (*os.File, error) {
 
 func GetDirInfo(dbDirName, tableName string) (*os.File, *DirectoryPageV2, error) {
 	dirFilePath := filepath.Join(dbDirName, "Tables", tableName, "directory_page")
-	dirFile, err := os.OpenFile(dirFilePath, os.O_RDWR|os.O_TRUNC, 0666)
+	dirFile, err := os.OpenFile(dirFilePath, os.O_RDWR, 0666)
 	if err != nil {
 		return nil, nil, fmt.Errorf("GetDirInfo (error opening directory_page file): %w", err)
 	}
+
+	stat, _ := dirFile.Stat()
+	fmt.Println(stat.Size())
 
 	byts, err := ReadNonPageFile(dirFile)
 	if err != nil {
 		return nil, nil, fmt.Errorf("GetDirInfo (error reading Dir File): %w", err)
 	}
 
+	if len(byts) == 0 {
+		return dirFile, &DirectoryPageV2{make(map[PageID]*PageInfo)}, nil
+	}
+
 	dirPage, err := DecodeDirectory(byts)
 	if err != nil {
-		return nil, nil, fmt.Errorf("GetDirInfo: %w", err)
+		return nil, nil, fmt.Errorf("GetDirInfo (decoding): %w", err)
 	}
 
 	return dirFile, dirPage, nil
@@ -178,20 +191,9 @@ func (dm *DiskManagerV2) CreateTable(name TableName, info TableInfo) error {
 		return fmt.Errorf("CreateTable (create table file error): %w", err)
 	}
 
-	dirPage := DirectoryPageV2{}
-	bytes, err := EncodeDirectory(&dirPage)
-	if err != nil {
-		return fmt.Errorf("CreateTable: %w", err)
-	}
-
-	dir, err := os.Create(filepath.Join(tablePath, "directory_page"))
+	_, err = os.Create(filepath.Join(tablePath, "directory_page"))
 	if err != nil {
 		return fmt.Errorf("CreateTable (create directory_page error): %w", err)
-	}
-
-	_, err = dir.WriteAt(bytes, 0)
-	if err != nil {
-		return fmt.Errorf("CreateTable (error writing to disk): %w", err)
 	}
 
 	_, err = os.Create(filepath.Join(tablePath, string(name), "bptree"))
@@ -369,7 +371,6 @@ func GetTablePages(dataFile *os.File, offset *Offset) ([]*PageV2, error) {
 		return FullTableScan(dataFile)
 	}
 
-	///
 	bytes, err := ReadPageAtOffset(dataFile, *offset)
 	if err != nil {
 		return nil, fmt.Errorf("getTablePages: %w", err)
