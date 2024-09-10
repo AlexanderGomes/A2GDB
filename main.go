@@ -1,10 +1,8 @@
 package main
 
 import (
+	"disk-db/cmd"
 	queryengine "disk-db/query-engine"
-	"disk-db/storage"
-	"fmt"
-	"log"
 )
 
 const (
@@ -12,14 +10,10 @@ const (
 	dirName           = "A2G_DB"
 )
 
-// 17227
 func main() {
-	dm, _ := InitDatabase(replacerFrequency, dirName)
+	dm, _ := cmd.InitDatabase(replacerFrequency, dirName)
 
-	_, err := dm.QueryEntryPoint(`SELECT * FROM User WHERE Username = 'umtestingsansknaklsnklansklansklnaklsnkasn';`)
-	if err != nil {
-		fmt.Println(err)
-	}
+	Testing(dm)
 }
 
 func Testing(dm *queryengine.QueryEngine) error {
@@ -75,18 +69,4 @@ func Testing(dm *queryengine.QueryEngine) error {
 	}
 
 	return err
-}
-
-func InitDatabase(k int, dirName string) (*queryengine.QueryEngine, error) {
-	bufferPool, err := storage.NewBufferPoolManager(k, dirName)
-	if err != nil {
-		return nil, fmt.Errorf("error initializing database: %w", err)
-	}
-
-	queryPtr := &queryengine.QueryEngine{
-		Disk: bufferPool.DiskManager,
-	}
-
-	log.Println("Database initialized successfully")
-	return queryPtr, nil
 }

@@ -141,7 +141,7 @@ func UpdateDirectoryPageDisk(page *DirectoryPageV2, dirFile *os.File) error {
 		return fmt.Errorf("UpdateDirectoryPageDisk: %w", err)
 	}
 
-	_, err = dirFile.WriteAt(pageBytes, 0)
+	err = WriteNonPageFile(dirFile, pageBytes)
 	if err != nil {
 		return fmt.Errorf("UpdateDirectoryPageDisk (Writing to Dir File): %w", err)
 	}

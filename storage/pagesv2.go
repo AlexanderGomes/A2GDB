@@ -152,6 +152,10 @@ func WriteNonPageFile(file *os.File, data []byte) error {
 		return fmt.Errorf("WriteNonPageFile (file pointer is nil)")
 	}
 
+	if err := file.Truncate(0); err != nil {
+		return fmt.Errorf("WriteNonPageFile (error truncating file): %w", err)
+	}
+
 	_, err := file.WriteAt(data, 0)
 	if err != nil {
 		return fmt.Errorf("WriteNonPageFile (error writing to file): %w", err)

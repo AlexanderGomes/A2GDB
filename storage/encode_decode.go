@@ -95,13 +95,22 @@ func EncodePageInfo(pageInfo *PageInfo) ([]byte, error) {
 		if err := binary.Write(&buf, binary.LittleEndian, tuple.Length); err != nil {
 			return nil, err
 		}
+
+		freeByte := byte(0)
+		if tuple.Free {
+			freeByte = 1
+		}
+
+		if err := buf.WriteByte(freeByte); err != nil {
+			return nil, err
+		}
 	}
 
 	numFSM := uint32(len(pageInfo.FSM))
 	if err := binary.Write(&buf, binary.LittleEndian, numFSM); err != nil {
 		return nil, err
 	}
-	
+
 	for _, fsmValue := range pageInfo.FSM {
 		if err := binary.Write(&buf, binary.LittleEndian, int32(fsmValue)); err != nil {
 			return nil, err
@@ -118,7 +127,6 @@ func EncodePageInfo(pageInfo *PageInfo) ([]byte, error) {
 
 	return buf.Bytes(), nil
 }
-
 
 func DecodePageInfo(data []byte) (*PageInfo, error) {
 	buf := bytes.NewReader(data)
@@ -140,9 +148,18 @@ func DecodePageInfo(data []byte) (*PageInfo, error) {
 		if err := binary.Read(buf, binary.LittleEndian, &tuple.Offset); err != nil {
 			return nil, fmt.Errorf("error reading TupleLocation.Offset: %w", err)
 		}
+
 		if err := binary.Read(buf, binary.LittleEndian, &tuple.Length); err != nil {
 			return nil, fmt.Errorf("error reading TupleLocation.Length: %w", err)
 		}
+
+		freeByte, err := buf.ReadByte()
+		if err != nil {
+			return nil, fmt.Errorf("error reading TupleLocation.Free: %w", err)
+		}
+
+		tuple.Free = freeByte == 1
+
 		pageInfo.PointerArray[i] = tuple
 	}
 
@@ -170,7 +187,6 @@ func DecodePageInfo(data []byte) (*PageInfo, error) {
 
 	return &pageInfo, nil
 }
-
 
 func EncodePageHeader(header PageHeader, buf *bytes.Buffer) error {
 	if err := binary.Write(buf, binary.LittleEndian, header.ID); err != nil {
@@ -408,6 +424,7 @@ func DeserializeCatalog(data []byte) (*Catalog, error) {
 		if err := binary.Read(&buf, binary.LittleEndian, &schemaLen); err != nil {
 			return nil, err
 		}
+
 		tableInfo.Schema = make(map[string]ColumnType)
 		for j := uint32(0); j < schemaLen; j++ {
 			var colNameLen uint32

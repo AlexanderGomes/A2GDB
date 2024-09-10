@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-
 	"github.com/google/btree"
 )
 
@@ -15,7 +14,7 @@ const (
 	PERCENTAGE     = 25
 	BUFFER_SIZE    = 20000
 	NUM_DECODERS   = 100
-	PAGES_PER_READ = 50
+	PAGES_PER_READ = 40
 	MAX_FILE_SIZE  = 100 * 1024
 )
 
@@ -93,8 +92,6 @@ func GetRearrangedPages(tableObj *TableObj) error {
 			continue
 		}
 
-		fmt.Println("here")
-
 		rearrengedObj := RearrangedPage{
 			PageID: PageID(page.Header.ID),
 			Offset: pageObj.Offset,
@@ -152,9 +149,6 @@ func GetDirInfo(dbDirName, tableName string) (*os.File, *DirectoryPageV2, error)
 		return nil, nil, fmt.Errorf("GetDirInfo (error opening directory_page file): %w", err)
 	}
 
-	stat, _ := dirFile.Stat()
-	fmt.Println(stat.Size())
-
 	byts, err := ReadNonPageFile(dirFile)
 	if err != nil {
 		return nil, nil, fmt.Errorf("GetDirInfo (error reading Dir File): %w", err)
@@ -196,7 +190,7 @@ func (dm *DiskManagerV2) CreateTable(name TableName, info TableInfo) error {
 		return fmt.Errorf("CreateTable (create directory_page error): %w", err)
 	}
 
-	_, err = os.Create(filepath.Join(tablePath, string(name), "bptree"))
+	_, err = os.Create(filepath.Join(tablePath, "bptree"))
 	if err != nil {
 		return fmt.Errorf("CreateTable (create bptree file error): %w", err)
 	}
