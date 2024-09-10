@@ -1,4 +1,4 @@
-package queryengine_test
+package tests
 
 import (
 	"disk-db/cmd"
@@ -18,7 +18,7 @@ const (
 	COLUMNS_NUM     = 2
 )
 
-func TestDatabaseOperations(t *testing.T) {
+func TestBaseQueries(t *testing.T) {
 	defer func() {
 		if r := recover(); r != nil {
 			t.Fatalf("Test panicked: %v", r)
