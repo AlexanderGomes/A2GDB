@@ -38,44 +38,6 @@ func EncodeDirectory(dir *DirectoryPageV2) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func DecodeDirectory(data []byte) (*DirectoryPageV2, error) {
-	buf := bytes.NewReader(data)
-
-	var dir DirectoryPageV2
-
-	var numEntries uint32
-	if err := binary.Read(buf, binary.LittleEndian, &numEntries); err != nil {
-		return nil, fmt.Errorf("error reading number of entries: %w", err)
-	}
-
-	dir.Value = make(map[PageID]*PageInfo, numEntries)
-
-	for i := uint32(0); i < numEntries; i++ {
-		var id PageID
-		if err := binary.Read(buf, binary.LittleEndian, &id); err != nil {
-			return nil, fmt.Errorf("error reading PageID: %w", err)
-		}
-
-		var length uint32
-		if err := binary.Read(buf, binary.LittleEndian, &length); err != nil {
-			return nil, fmt.Errorf("error reading length of PageInfo: %w", err)
-		}
-
-		encodedPageInfo := make([]byte, length)
-		if _, err := io.ReadFull(buf, encodedPageInfo); err != nil {
-			return nil, fmt.Errorf("error reading encoded PageInfo data: %w", err)
-		}
-		pageInfo, err := DecodePageInfo(encodedPageInfo)
-		if err != nil {
-			return nil, fmt.Errorf("error decoding PageInfo: %w", err)
-		}
-
-		dir.Value[id] = pageInfo
-	}
-
-	return &dir, nil
-}
-
 func EncodePageInfo(pageInfo *PageInfo) ([]byte, error) {
 	var buf bytes.Buffer
 
@@ -126,6 +88,44 @@ func EncodePageInfo(pageInfo *PageInfo) ([]byte, error) {
 	}
 
 	return buf.Bytes(), nil
+}
+
+func DecodeDirectory(data []byte) (*DirectoryPageV2, error) {
+	buf := bytes.NewReader(data)
+
+	var dir DirectoryPageV2
+
+	var numEntries uint32
+	if err := binary.Read(buf, binary.LittleEndian, &numEntries); err != nil {
+		return nil, fmt.Errorf("error reading number of entries: %w", err)
+	}
+
+	dir.Value = make(map[PageID]*PageInfo, numEntries)
+
+	for i := uint32(0); i < numEntries; i++ {
+		var id PageID
+		if err := binary.Read(buf, binary.LittleEndian, &id); err != nil {
+			return nil, fmt.Errorf("error reading PageID: %w", err)
+		}
+
+		var length uint32
+		if err := binary.Read(buf, binary.LittleEndian, &length); err != nil {
+			return nil, fmt.Errorf("error reading length of PageInfo: %w", err)
+		}
+
+		encodedPageInfo := make([]byte, length)
+		if _, err := io.ReadFull(buf, encodedPageInfo); err != nil {
+			return nil, fmt.Errorf("error reading encoded PageInfo data: %w", err)
+		}
+		pageInfo, err := DecodePageInfo(encodedPageInfo)
+		if err != nil {
+			return nil, fmt.Errorf("error decoding PageInfo: %w", err)
+		}
+
+		dir.Value[id] = pageInfo
+	}
+
+	return &dir, nil
 }
 
 func DecodePageInfo(data []byte) (*PageInfo, error) {
@@ -187,6 +187,7 @@ func DecodePageInfo(data []byte) (*PageInfo, error) {
 
 	return &pageInfo, nil
 }
+
 
 func EncodePageHeader(header PageHeader, buf *bytes.Buffer) error {
 	if err := binary.Write(buf, binary.LittleEndian, header.ID); err != nil {

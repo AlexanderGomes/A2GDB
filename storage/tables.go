@@ -2,12 +2,12 @@ package storage
 
 import (
 	"fmt"
+	"github.com/google/btree"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
 	"sync"
-	"github.com/google/btree"
 )
 
 const (
@@ -15,7 +15,7 @@ const (
 	BUFFER_SIZE    = 20000
 	NUM_DECODERS   = 100
 	PAGES_PER_READ = 40
-	MAX_FILE_SIZE  = 100 * 1024
+	MAX_FILE_SIZE  = 500 * 1024
 )
 
 type TableObj struct {
@@ -134,7 +134,7 @@ func GetBpTree(dbDirName, tableName string) (*btree.BTree, *os.File, error) {
 
 func GetDataFileInfo(dbDirName, tableName string) (*os.File, error) {
 	tableDataPath := filepath.Join(dbDirName, "Tables", tableName, tableName)
-	dataFile, err := os.OpenFile(tableDataPath, os.O_RDWR, 0666)
+	dataFile, err := os.OpenFile(tableDataPath, os.O_RDWR, 0777)
 	if err != nil {
 		return nil, fmt.Errorf("GetDataFileInfo (error opening data file): %w", err)
 	}
@@ -144,7 +144,7 @@ func GetDataFileInfo(dbDirName, tableName string) (*os.File, error) {
 
 func GetDirInfo(dbDirName, tableName string) (*os.File, *DirectoryPageV2, error) {
 	dirFilePath := filepath.Join(dbDirName, "Tables", tableName, "directory_page")
-	dirFile, err := os.OpenFile(dirFilePath, os.O_RDWR, 0666)
+	dirFile, err := os.OpenFile(dirFilePath, os.O_RDWR, 0777)
 	if err != nil {
 		return nil, nil, fmt.Errorf("GetDirInfo (error opening directory_page file): %w", err)
 	}

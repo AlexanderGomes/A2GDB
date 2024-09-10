@@ -2,8 +2,10 @@ package storage
 
 import (
 	"bytes"
+	"crypto/rand"
 	"fmt"
 	"io"
+	"math/big"
 	"os"
 )
 
@@ -172,4 +174,23 @@ func ReadPageAtOffset(file *os.File, offset Offset) ([]byte, error) {
 	}
 
 	return pageData, nil
+}
+
+func (dm *DiskManagerV2) UpdateCatalog() error {
+	bytes, err := SerializeCatalog(dm.PageCatalog)
+
+	if err != nil {
+		return fmt.Errorf("UpdateCatalog: %w", err)
+	}
+
+	dm.FileCatalog.WriteAt(bytes, 0)
+
+	return nil
+}
+
+func GenerateRandomID() uint64 {
+	max := new(big.Int).Lsh(big.NewInt(1), 64)
+	randomNum, _ := rand.Int(rand.Reader, max)
+
+	return randomNum.Uint64()
 }
