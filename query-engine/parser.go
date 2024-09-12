@@ -13,7 +13,7 @@ type ParsedQuery struct {
 	TableReferences  []string
 	ColumnsSelected  []string
 	Predicates       []interface{}
-	Joins            []Join
+	Joins            *Join
 	Where            []string
 	SelectFunc       SelectFunc
 	GroupBy          string
@@ -32,15 +32,22 @@ type SelectFunc struct {
 }
 
 type Join struct {
-	LeftTable  string
-	RightTable string
-	Condition  string
+	LeftTable    string
+	RightTable   string
+	Condition    Condition
+	TableColumns map[string][]string
+}
+
+type Condition struct {
+	Left   string
+	Right  string
+	Symbol string
 }
 
 func Parser(query string) (*ParsedQuery, error) {
 	stmt, err := sqlparser.Parse(query)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parsing error: %w", err)
 	}
 
 	parsedQuery := &ParsedQuery{}
@@ -49,7 +56,9 @@ func Parser(query string) (*ParsedQuery, error) {
 	case *sqlparser.Select:
 		processSelect(stmt, parsedQuery)
 	case *sqlparser.DDL:
-		processDDL(stmt, parsedQuery)
+		if err := processDDL(stmt, parsedQuery); err != nil {
+			return nil, err
+		}
 	case *sqlparser.Insert:
 		if err := processInsert(stmt, parsedQuery); err != nil {
 			return nil, err
@@ -66,9 +75,27 @@ func Parser(query string) (*ParsedQuery, error) {
 }
 
 func processSelect(stmt *sqlparser.Select, parsedQuery *ParsedQuery) {
+	var IsJOIN bool
+	var checkedFrom bool
 	parsedQuery.SQLStatementType = "SELECT"
 
 	for _, expr := range stmt.SelectExprs {
+		if stmt.From != nil && !checkedFrom {
+			checkedFrom = true
+			sqlparser.Walk(func(node sqlparser.SQLNode) (bool, error) {
+				switch n := node.(type) {
+				case *sqlparser.JoinTableExpr:
+					IsJOIN = true
+					processJoin(n, parsedQuery)
+				case *sqlparser.AliasedTableExpr:
+					if tableName, ok := n.Expr.(sqlparser.TableName); ok {
+						parsedQuery.TableReferences = append(parsedQuery.TableReferences, tableName.Name.String())
+					}
+				}
+				return true, nil
+			}, stmt.From)
+		}
+
 		if aliasedExpr, ok := expr.(*sqlparser.AliasedExpr); ok {
 			switch e := aliasedExpr.Expr.(type) {
 			case *sqlparser.FuncExpr:
@@ -84,25 +111,17 @@ func processSelect(stmt *sqlparser.Select, parsedQuery *ParsedQuery) {
 				}
 
 			case *sqlparser.ColName:
+				if IsJOIN {
+					tableName := e.Qualifier.Name.String()
+					columnName := e.Name.String()
+					parsedQuery.Joins.TableColumns[tableName] = append(parsedQuery.Joins.TableColumns[tableName], columnName)
+					continue
+				}
 				parsedQuery.ColumnsSelected = append(parsedQuery.ColumnsSelected, e.Name.String())
 			}
 		} else {
 			parsedQuery.ColumnsSelected = append(parsedQuery.ColumnsSelected, "*")
 		}
-	}
-
-	if stmt.From != nil {
-		sqlparser.Walk(func(node sqlparser.SQLNode) (bool, error) {
-			switch n := node.(type) {
-			case *sqlparser.AliasedTableExpr:
-				if tableName, ok := n.Expr.(sqlparser.TableName); ok {
-					parsedQuery.TableReferences = append(parsedQuery.TableReferences, tableName.Name.String())
-				}
-			case *sqlparser.JoinTableExpr:
-				processJoin(n, parsedQuery)
-			}
-			return true, nil
-		}, stmt.From)
 	}
 
 	if stmt.Where != nil {
@@ -145,27 +164,30 @@ func processSelect(stmt *sqlparser.Select, parsedQuery *ParsedQuery) {
 }
 
 func processJoin(join *sqlparser.JoinTableExpr, parsedQuery *ParsedQuery) {
-	table1, table2 := extractJoinTables(join)
-
-	var condition string
+	var condition Condition
 	if binaryExpr, ok := join.Condition.On.(*sqlparser.ComparisonExpr); ok {
 		if leftCol, leftOk := binaryExpr.Left.(*sqlparser.ColName); leftOk {
 			if rightCol, rightOk := binaryExpr.Right.(*sqlparser.ColName); rightOk {
+				operator := binaryExpr.Operator
+
 				if leftCol.Name.Equal(rightCol.Name) {
-					condition = fmt.Sprintf("%s = %s", leftCol.Name.String(), rightCol.Name.String())
+					condition = Condition{
+						Left:   leftCol.Name.String(),
+						Right:  rightCol.Name.String(),
+						Symbol: operator,
+					}
 				}
 			}
 		}
 	}
 
-	parsedQuery.Joins = append(parsedQuery.Joins, Join{
-		LeftTable:  table1,
-		RightTable: table2,
-		Condition:  condition,
-	})
+	parsedQuery.Joins = &Join{
+		Condition:    condition,
+		TableColumns: make(map[string][]string),
+	}
 }
 
-func processDDL(stmt *sqlparser.DDL, parsedQuery *ParsedQuery) {
+func processDDL(stmt *sqlparser.DDL, parsedQuery *ParsedQuery) error {
 	parsedQuery.SQLStatementType = "CREATE TABLE"
 	parsedQuery.TableReferences = append(parsedQuery.TableReferences, sqlparser.String(stmt.NewName))
 
@@ -180,6 +202,8 @@ func processDDL(stmt *sqlparser.DDL, parsedQuery *ParsedQuery) {
 
 		parsedQuery.Predicates = append(parsedQuery.Predicates, columnType)
 	}
+
+	return nil
 }
 
 func processInsert(stmt *sqlparser.Insert, parsedQuery *ParsedQuery) error {

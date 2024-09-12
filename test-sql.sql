@@ -28,6 +28,11 @@ SELECT *
 FROM User 
 JOIN Student ON Username = Username;
 
+SELECT Employees.Name, Departments.DepartmentName
+FROM Employees
+JOIN Departments ON Employees.DepartmentID = Departments.DepartmentID;
+
+
 
 SELECT city, AVG(age) as average_age
 FROM User

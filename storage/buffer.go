@@ -33,7 +33,7 @@ type BufferPoolManager struct {
 }
 
 func (bpm *BufferPoolManager) FlushAll() {
-	
+
 }
 
 func (bpm *BufferPoolManager) InsertPage(page *PageV2) error {

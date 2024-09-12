@@ -1,6 +1,7 @@
 package queryengine
 
 import (
+	"disk-db/logger"
 	"disk-db/storage"
 	"errors"
 	"fmt"
@@ -8,7 +9,6 @@ import (
 	"math"
 	"sort"
 	"strconv"
-	"strings"
 )
 
 type Query struct {
@@ -23,14 +23,14 @@ type QueryEngine struct {
 func (qe *QueryEngine) QueryEntryPoint(sql string) (Query, error) {
 	parsedSQL, err := Parser(sql)
 	if err != nil {
-		return Query{}, fmt.Errorf("QueryEntryPoint: %w", err)
+		return Query{}, err
 	}
 
 	queryPlan := GenerateQueryPlan(parsedSQL)
 
 	result, err := qe.ExecuteQueryPlan(queryPlan, parsedSQL)
 	if err != nil {
-		return Query{}, fmt.Errorf("QueryEntryPoint: %w", err)
+		return Query{}, err
 	}
 
 	return result, nil
@@ -56,13 +56,13 @@ func (qe *QueryEngine) ExecuteQueryPlan(qp ExecutionPlan, P *ParsedQuery) (Query
 			filteredJoinRows = append(filteredJoinRows, query.Result)
 			query.Result = []*storage.RowV2{}
 		case "FilterByColumns":
-			err = FilterByColumns(tableObj, &query, P, offset)
+			err = FilterByColumns(tableObj, &query, P, offset, steps)
 		case "InsertRows":
 			err = InsertRows(P, &query, qe.Disk, tableObj)
 		case "CreateTable":
 			err = CreateTable(P, &query, qe.Disk)
 		case "JoinQueryTable":
-			err = JoinTables(&query, P.Joins[0].Condition, filteredJoinRows)
+			err = JoinTables(&query, P.Joins.Condition, filteredJoinRows)
 		case "DeleteFromTable":
 			err = DeleteFromTable(P, tableObj, offset)
 		case "Update":
@@ -79,7 +79,7 @@ func (qe *QueryEngine) ExecuteQueryPlan(qp ExecutionPlan, P *ParsedQuery) (Query
 			OrderByExecution(&query, P)
 		}
 		if err != nil {
-			return Query{}, fmt.Errorf("ExecuteQueryPlan: %w", err)
+			return Query{}, err
 		}
 	}
 
@@ -628,51 +628,25 @@ func processPagesForDeletion(pages []*storage.PageV2, field, value string, table
 	return nil
 }
 
-func JoinTables(query *Query, condition string, filteredRows [][]*storage.RowV2) error {
-	leftTableCondition, rightTableCondition, err := parseJoinCondition(condition)
-	if err != nil {
-		return fmt.Errorf("JoinTables (error parsing condition): %w", err)
-	}
-
-	hashTable := buildHashTable(filteredRows[0], leftTableCondition)
-	if err := joinAndStoreResults(filteredRows[1], rightTableCondition, hashTable, query); err != nil {
-		return fmt.Errorf("JoinTables (error joining and storing results): %w", err)
-	}
-
-	return nil
-}
-
-func joinAndStoreResults(filteredRows []*storage.RowV2, conditionField string, hashTable map[string]*storage.RowV2, query *Query) error {
-	for _, row := range filteredRows {
-		joinKey := row.Values[conditionField]
-		if matchedRow, exists := hashTable[joinKey]; exists {
-			query.Result = append(query.Result, matchedRow)
+func JoinTables(query *Query, condition Condition, filteredRows [][]*storage.RowV2) error {
+	for _, rowLeft := range filteredRows[0] {
+		for _, rowRight := range filteredRows[1] {
+			if rowLeft.Values[condition.Left] == rowRight.Values[condition.Right] {
+				query.Result = append(query.Result, rowLeft, rowRight)
+			}
 		}
 	}
+
 	return nil
-}
-
-func buildHashTable(rows []*storage.RowV2, conditionField string) map[string]*storage.RowV2 {
-	hashTable := make(map[string]*storage.RowV2)
-
-	for _, row := range rows {
-		joinKey := row.Values[conditionField]
-		hashTable[joinKey] = row
-	}
-
-	return hashTable
-}
-
-func parseJoinCondition(condition string) (string, string, error) {
-	parts := strings.Split(condition, "=")
-	if len(parts) != 2 {
-		return "", "", fmt.Errorf("invalid join condition format")
-	}
-	return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]), nil
 }
 
 func CreateTable(parsedQuery *ParsedQuery, query *Query, manager *storage.DiskManagerV2) error {
 	tableName := parsedQuery.TableReferences[0]
+
+	_, ok := manager.PageCatalog.Tables[storage.TableName(tableName)]
+	if ok {
+		return errors.New("table already exists")
+	}
 
 	tableSchema, err := buildTableSchema(parsedQuery)
 	if err != nil {
@@ -680,10 +654,10 @@ func CreateTable(parsedQuery *ParsedQuery, query *Query, manager *storage.DiskMa
 	}
 
 	if err := manager.CreateTable(storage.TableName(tableName), tableSchema); err != nil {
-		return fmt.Errorf("CreateTable (error creating table): %w", err)
+		return err
 	}
 
-	log.Println("TABLE CREATED")
+	logger.Log.Info("TABLE CREATED")
 	return nil
 }
 
@@ -707,8 +681,6 @@ func buildTableSchema(parsedQuery *ParsedQuery) (storage.TableInfo, error) {
 }
 
 func GetTable(parsedQuery *ParsedQuery, manager *storage.DiskManagerV2, step QueryStep) (*storage.TableObj, error) {
-	log.Println("GETTING TABLE")
-
 	tableNAME := parsedQuery.TableReferences[step.index]
 
 	var tableObj *storage.TableObj
@@ -722,12 +694,11 @@ func GetTable(parsedQuery *ParsedQuery, manager *storage.DiskManagerV2, step Que
 		}
 	}
 
+	logger.Log.Infof("Got Table Object for %v", tableNAME)
 	return tableObj, err
 }
 
 func InsertRows(parsedQuery *ParsedQuery, query *Query, manager *storage.DiskManagerV2, tableObj *storage.TableObj) error {
-	log.Println("INSERTING ROWS")
-
 	catalog := manager.PageCatalog
 	encodedRows, spaceNeeded, err := serializeRows(parsedQuery.Predicates, catalog, parsedQuery.TableReferences[0])
 	if err != nil {
@@ -748,6 +719,7 @@ func InsertRows(parsedQuery *ParsedQuery, query *Query, manager *storage.DiskMan
 		return fmt.Errorf("InsertRows: %w", err)
 	}
 
+	logger.Log.Info("Inserted Rows")
 	return nil
 }
 
@@ -833,23 +805,13 @@ func updatePageInfo(pageID storage.PageID, pageFound *storage.PageV2, tableObj *
 	return nil
 }
 
-func createColumnMap(columns []string) map[string]string {
-	columnMap := make(map[string]string)
-
-	for _, name := range columns {
-		columnMap[name] = name
-	}
-
-	return columnMap
-}
-
-func FilterByColumns(tableObj *storage.TableObj, query *Query, P *ParsedQuery, offset *storage.Offset) error {
+func FilterByColumns(tableObj *storage.TableObj, query *Query, P *ParsedQuery, offset *storage.Offset, step QueryStep) error {
 	pageSlice, err := storage.GetTablePages(tableObj.DataFile, offset)
 	if err != nil {
 		return fmt.Errorf("GetAllColumns: %w", err)
 	}
 
-	columnMap := createColumnMap(P.ColumnsSelected)
+	columns := P.ColumnsSelected
 	dirPage := tableObj.DirectoryPage
 	dirPageValues := dirPage.Value
 
@@ -857,6 +819,17 @@ func FilterByColumns(tableObj *storage.TableObj, query *Query, P *ParsedQuery, o
 	var field, value string
 	if hasWhereClause {
 		field, value = P.Where[0], P.Where[1]
+	}
+
+	if P.Joins != nil {
+		tableName := P.TableReferences[step.index]
+		columns = P.Joins.TableColumns[tableName]
+
+		if step.index == 0 {
+			columns = append(columns, P.Joins.Condition.Left)
+		} else {
+			columns = append(columns, P.Joins.Condition.Right)
+		}
 	}
 
 	for _, page := range pageSlice {
@@ -879,7 +852,7 @@ func FilterByColumns(tableObj *storage.TableObj, query *Query, P *ParsedQuery, o
 
 			if !hasWhereClause || row.Values[field] == value {
 				tempTuple := storage.RowV2{Values: make(map[string]string)}
-				for col := range columnMap {
+				for _, col := range columns {
 					if value, found := row.Values[col]; found {
 						tempTuple.Values[col] = value
 					}

@@ -1,9 +1,9 @@
 package storage
 
 import (
+	"disk-db/logger"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 )
@@ -26,15 +26,19 @@ func NewDiskManagerV2(dbDirectory string) (*DiskManagerV2, error) {
 	if _, err := os.Stat(dbDirectory); os.IsNotExist(err) {
 		manager, err = CreatDefaultManager(dbDirectory)
 		if err != nil {
+			logger.Log.Errorf("failed creating default manager: %v", err)
 			return nil, fmt.Errorf("NewDiskManagerV2: %w", err)
 		}
-		log.Println("Created Default Manager")
+		logger.Log.Info("Created Default Manager")
+
 	} else {
 		manager, err = ReadExistingManager(dbDirectory)
 		if err != nil {
+			logger.Log.Errorf("failed reading existing manager: %v", err)
 			return nil, fmt.Errorf("NewDiskManagerV2: %w", err)
 		}
-		log.Println("Loaded Existing Manager")
+		logger.Log.Info("Loaded Existing Manager")
+
 	}
 	return &manager, nil
 }
@@ -79,7 +83,7 @@ func CreatDefaultManager(dbDirectory string) (DiskManagerV2, error) {
 func ReadExistingManager(dbDirectory string) (DiskManagerV2, error) {
 	catalogPath := filepath.Join(dbDirectory, "catalog")
 
-	file, err := os.OpenFile(catalogPath, os.O_RDWR, 0777)
+	file, err := os.OpenFile(catalogPath, os.O_RDWR, 0666)
 	if err != nil {
 		return DiskManagerV2{}, fmt.Errorf("ReadExistingManager: %w", err)
 	}

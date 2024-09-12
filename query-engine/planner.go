@@ -1,5 +1,7 @@
 package queryengine
 
+import "fmt"
+
 type ExecutionPlan struct {
 	Steps []QueryStep
 }
@@ -57,14 +59,16 @@ func SelectTablePlan(executionPlan *ExecutionPlan, P *ParsedQuery) {
 		{Operation: filterOperation},
 	}
 
-	if len(P.Joins) > 0 {
+	fmt.Println(P.Joins.TableColumns, "HERE")
+
+	if P.Joins != nil {
 		querySteps = []QueryStep{
 			{Operation: "GetTable", index: 0},
-			{Operation: filterOperation},
-			{Operation: "CollectData", index: 0},
+			{Operation: filterOperation, index: 0},
+			{Operation: "CollectData"},
 			{Operation: "GetTable", index: 1},
-			{Operation: filterOperation},
-			{Operation: "CollectData", index: 1},
+			{Operation: filterOperation, index: 1},
+			{Operation: "CollectData"},
 			{Operation: "JoinQueryTable"},
 		}
 	}

@@ -107,7 +107,7 @@ func GetRearrangedPages(tableObj *TableObj) error {
 
 func GetBpTree(dbDirName, tableName string) (*btree.BTree, *os.File, error) {
 	bpPath := filepath.Join(dbDirName, "Tables", tableName, "bptree")
-	bpFile, err := os.OpenFile(bpPath, os.O_RDWR|os.O_CREATE, 0777)
+	bpFile, err := os.OpenFile(bpPath, os.O_RDWR|os.O_CREATE, 0666)
 	if err != nil {
 		return nil, nil, fmt.Errorf("GetBpTree (error opening bp tree file): %w", err)
 	}
@@ -134,7 +134,7 @@ func GetBpTree(dbDirName, tableName string) (*btree.BTree, *os.File, error) {
 
 func GetDataFileInfo(dbDirName, tableName string) (*os.File, error) {
 	tableDataPath := filepath.Join(dbDirName, "Tables", tableName, tableName)
-	dataFile, err := os.OpenFile(tableDataPath, os.O_RDWR, 0777)
+	dataFile, err := os.OpenFile(tableDataPath, os.O_RDWR, 0666)
 	if err != nil {
 		return nil, fmt.Errorf("GetDataFileInfo (error opening data file): %w", err)
 	}
@@ -144,7 +144,7 @@ func GetDataFileInfo(dbDirName, tableName string) (*os.File, error) {
 
 func GetDirInfo(dbDirName, tableName string) (*os.File, *DirectoryPageV2, error) {
 	dirFilePath := filepath.Join(dbDirName, "Tables", tableName, "directory_page")
-	dirFile, err := os.OpenFile(dirFilePath, os.O_RDWR, 0777)
+	dirFile, err := os.OpenFile(dirFilePath, os.O_RDWR, 0666)
 	if err != nil {
 		return nil, nil, fmt.Errorf("GetDirInfo (error opening directory_page file): %w", err)
 	}
@@ -175,25 +175,10 @@ func (dm *DiskManagerV2) CreateTable(name TableName, info TableInfo) error {
 		return fmt.Errorf("CreateTable: %w", err)
 	}
 
-	err = os.Mkdir(tablePath, 0755)
-	if err != nil {
-		return fmt.Errorf("CreateTable (create table dir error): %w", err)
-	}
-
-	_, err = os.Create(filepath.Join(tablePath, string(name)))
-	if err != nil {
-		return fmt.Errorf("CreateTable (create table file error): %w", err)
-	}
-
-	_, err = os.Create(filepath.Join(tablePath, "directory_page"))
-	if err != nil {
-		return fmt.Errorf("CreateTable (create directory_page error): %w", err)
-	}
-
-	_, err = os.Create(filepath.Join(tablePath, "bptree"))
-	if err != nil {
-		return fmt.Errorf("CreateTable (create bptree file error): %w", err)
-	}
+	os.Mkdir(tablePath, 0755)
+	os.Create(filepath.Join(tablePath, string(name)))
+	os.Create(filepath.Join(tablePath, "directory_page"))
+	os.Create(filepath.Join(tablePath, "bptree"))
 
 	return nil
 }
