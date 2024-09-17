@@ -16,14 +16,4 @@ This open-source DBMS helps students learn database concepts through multiple ve
 - **Real-World Application**: Get experience with database design and implementation that mirrors production-level systems.
 
 ### **Version Breakdown**
-1. **Version 1 (Beginner)**
-   - Focuses on basic database operations, simple data storage, and basic querying.
-   - Ideal for students new to database systems.
-
-2. **Version 2 (Intermediate)**
-   - Introduces indexing, query optimization, and more efficient data retrieval methods.
-   - Builds on Version 1, with more complex tasks for students with moderate experience.
-
-3. **Version 3 (Advanced)**
-   - Implements advanced features like multi-version concurrency control (MVCC), transaction support, and recovery techniques.
-   - Designed for students who want to challenge themselves with real-world database features.
+Under development.....
