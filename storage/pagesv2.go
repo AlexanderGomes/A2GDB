@@ -52,11 +52,11 @@ type DirectoryPageV2 struct {
 
 type Offset uint64
 type PageInfo struct {
-	Offset       Offset
+	Offset       Offset 
 	PointerArray []TupleLocation
 	FSM          []int
-	Rearranged   bool
 	Size         uint16
+	Rearranged   bool
 }
 
 func CreatePageV2() *PageV2 {

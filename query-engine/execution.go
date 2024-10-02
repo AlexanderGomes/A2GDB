@@ -645,7 +645,7 @@ func CreateTable(parsedQuery *ParsedQuery, query *Query, manager *storage.DiskMa
 
 	_, ok := manager.PageCatalog.Tables[storage.TableName(tableName)]
 	if ok {
-		return errors.New("table already exists")
+		return nil
 	}
 
 	tableSchema, err := buildTableSchema(parsedQuery)

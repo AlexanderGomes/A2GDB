@@ -8,15 +8,15 @@ import (
 )
 
 func EncodeDirectory(dir *DirectoryPageV2) ([]byte, error) {
-	var buf bytes.Buffer
+	buf := bytes.NewBuffer(make([]byte, 0, 1024*20))
 
 	numEntries := uint32(len(dir.Value))
-	if err := binary.Write(&buf, binary.LittleEndian, numEntries); err != nil {
+	if err := binary.Write(buf, binary.LittleEndian, numEntries); err != nil {
 		return nil, err
 	}
 
 	for id, pageInfo := range dir.Value {
-		if err := binary.Write(&buf, binary.LittleEndian, id); err != nil {
+		if err := binary.Write(buf, binary.LittleEndian, id); err != nil {
 			return nil, err
 		}
 
@@ -26,7 +26,7 @@ func EncodeDirectory(dir *DirectoryPageV2) ([]byte, error) {
 		}
 
 		length := uint32(len(encodedPageInfo))
-		if err := binary.Write(&buf, binary.LittleEndian, length); err != nil {
+		if err := binary.Write(buf, binary.LittleEndian, length); err != nil {
 			return nil, err
 		}
 
@@ -187,7 +187,6 @@ func DecodePageInfo(data []byte) (*PageInfo, error) {
 
 	return &pageInfo, nil
 }
-
 
 func EncodePageHeader(header PageHeader, buf *bytes.Buffer) error {
 	if err := binary.Write(buf, binary.LittleEndian, header.ID); err != nil {

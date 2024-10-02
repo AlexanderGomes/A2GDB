@@ -93,6 +93,7 @@ func ReadExistingManager(dbDirectory string) (DiskManagerV2, error) {
 		return DiskManagerV2{}, fmt.Errorf("ReadExistingManager: %w", err)
 	}
 
+
 	catalog, err := DeserializeCatalog(bytes)
 	if err != nil {
 		return DiskManagerV2{}, fmt.Errorf("ReadExistingManager: %w", err)

@@ -13,8 +13,8 @@ import (
 const (
 	PERCENTAGE     = 25
 	BUFFER_SIZE    = 20000
-	NUM_DECODERS   = 100
-	PAGES_PER_READ = 40
+	NUM_DECODERS   = 20
+	PAGES_PER_READ = 10
 	MAX_FILE_SIZE  = 500 * 1024
 )
 
@@ -175,7 +175,11 @@ func (dm *DiskManagerV2) CreateTable(name TableName, info TableInfo) error {
 		return fmt.Errorf("CreateTable: %w", err)
 	}
 
-	os.Mkdir(tablePath, 0755)
+	err = os.Mkdir(tablePath, 0755)
+	if err != nil && os.IsExist(err) {
+		return nil
+	}
+
 	os.Create(filepath.Join(tablePath, string(name)))
 	os.Create(filepath.Join(tablePath, "directory_page"))
 	os.Create(filepath.Join(tablePath, "bptree"))

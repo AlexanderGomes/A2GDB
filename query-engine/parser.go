@@ -281,7 +281,3 @@ func processUpdate(stmt *sqlparser.Update, parsedQuery *ParsedQuery) {
 		}, stmt.Where.Expr)
 	}
 }
-
-func extractJoinTables(join *sqlparser.JoinTableExpr) (string, string) {
-	return sqlparser.String(join.LeftExpr), sqlparser.String(join.RightExpr)
-}

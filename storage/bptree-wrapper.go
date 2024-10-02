@@ -2,8 +2,8 @@ package storage
 
 import (
 	"fmt"
-
 	"github.com/google/btree"
+	"io"
 )
 
 type Item struct {
@@ -29,6 +29,8 @@ func NewTree(degree int) *btree.BTree {
 }
 
 func UpdateBp(rows []interface{}, tableObj TableObj, pageInfObj PageInfo) error {
+	var items []Item
+
 	for _, row := range rows {
 		rowV2 := row.(*RowV2)
 
@@ -37,19 +39,23 @@ func UpdateBp(rows []interface{}, tableObj TableObj, pageInfObj PageInfo) error 
 			Value: pageInfObj.Offset,
 		}
 
+		items = append(items, item)
 		tableObj.BpTree.ReplaceOrInsert(item)
 	}
-
-	items := GetAllItems(tableObj.BpTree)
 
 	itemsBytes, err := EncodeItems(items)
 	if err != nil {
 		return fmt.Errorf("UpdateBp: %w", err)
 	}
 
-	err = WriteNonPageFile(tableObj.BpFile, itemsBytes)
+	_, err = tableObj.BpFile.Seek(0, io.SeekEnd)
 	if err != nil {
-		return fmt.Errorf("UpdateBp: %w", err)
+		return fmt.Errorf("UpdateBp (can't seek to the end): %w", err)
+	}
+
+	_, err = tableObj.BpFile.Write(itemsBytes)
+	if err != nil {
+		return fmt.Errorf("UpdateBp (failed writing bp to disk): %w", err)
 	}
 
 	return nil
