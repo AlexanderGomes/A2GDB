@@ -27,15 +27,6 @@ type TableObj struct {
 	RearrangedPages []*RearrangedPage
 }
 
-type ColumnType struct {
-	IsIndex bool
-	Type    string
-}
-
-type TableInfo struct {
-	Schema     map[string]ColumnType
-	NumOfPages uint64
-}
 
 func (dm *DiskManagerV2) InMemoryTableSetUp(name TableName) (*TableObj, error) {
 	dirFile, dirPage, err := GetDirInfo(dm.DBdirectory, string(name))

@@ -15,10 +15,6 @@ type DiskManagerV2 struct {
 	TableObjs   map[TableName]*TableObj
 }
 
-type TableName string
-type Catalog struct {
-	Tables map[TableName]TableInfo
-}
 
 func NewDiskManagerV2(dbDirectory string) (*DiskManagerV2, error) {
 	var manager DiskManagerV2
@@ -92,7 +88,6 @@ func ReadExistingManager(dbDirectory string) (DiskManagerV2, error) {
 	if err != nil {
 		return DiskManagerV2{}, fmt.Errorf("ReadExistingManager: %w", err)
 	}
-
 
 	catalog, err := DeserializeCatalog(bytes)
 	if err != nil {

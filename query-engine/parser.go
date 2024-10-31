@@ -50,6 +50,7 @@ func Parser(query string) (*ParsedQuery, error) {
 		return nil, fmt.Errorf("parsing error: %w", err)
 	}
 
+
 	parsedQuery := &ParsedQuery{}
 
 	switch stmt := stmt.(type) {
