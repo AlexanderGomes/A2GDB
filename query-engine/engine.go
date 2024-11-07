@@ -20,22 +20,6 @@ type QueryEngine struct {
 	Disk *storage.DiskManagerV2
 }
 
-func (qe *QueryEngine) QueryEntryPoint(sql string) (Query, error) {
-	parsedSQL, err := Parser(sql)
-	if err != nil {
-		return Query{}, err
-	}
-
-	queryPlan := GenerateQueryPlan(parsedSQL)
-
-	result, err := qe.ExecuteQueryPlan(queryPlan, parsedSQL)
-	if err != nil {
-		return Query{}, err
-	}
-
-	return result, nil
-}
-
 func (qe *QueryEngine) ExecuteQueryPlan(qp ExecutionPlan, P *ParsedQuery) (Query, error) {
 	var err error
 	var offset *storage.Offset

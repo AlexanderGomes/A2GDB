@@ -154,8 +154,8 @@ func TestCatalogEncodeDecode(t *testing.T) {
 	tableInfo.Schema["Username"] = storage.ColumnType{Type: "VARCHAR", IsIndex: false}
 	tableInfo.Schema["Email"] = storage.ColumnType{Type: "VARCHAR", IsIndex: false}
 
-	old_catalog := storage.Catalog{Tables: make(map[storage.TableName]storage.TableInfo)}
-	old_catalog.Tables["User"] = tableInfo
+	old_catalog := storage.Catalog{Tables: make(map[storage.TableName]*storage.TableInfo)}
+	old_catalog.Tables["User"] = &tableInfo
 
 	encoded_catalog, err := storage.SerializeCatalog(&old_catalog)
 	if err != nil {

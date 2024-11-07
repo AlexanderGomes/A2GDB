@@ -1,34 +1,29 @@
 package storage
 
+import (
+	"github.com/axiomhq/hyperloglog"
+	"github.com/bits-and-blooms/bloom/v3"
+	"runtime/metrics"
+)
+
 type TableName string
 type Catalog struct {
-	Tables map[TableName]TableInfo
+	Tables map[TableName]*TableInfo
 }
 
+type Column string
 type TableInfo struct {
-	Schema            map[string]ColumnType
-	NumOfPages        uint32
-	UsedSpace         uint64 // bytes
-	FreeSpace         uint64 // bytes
-	TupleCountTotal   uint32
-	TupleCountPerPage uint32
-	TupleAvgSize      uint32
-	Histogram         map[Column][]Bucket
-	UniqueCount       HyperLogLog // probabilistic
-	SkipPage          map[PageID]BloomFilter
-}
-
-// placeholder
-type HyperLogLog struct {
-	B         int
-	M         int
-	Registers []int
-}
-
-type Bucket struct {
-	Min   uint32
-	Max   uint32
-	Count uint32
+	Schema               map[string]ColumnType
+	NumOfPages           uint32
+	UsedSpace            uint64 // bytes
+	FreeSpace            uint64 // bytes
+	TupleCountTotal      uint32
+	TupleCountPerPageAvg uint16
+	TupleAvgSize         uint16            // bytes
+	ColumnAvgWidth       map[Column]uint16 // bytes
+	Histogram            map[Column]*metrics.Float64Histogram
+	UniqueCount          *hyperloglog.Sketch
+	SkipPage             map[PageID]map[Column]*bloom.BloomFilter
 }
 
 type ColumnType struct {
@@ -37,11 +32,3 @@ type ColumnType struct {
 	Type     string
 }
 
-type Column string
-
-// placeholder
-type BloomFilter struct {
-	Bitset        []bool
-	Size          int
-	HashFuncCount int
-}

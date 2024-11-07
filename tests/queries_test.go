@@ -144,7 +144,7 @@ func selects(t *testing.T, qry *queryengine.QueryEngine) {
 	if err != nil {
 		t.Fatalf("selecting * by username failed: %v", err)
 	}
-	checkSelectStarWhere(t, res, tableInfo)
+	checkSelectStarWhere(t, res, *tableInfo)
 
 	selectColumnQuery := `SELECT Username, UserID FROM User Where Username = 'sander15';`
 	res, err = qry.QueryEntryPoint(selectColumnQuery)
@@ -158,7 +158,7 @@ func selects(t *testing.T, qry *queryengine.QueryEngine) {
 	if err != nil {
 		t.Fatalf("selecting * failed: %v", err)
 	}
-	checkSelectStarNoWhere(t, res, tableInfo)
+	checkSelectStarNoWhere(t, res, *tableInfo)
 }
 
 func checkSelectStarNoWhere(t *testing.T, res queryengine.Query, tableInfo storage.TableInfo) {

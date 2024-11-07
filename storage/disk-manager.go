@@ -55,7 +55,7 @@ func CreatDefaultManager(dbDirectory string) (DiskManagerV2, error) {
 		return DiskManagerV2{}, fmt.Errorf("CreatDefaultManager (create catalog file error): %w", err)
 	}
 
-	catalog := Catalog{Tables: make(map[TableName]TableInfo)}
+	catalog := Catalog{Tables: make(map[TableName]*TableInfo)}
 	encodedCatalog, err := SerializeCatalog(&catalog)
 	if err != nil {
 		return DiskManagerV2{}, fmt.Errorf("CreatDefaultManager: %w", err)

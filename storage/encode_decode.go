@@ -401,7 +401,7 @@ func DeserializeCatalog(data []byte) (*Catalog, error) {
 	buf.Write(data)
 
 	var catalog Catalog
-	catalog.Tables = make(map[TableName]TableInfo)
+	catalog.Tables = make(map[TableName]*TableInfo)
 
 	var numTables uint32
 	if err := binary.Read(&buf, binary.LittleEndian, &numTables); err != nil {
@@ -459,7 +459,7 @@ func DeserializeCatalog(data []byte) (*Catalog, error) {
 			return nil, err
 		}
 
-		catalog.Tables[TableName(tableName)] = tableInfo
+		catalog.Tables[TableName(tableName)] = &tableInfo
 	}
 
 	return &catalog, nil

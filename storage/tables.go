@@ -160,7 +160,7 @@ func GetDirInfo(dbDirName, tableName string) (*os.File, *DirectoryPageV2, error)
 func (dm *DiskManagerV2) CreateTable(name TableName, info TableInfo) error {
 	tablePath := filepath.Join(dm.DBdirectory, "Tables", string(name))
 
-	dm.PageCatalog.Tables[name] = info
+	dm.PageCatalog.Tables[name] = &info
 	err := dm.UpdateCatalog()
 	if err != nil {
 		return fmt.Errorf("CreateTable: %w", err)
