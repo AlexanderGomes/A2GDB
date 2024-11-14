@@ -1,11 +1,11 @@
 package storage
 
 import (
-	"disk-db/logger"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"storage-engine/logger"
 )
 
 type DiskManagerV2 struct {
@@ -14,7 +14,6 @@ type DiskManagerV2 struct {
 	FileCatalog *os.File
 	TableObjs   map[TableName]*TableObj
 }
-
 
 func NewDiskManagerV2(dbDirectory string) (*DiskManagerV2, error) {
 	var manager DiskManagerV2
