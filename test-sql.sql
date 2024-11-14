@@ -25,11 +25,11 @@ DELETE FROM User WHERE Username = 'john_doe';
 
 SELECT * 
 FROM User 
-JOIN Student ON Username = Username;
+JOIN Student ON Student.Username = User.Username;
 
 SELECT Employees.Name, Departments.DepartmentName
 FROM Employees
-JOIN Departments ON Employees.DepartmentID = Departments.DepartmentID AND DepartmentName.DepartmentID = 1828128;
+JOIN Departments ON Employees.DepartmentID = Departments.DepartmentID AND Departments.DepartmentID = 1828128;
 
 
 SELECT city, AVG(age) as average_age
