@@ -29,7 +29,7 @@ JOIN Student ON Student.Username = User.Username;
 
 SELECT Employees.Name, Departments.DepartmentName
 FROM Employees
-JOIN Departments ON Employees.DepartmentID = Departments.DepartmentID AND Departments.DepartmentID = 1828128;
+JOIN Departments ON Employees.DepartmentID = Departments.DepartmentID AND Departments.DepartmentID = 1828128
 
 
 SELECT city, AVG(age) as average_age

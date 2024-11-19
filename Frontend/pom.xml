@@ -29,6 +29,11 @@
     <artifactId>slf4j-simple</artifactId>
     <version>1.7.32</version>
 </dependency>
+<dependency>
+    <groupId>org.json</groupId>
+    <artifactId>json</artifactId>
+    <version>20210307</version>
+</dependency>
   </dependencies>
   <build>
   <plugins>
@@ -37,7 +42,7 @@
       <artifactId>exec-maven-plugin</artifactId>
       <version>3.5.0</version>
       <configuration>
-        <mainClass>optimizer.QueryPlanner</mainClass>
+        <mainClass>planner.QueryPlanner</mainClass>
       </configuration>
     </plugin>
   </plugins>

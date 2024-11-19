@@ -2,7 +2,6 @@ package planner;
 
 import org.apache.calcite.config.Lex;
 import org.apache.calcite.plan.Contexts;
-import org.apache.calcite.plan.RelOptUtil;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
@@ -22,6 +21,11 @@ import org.apache.calcite.sql.parser.ddl.SqlDdlParserImpl;
 import org.apache.calcite.sql.type.SqlTypeName;
 import org.apache.calcite.sql.validate.SqlConformanceEnum;
 import org.apache.calcite.tools.*;
+import org.apache.calcite.util.JsonBuilder;
+import org.apache.calcite.util.Pair;
+import org.json.JSONArray;
+import org.json.JSONObject;
+import org.apache.calcite.rel.externalize.RelJsonWriter;
 
 import java.io.IOException;
 import java.sql.SQLException;
@@ -48,139 +52,175 @@ public class QueryPlanner {
     this.planner = Frameworks.getPlanner(calciteFrameworkConfig);
   }
 
-  private void getLogicalPlan(String query)
+  private String getLogicalPlan(String query)
       throws ValidationException, RelConversionException, SqlParseException, Exception {
     SqlNode sqlNode = planner.parse(query);
+    String jsonPlan = "";
 
     if (sqlNode instanceof SqlCreateTable) {
-      List<String> columns = new ArrayList<String>();
-      SqlCreateTable createTable = (SqlCreateTable) sqlNode;
-      SqlIdentifier tableName = createTable.name;
-
-      List<SqlNode> columnsNodes = createTable.columnList.getList();
-      for (SqlNode columnNode : columnsNodes) {
-        if (columnNode instanceof SqlColumnDeclaration) {
-          SqlColumnDeclaration column = (SqlColumnDeclaration) columnNode;
-          columns.add(column.name.getSimple());
-        }
-      }
-      addTableSchema(tableName.getSimple(), columns);
-      createTable(tableName.getSimple(), columns);
-      return;
+      jsonPlan = handleCreate(sqlNode, jsonPlan);
+    } else if (sqlNode instanceof SqlSelect) {
+      jsonPlan = handleSelect(sqlNode, jsonPlan);
     }
-
-    List<String> tableNames = GetTableName(sqlNode);
-    setSchemas(tableNames);
-
-    SqlNode validatedSqlNode = planner.validate(sqlNode);
-    RelNode root = planner.rel(validatedSqlNode).project();
 
     planner.close();
-
-    System.out.println(RelOptUtil.toString(root));
-    // encode query plan and send it over the wire.
+    return jsonPlan;
   }
 
-  private void createTable(String name, List<String> columns) {
-    // encode and send to the metadata service or storage engine
+  public String handleSelect(SqlNode node, String jsonPlan) throws ValidationException, RelConversionException {
+    List<String> tableNames = GetTableName(node);
+    List<Pair<String, Object>> refEntries = setSchemas(tableNames);
+
+    SqlNode validatedSqlNode = planner.validate(node);
+    RelNode root = planner.rel(validatedSqlNode).project();
+
+    JsonBuilder jBuilder = new JsonBuilder();
+    RelJsonWriter jWriter = new RelJsonWriter(jBuilder);
+
+    jWriter.item("relOp", "references");
+    for (Pair<String, Object> entry : refEntries) {
+      jWriter.item(entry.left, entry.right);
+    }
+
+    jWriter.done(root);
+    jsonPlan = jWriter.asString();
+
+    return jsonPlan;
   }
 
-  private void setSchemas(List<String> tableNames) {
-    for (String name : tableNames) {
-      Set<String> set = rootSchema.getTableNames();
-      if (!set.contains(name)) {
-        List<String> columns = getSchema(name);
-        addTableSchema(name, columns);
+  public String handleCreate(SqlNode node, String jsonPlan) {
+    List<String> columns = new ArrayList<String>();
+    SqlCreateTable createTable = (SqlCreateTable) node;
+    SqlIdentifier tableName = createTable.name;
+
+    List<SqlNode> columnsNodes = createTable.columnList.getList();
+    for (SqlNode columnNode : columnsNodes) {
+      if (columnNode instanceof SqlColumnDeclaration) {
+        SqlColumnDeclaration column = (SqlColumnDeclaration) columnNode;
+        columns.add(column.name.getSimple());
       }
     }
+    addTableSchema(tableName.getSimple(), columns);
+    jsonPlan = createTable(tableName.getSimple(), columns);
+
+    return jsonPlan;
   }
 
-  private void addTableSchema(String name, List<String> columns) {
-    rootSchema.add(name, new AbstractTable() {
+  private List<Pair<String, Object>> setSchemas(List<String> tableNames) {
+    List<Pair<String, Object>> refList = new ArrayList<>();
+    int availableIndex = 0;
+
+    for (String tableName : tableNames) {
+      Set<String> set = rootSchema.getTableNames();
+      if (!set.contains(tableName)) {
+        List<String> columns = getSchemaService(tableName);
+        addTableSchema(tableName, columns);
+        availableIndex = ResolveReference(columns, refList, availableIndex);
+      }
+    }
+
+    return refList;
+  }
+
+  private int ResolveReference(List<String> columns, List<Pair<String, Object>> refList, int avlIndex) {
+    for (String col : columns) {
+      refList.add(Pair.of(((Integer) avlIndex).toString(), col));
+      avlIndex++;
+    }
+    return avlIndex;
+  }
+
+  private void addTableSchema(String tableName, List<String> columns) {
+    rootSchema.add(tableName, new AbstractTable() {
       @Override
       public RelDataType getRowType(RelDataTypeFactory typeFactory) {
         RelDataTypeFactory.Builder builder = typeFactory.builder();
 
-        for (String item : columns) {
-          builder.add(item,
+        for (String column : columns) {
+          builder.add(column,
               typeFactory.createTypeWithNullability(typeFactory.createSqlType(SqlTypeName.VARCHAR), true));
         }
+
         return builder.build();
       }
     });
   }
 
-  // service to be implemented
-  // get columns over the wire
-  private List<String> getSchema(String name) {
-    List<String> columns = new ArrayList<>();
-    columns.add("DepartmentID");
-    columns.add("DepartmentName");
-    columns.add("dad");
-    columns.add("mom");
-    columns.add("Name");
-    columns.add("city");
-    columns.add("age");
-    columns.add("userID");
-    return columns;
-  }
-
   private List<String> GetTableName(SqlNode sqlNode) {
-    SqlIdentifier table = null;
-    SqlIdentifier leftTableName = null;
-    SqlIdentifier rightTableName = null;
-
+    SqlIdentifier table;
     List<String> tables = new ArrayList<String>();
 
-    if (sqlNode instanceof SqlSelect) {
-      SqlSelect select = (SqlSelect) sqlNode;
+    SqlSelect select = (SqlSelect) sqlNode;
+    SqlNode fromNode = select.getFrom();
 
-      SqlNode fromNode = select.getFrom();
+    if (fromNode instanceof SqlIdentifier) {
+      table = (SqlIdentifier) fromNode;
+      tables.add(table.getSimple());
+    } else if (fromNode instanceof SqlJoin) {
+      SqlJoin join = (SqlJoin) fromNode;
+      SqlNode leftTable = join.getLeft();
+      SqlNode rightTable = join.getRight();
 
-      if (fromNode instanceof SqlIdentifier) {
-        table = (SqlIdentifier) fromNode;
+      if (leftTable instanceof SqlIdentifier) {
+        table = (SqlIdentifier) leftTable;
         tables.add(table.getSimple());
-      } else if (fromNode instanceof SqlJoin) {
-        SqlJoin join = (SqlJoin) fromNode;
-        SqlNode leftTable = join.getLeft();
-        SqlNode rightTable = join.getRight();
+      }
 
-        if (leftTable instanceof SqlIdentifier) {
-          leftTableName = (SqlIdentifier) leftTable;
-          tables.add(leftTableName.getSimple());
-        }
-
-        if (rightTable instanceof SqlIdentifier) {
-          rightTableName = (SqlIdentifier) rightTable;
-          tables.add(rightTableName.getSimple());
-        }
+      if (rightTable instanceof SqlIdentifier) {
+        table = (SqlIdentifier) rightTable;
+        tables.add(table.getSimple());
       }
     }
 
     return tables;
   }
 
+  // service to be implemented
+  // get columns over the wire
+  private List<String> getSchemaService(String tableName) {
+    List<String> columns = new ArrayList<>();
+    if (tableName.equals("Departments")) {
+      columns.add("DepartmentID");
+      columns.add("DepartmentName");
+    } else if (tableName.equals("Employees")) {
+      columns.add("DepartmentID");
+      columns.add("Name");
+    } else if (tableName.equals("kid")) {
+      columns.add("dad");
+      columns.add("mom");
+    } else if (tableName.equals("User")) {
+      columns.add("city");
+      columns.add("age");
+    }
+    return columns;
+  }
+
+  private String createTable(String tableName, List<String> columns) {
+    JSONObject tableJson = new JSONObject();
+    JSONArray columnsArray = new JSONArray(columns);
+    tableJson.put("relOp", "CREATE_TABLE");
+    tableJson.put("tableName", tableName);
+    tableJson.put("columns", columnsArray);
+    return tableJson.toString();
+  }
+
   public static void main(String[] args)
       throws IOException, SQLException, ValidationException, RelConversionException, SqlParseException, Exception {
 
     QueryPlanner queryPlanner = new QueryPlanner();
-    // queryPlanner.getLogicalPlan(
-    // "CREATE TABLE Student (\n" + //
-    // "\t\t\tUserID INT NOT NULL,\n" + //
-    // "\t\t\tUsername VARCHAR,\n" + //
-    // "\t\t\tPasswordHash VARCHAR\n" + //
-    // ")");
 
-    queryPlanner.getLogicalPlan(
-        "SELECT Employees.Name, Departments.DepartmentName FROM Employees JOIN Departments ON Employees.DepartmentID = Departments.DepartmentID AND Departments.DepartmentID = 1828128");
+    String jsonPlan1 = queryPlanner.getLogicalPlan(
+        "CREATE TABLE Student (\n" + //
+            "\t\t\tUserID INT,\n" + //
+            "\t\t\tUsername VARCHAR,\n" + //
+            "\t\t\tPasswordHash VARCHAR\n" + //
+            ")\n" + //
+            "");
+    System.out.println(jsonPlan1);
 
-    queryPlanner.getLogicalPlan("SELECT dad, mom FROM kid");
-
-    queryPlanner.getLogicalPlan(" SELECT city, AVG(age) as average_age\n" + //
-        "FROM `User`\n" + //
-        "GROUP BY city");
-
-    queryPlanner.getLogicalPlan("UPDATE `User` SET userID = 292992992 WHERE userID = 1");
-
+    String jsonPlan2 = queryPlanner.getLogicalPlan("SELECT Employees.Name, Departments.DepartmentName\n" + //
+        "FROM Employees\n" + //
+        "JOIN Departments ON Employees.DepartmentID = Departments.DepartmentID AND Departments.DepartmentID = 1828128");
+    System.out.println(jsonPlan2);
   }
 }
