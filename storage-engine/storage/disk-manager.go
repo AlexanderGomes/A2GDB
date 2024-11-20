@@ -72,6 +72,8 @@ func CreatDefaultManager(dbDirectory string) (DiskManagerV2, error) {
 		TableObjs:   make(map[TableName]*TableObj),
 	}
 
+
+
 	return dm, nil
 }
 

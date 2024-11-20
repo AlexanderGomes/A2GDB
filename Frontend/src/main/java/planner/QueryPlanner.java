@@ -8,7 +8,9 @@ import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.rel.type.RelDataTypeSystem;
 import org.apache.calcite.schema.SchemaPlus;
 import org.apache.calcite.schema.impl.AbstractTable;
+import org.apache.calcite.sql.SqlBasicCall;
 import org.apache.calcite.sql.SqlIdentifier;
+import org.apache.calcite.sql.SqlInsert;
 import org.apache.calcite.sql.SqlJoin;
 import org.apache.calcite.sql.SqlNode;
 import org.apache.calcite.sql.SqlSelect;
@@ -38,9 +40,12 @@ public class QueryPlanner {
   private final SchemaPlus rootSchema;
 
   public QueryPlanner() {
-    this.rootSchema = Frameworks.createRootSchema(true);
-    Config parserConfig = SqlParser.config().withLex(Lex.MYSQL).withParserFactory(SqlDdlParserImpl.FACTORY)
+    Config parserConfig = SqlParser.config()
+        .withLex(Lex.MYSQL)
+        .withParserFactory(SqlDdlParserImpl.FACTORY)
         .withConformance(SqlConformanceEnum.LENIENT);
+
+    this.rootSchema = Frameworks.createRootSchema(true);
     FrameworkConfig calciteFrameworkConfig = Frameworks.newConfigBuilder()
         .parserConfig(parserConfig)
         .defaultSchema(rootSchema)
@@ -54,20 +59,60 @@ public class QueryPlanner {
 
   private String getLogicalPlan(String query)
       throws ValidationException, RelConversionException, SqlParseException, Exception {
-    SqlNode sqlNode = planner.parse(query);
     String jsonPlan = "";
+    SqlNode sqlNode = planner.parse(query);
 
     if (sqlNode instanceof SqlCreateTable) {
-      jsonPlan = handleCreate(sqlNode, jsonPlan);
+      jsonPlan = handleCreate(sqlNode);
     } else if (sqlNode instanceof SqlSelect) {
-      jsonPlan = handleSelect(sqlNode, jsonPlan);
+      jsonPlan = handleSelect(sqlNode);
+    } else if (sqlNode instanceof SqlInsert) {
+      jsonPlan = handleInsert(sqlNode);
+    } else {
+      throw new Exception("sqlNode type unhandled");
     }
 
     planner.close();
     return jsonPlan;
   }
 
-  public String handleSelect(SqlNode node, String jsonPlan) throws ValidationException, RelConversionException {
+  public String handleInsert(SqlNode node) {
+    SqlInsert sqlInsert = (SqlInsert) node;
+    String tableName = sqlInsert.getTargetTable().toString();
+
+    List<String> columnNames = new ArrayList<>();
+    if (sqlInsert.getTargetColumnList() != null) {
+      for (SqlNode columnNode : sqlInsert.getTargetColumnList()) {
+        columnNames.add(columnNode.toString());
+      }
+    }
+
+    List<List<String>> rows = new ArrayList<>();
+    SqlNode source = sqlInsert.getSource();
+    if (source instanceof SqlBasicCall) {
+      SqlBasicCall basicCall = (SqlBasicCall) source;
+      for (SqlNode operand : basicCall.getOperandList())
+        if (operand instanceof SqlBasicCall) {
+
+          SqlBasicCall rowCall = (SqlBasicCall) operand;
+          List<String> row = new ArrayList<>();
+          for (SqlNode value : rowCall.getOperandList()) {
+            row.add(value.toString());
+          }
+          rows.add(row);
+        }
+    }
+
+    JSONObject jsonBuilder = new JSONObject();
+    JSONArray jsonRows = new JSONArray(rows);
+
+    jsonBuilder.put("tableName", tableName);
+    jsonBuilder.put("rows", jsonRows);
+
+    return jsonBuilder.toString();
+  }
+
+  public String handleSelect(SqlNode node) throws ValidationException, RelConversionException {
     List<String> tableNames = GetTableName(node);
     List<Pair<String, Object>> refEntries = setSchemas(tableNames);
 
@@ -83,12 +128,11 @@ public class QueryPlanner {
     }
 
     jWriter.done(root);
-    jsonPlan = jWriter.asString();
 
-    return jsonPlan;
+    return jWriter.asString();
   }
 
-  public String handleCreate(SqlNode node, String jsonPlan) {
+  public String handleCreate(SqlNode node) {
     List<String> columns = new ArrayList<String>();
     SqlCreateTable createTable = (SqlCreateTable) node;
     SqlIdentifier tableName = createTable.name;
@@ -101,9 +145,7 @@ public class QueryPlanner {
       }
     }
     addTableSchema(tableName.getSimple(), columns);
-    jsonPlan = createTable(tableName.getSimple(), columns);
-
-    return jsonPlan;
+    return createTable(tableName.getSimple(), columns);
   }
 
   private List<Pair<String, Object>> setSchemas(List<String> tableNames) {
@@ -209,18 +251,8 @@ public class QueryPlanner {
 
     QueryPlanner queryPlanner = new QueryPlanner();
 
-    String jsonPlan1 = queryPlanner.getLogicalPlan(
-        "CREATE TABLE Student (\n" + //
-            "\t\t\tUserID INT,\n" + //
-            "\t\t\tUsername VARCHAR,\n" + //
-            "\t\t\tPasswordHash VARCHAR\n" + //
-            ")\n" + //
-            "");
+    String jsonPlan1 = queryPlanner
+        .getLogicalPlan("INSERT INTO Users (id, name) VALUES (1, 'Alice'), (2, 'Bob'), (3, 'Charlie')");
     System.out.println(jsonPlan1);
-
-    String jsonPlan2 = queryPlanner.getLogicalPlan("SELECT Employees.Name, Departments.DepartmentName\n" + //
-        "FROM Employees\n" + //
-        "JOIN Departments ON Employees.DepartmentID = Departments.DepartmentID AND Departments.DepartmentID = 1828128");
-    System.out.println(jsonPlan2);
   }
 }
