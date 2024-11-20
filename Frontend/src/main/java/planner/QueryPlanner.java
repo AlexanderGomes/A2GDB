@@ -106,6 +106,7 @@ public class QueryPlanner {
     JSONObject jsonBuilder = new JSONObject();
     JSONArray jsonRows = new JSONArray(rows);
 
+    jsonBuilder.put("relOp", "INSERT");
     jsonBuilder.put("tableName", tableName);
     jsonBuilder.put("rows", jsonRows);
 
@@ -238,12 +239,12 @@ public class QueryPlanner {
   }
 
   private String createTable(String tableName, List<String> columns) {
-    JSONObject tableJson = new JSONObject();
+    JSONObject jsonBuilder = new JSONObject();
     JSONArray columnsArray = new JSONArray(columns);
-    tableJson.put("relOp", "CREATE_TABLE");
-    tableJson.put("tableName", tableName);
-    tableJson.put("columns", columnsArray);
-    return tableJson.toString();
+    jsonBuilder.put("relOp", "CREATE_TABLE");
+    jsonBuilder.put("tableName", tableName);
+    jsonBuilder.put("columns", columnsArray);
+    return jsonBuilder.toString();
   }
 
   public static void main(String[] args)

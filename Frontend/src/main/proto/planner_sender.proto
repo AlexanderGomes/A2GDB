@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+option java_multiple_files = true;
+
+package codegen;
+
+
+service PlannerSender {
+    rpc SendPlan(QueryPlan) returns(QueryRes) {}
+}
+
+message QueryPlan {
+    string plan = 1;
+}
+
+message QueryRes {
+    string res = 1;
+}
