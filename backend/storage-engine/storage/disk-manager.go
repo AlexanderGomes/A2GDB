@@ -1,11 +1,11 @@
 package storage
 
 import (
+	"a2gdb/storage-engine/logger"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"storage-engine/logger"
 )
 
 type DiskManagerV2 struct {
@@ -72,8 +72,6 @@ func CreatDefaultManager(dbDirectory string) (DiskManagerV2, error) {
 		TableObjs:   make(map[TableName]*TableObj),
 	}
 
-
-
 	return dm, nil
 }
 
@@ -104,6 +102,7 @@ func ReadExistingManager(dbDirectory string) (DiskManagerV2, error) {
 
 	return dm, nil
 }
+
 
 func (dm *DiskManagerV2) WriteToDisk(page *PageV2) error {
 	tableInfo := dm.TableObjs[TableName(page.TABLE)]

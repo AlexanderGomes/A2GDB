@@ -33,11 +33,12 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
-
+import java.util.logging.Logger;
 import java.io.*;
 import java.net.*;
 
 public class QueryPlanner {
+  private static Logger logger = Logger.getLogger(QueryPlanner.class.getName());
   private static QueryPlanner instance;
   private final Planner planner;
   private final SchemaPlus rootSchema;
@@ -96,6 +97,7 @@ public class QueryPlanner {
   }
 
   private String handleInsert(SqlNode node) {
+
     SqlInsert sqlInsert = (SqlInsert) node;
     String tableName = sqlInsert.getTargetTable().toString();
 
@@ -143,7 +145,6 @@ public class QueryPlanner {
     RelJsonWriter jWriter = new RelJsonWriter(jBuilder);
 
     jWriter.item("relOp", "references");
-    System.out.println(refEntries);
 
     for (Pair<String, Object> entry : refEntries) {
       jWriter.item(entry.left, entry.right);
@@ -156,6 +157,9 @@ public class QueryPlanner {
 
   private String handleCreate(SqlNode node) {
     List<String> columns = new ArrayList<String>();
+
+    // #### could make it a pair but don't want to change addTableSchema rn ####
+    List<String> typeList = new ArrayList<String>();
     SqlCreateTable createTable = (SqlCreateTable) node;
     SqlIdentifier tableName = createTable.name;
 
@@ -164,6 +168,8 @@ public class QueryPlanner {
       if (columnNode instanceof SqlColumnDeclaration) {
         SqlColumnDeclaration column = (SqlColumnDeclaration) columnNode;
         columns.add(column.name.getSimple());
+        typeList.add(column.dataType.getTypeName().toString());
+        System.out.println(column.dataType.getTypeName().toString());
       }
     }
     addTableSchema(tableName.getSimple(), columns);
@@ -274,11 +280,11 @@ public class QueryPlanner {
 
     int port = 8080;
     try (ServerSocket serverSocket = new ServerSocket(port)) {
-      System.out.println("Server is listening on: " + port);
+      logger.info("Server is listening on: " + port);
 
       while (true) {
         Socket socket = serverSocket.accept();
-        System.out.println("New client connected");
+        logger.info("New client connected");
 
         new ClientHandler(socket, queryPlanner).start();
       }
@@ -290,12 +296,14 @@ public class QueryPlanner {
 }
 
 class ClientHandler extends Thread {
-  private Socket socket;
-  private QueryPlanner planner;
+  private final Logger logger;
+  private final Socket socket;
+  private final QueryPlanner planner;
 
   public ClientHandler(Socket socket, QueryPlanner planner) {
     this.socket = socket;
     this.planner = planner;
+    this.logger = Logger.getLogger(ClientHandler.class.getName());
   }
 
   public void run() {
@@ -306,9 +314,13 @@ class ClientHandler extends Thread {
         PrintWriter writer = new PrintWriter(output, true)) {
 
       String query = reader.readLine();
-      System.out.println("Query received: " + query);
+      logger.info("Query Received");
 
       String encodedPlan = planner.getLogicalPlan(query);
+      if (encodedPlan != "") {
+        logger.info("Encoded Plan Success");
+      }
+
       writer.print(encodedPlan);
 
     } catch (IOException e) {

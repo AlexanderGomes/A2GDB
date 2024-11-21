@@ -27,8 +27,6 @@ type TableInfo struct {
 }
 
 type ColumnType struct {
-	IsIndex  bool
-	IsUnique bool
-	Type     string
+	IsIndex bool
+	Type    string
 }
-

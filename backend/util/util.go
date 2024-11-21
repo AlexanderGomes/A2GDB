@@ -1,6 +1,7 @@
-package main
+package util
 
 import (
+	"encoding/json"
 	"io"
 	"log"
 	"net"
@@ -10,27 +11,21 @@ const (
 	FRONT_SERVER = ":8080"
 )
 
-func main() {
-	sql := "SELECT Employees.Name, Departments.DepartmentName FROM Employees JOIN Departments ON Employees.DepartmentID = Departments.DepartmentID AND Departments.DepartmentID = 18281281\n"
-	sendSql(sql)
-}
-
-func sendSql(sql string) {
+func SendSql(sql string) interface{} {
 	conn, err := net.Dial("tcp", FRONT_SERVER)
 	if err != nil {
 		log.Println("Couldn't Stablish Connection: ", err)
-		return
+		return ""
 	}
 	defer conn.Close()
 
 	_, err = conn.Write([]byte(sql))
 	if err != nil {
 		log.Println("Couldn't Write Message: ", err)
-		return
+		return ""
 	}
 
-	var data []byte
-
+	var rawData []byte
 	for {
 		buffer := make([]byte, 1024)
 		n, err := conn.Read(buffer)
@@ -40,10 +35,18 @@ func sendSql(sql string) {
 				break
 			}
 			log.Println("Error reading response: ", err)
-			return
+			return ""
 		}
 
-		data = append(data, buffer[:n]...)
+		rawData = append(rawData, buffer[:n]...)
 	}
 
+	var jsonPlan interface{}
+	err = json.Unmarshal(rawData, &jsonPlan)
+	if err != nil {
+		log.Println("Json encoding failted: ", err)
+		return ""
+	}
+
+	return jsonPlan
 }

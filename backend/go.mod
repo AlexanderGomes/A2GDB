@@ -1,4 +1,4 @@
-module storage-engine
+module a2gdb
 
 go 1.21.5
 
