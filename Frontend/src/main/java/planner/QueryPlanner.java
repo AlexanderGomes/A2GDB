@@ -29,17 +29,20 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import org.apache.calcite.rel.externalize.RelJsonWriter;
 
-import java.io.IOException;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
+import java.io.*;
+import java.net.*;
+
 public class QueryPlanner {
+  private static QueryPlanner instance;
   private final Planner planner;
   private final SchemaPlus rootSchema;
 
-  public QueryPlanner() {
+  private QueryPlanner() {
     Config parserConfig = SqlParser.config()
         .withLex(Lex.MYSQL)
         .withParserFactory(SqlDdlParserImpl.FACTORY)
@@ -57,26 +60,42 @@ public class QueryPlanner {
     this.planner = Frameworks.getPlanner(calciteFrameworkConfig);
   }
 
-  private String getLogicalPlan(String query)
-      throws ValidationException, RelConversionException, SqlParseException, Exception {
-    String jsonPlan = "";
-    SqlNode sqlNode = planner.parse(query);
-
-    if (sqlNode instanceof SqlCreateTable) {
-      jsonPlan = handleCreate(sqlNode);
-    } else if (sqlNode instanceof SqlSelect) {
-      jsonPlan = handleSelect(sqlNode);
-    } else if (sqlNode instanceof SqlInsert) {
-      jsonPlan = handleInsert(sqlNode);
-    } else {
-      throw new Exception("sqlNode type unhandled");
+  public static QueryPlanner getInstance() {
+    if (instance == null) {
+      synchronized (QueryPlanner.class) {
+        if (instance == null) {
+          instance = new QueryPlanner();
+        }
+      }
     }
+    return instance;
+  }
 
-    planner.close();
+  public String getLogicalPlan(String query) {
+    String jsonPlan = "";
+
+    try {
+      SqlNode sqlNode = planner.parse(query);
+
+      if (sqlNode instanceof SqlCreateTable) {
+        jsonPlan = handleCreate(sqlNode);
+      } else if (sqlNode instanceof SqlSelect) {
+        jsonPlan = handleSelect(sqlNode);
+      } else if (sqlNode instanceof SqlInsert) {
+        jsonPlan = handleInsert(sqlNode);
+      } else {
+        throw new Exception("sqlNode type unhandled");
+      }
+
+      planner.close();
+    } catch (Exception e) {
+      System.err.println("Couldn't Create Query Plan: " + e.getMessage());
+      e.printStackTrace();
+    }
     return jsonPlan;
   }
 
-  public String handleInsert(SqlNode node) {
+  private String handleInsert(SqlNode node) {
     SqlInsert sqlInsert = (SqlInsert) node;
     String tableName = sqlInsert.getTargetTable().toString();
 
@@ -113,7 +132,7 @@ public class QueryPlanner {
     return jsonBuilder.toString();
   }
 
-  public String handleSelect(SqlNode node) throws ValidationException, RelConversionException {
+  private String handleSelect(SqlNode node) throws ValidationException, RelConversionException {
     List<String> tableNames = GetTableName(node);
     List<Pair<String, Object>> refEntries = setSchemas(tableNames);
 
@@ -124,6 +143,8 @@ public class QueryPlanner {
     RelJsonWriter jWriter = new RelJsonWriter(jBuilder);
 
     jWriter.item("relOp", "references");
+    System.out.println(refEntries);
+
     for (Pair<String, Object> entry : refEntries) {
       jWriter.item(entry.left, entry.right);
     }
@@ -133,7 +154,7 @@ public class QueryPlanner {
     return jWriter.asString();
   }
 
-  public String handleCreate(SqlNode node) {
+  private String handleCreate(SqlNode node) {
     List<String> columns = new ArrayList<String>();
     SqlCreateTable createTable = (SqlCreateTable) node;
     SqlIdentifier tableName = createTable.name;
@@ -249,11 +270,50 @@ public class QueryPlanner {
 
   public static void main(String[] args)
       throws IOException, SQLException, ValidationException, RelConversionException, SqlParseException, Exception {
+    QueryPlanner queryPlanner = QueryPlanner.getInstance();
 
-    QueryPlanner queryPlanner = new QueryPlanner();
+    int port = 8080;
+    try (ServerSocket serverSocket = new ServerSocket(port)) {
+      System.out.println("Server is listening on: " + port);
 
-    String jsonPlan1 = queryPlanner
-        .getLogicalPlan("INSERT INTO Users (id, name) VALUES (1, 'Alice'), (2, 'Bob'), (3, 'Charlie')");
-    System.out.println(jsonPlan1);
+      while (true) {
+        Socket socket = serverSocket.accept();
+        System.out.println("New client connected");
+
+        new ClientHandler(socket, queryPlanner).start();
+      }
+    } catch (IOException e) {
+      System.out.println("Server Initialization Failure: " + e.getMessage());
+      e.printStackTrace();
+    }
+  }
+}
+
+class ClientHandler extends Thread {
+  private Socket socket;
+  private QueryPlanner planner;
+
+  public ClientHandler(Socket socket, QueryPlanner planner) {
+    this.socket = socket;
+    this.planner = planner;
+  }
+
+  public void run() {
+    try (
+        InputStream input = socket.getInputStream();
+        BufferedReader reader = new BufferedReader(new InputStreamReader(input));
+        OutputStream output = socket.getOutputStream();
+        PrintWriter writer = new PrintWriter(output, true)) {
+
+      String query = reader.readLine();
+      System.out.println("Query received: " + query);
+
+      String encodedPlan = planner.getLogicalPlan(query);
+      writer.print(encodedPlan);
+
+    } catch (IOException e) {
+      System.out.println("Server exception: " + e.getMessage());
+      e.printStackTrace();
+    }
   }
 }
