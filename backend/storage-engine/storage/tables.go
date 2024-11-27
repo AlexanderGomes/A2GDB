@@ -27,7 +27,6 @@ type TableObj struct {
 	RearrangedPages []*RearrangedPage
 }
 
-
 func (dm *DiskManagerV2) InMemoryTableSetUp(name TableName) (*TableObj, error) {
 	dirFile, dirPage, err := GetDirInfo(dm.DBdirectory, string(name))
 	if err != nil {
@@ -52,48 +51,8 @@ func (dm *DiskManagerV2) InMemoryTableSetUp(name TableName) (*TableObj, error) {
 		BpTree:        tree,
 	}
 
-	err = GetRearrangedPages(tableObj)
-
-	if err != nil {
-		return nil, fmt.Errorf("InMemoryTableSetUp: %w", err)
-	}
-
 	dm.TableObjs[name] = tableObj
 	return tableObj, nil
-}
-
-func GetRearrangedPages(tableObj *TableObj) error {
-	pages, err := GetTablePages(tableObj.DataFile, nil)
-	if err != nil {
-		return fmt.Errorf("GetRearrangedPages: %w", err)
-	}
-
-	if len(pages) == 0 {
-		return nil
-	}
-
-	dirMap := tableObj.DirectoryPage.Value
-	for _, page := range pages {
-		pageObj, ok := dirMap[PageID(page.Header.ID)]
-		if !ok {
-			return fmt.Errorf("GetRearrangedPages (pageObj not found)")
-		}
-
-		if !pageObj.Rearranged {
-			continue
-		}
-
-		rearrengedObj := RearrangedPage{
-			PageID: PageID(page.Header.ID),
-			Offset: pageObj.Offset,
-			Size:   pageObj.Size,
-		}
-
-		tableObj.RearrangedPages = append(tableObj.RearrangedPages, &rearrengedObj)
-	}
-
-	log.Printf("Total Rearranged pages: %d", len(tableObj.RearrangedPages))
-	return nil
 }
 
 func GetBpTree(dbDirName, tableName string) (*btree.BTree, *os.File, error) {

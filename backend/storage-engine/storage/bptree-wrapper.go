@@ -28,14 +28,12 @@ func NewTree(degree int) *btree.BTree {
 	return btree.New(degree)
 }
 
-func UpdateBp(rows []interface{}, tableObj TableObj, pageInfObj PageInfo) error {
+func UpdateBp(rows []uint64, tableObj TableObj, pageInfObj PageInfo) error {
 	var items []Item
 
-	for _, row := range rows {
-		rowV2 := row.(*RowV2)
-
+	for _, rowID := range rows {
 		item := Item{
-			Key:   rowV2.ID,
+			Key:   rowID,
 			Value: pageInfObj.Offset,
 		}
 

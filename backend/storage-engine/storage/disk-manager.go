@@ -103,7 +103,6 @@ func ReadExistingManager(dbDirectory string) (DiskManagerV2, error) {
 	return dm, nil
 }
 
-
 func (dm *DiskManagerV2) WriteToDisk(page *PageV2) error {
 	tableInfo := dm.TableObjs[TableName(page.TABLE)]
 	pageObj, found := tableInfo.DirectoryPage.Value[PageID(page.Header.ID)]
@@ -149,8 +148,8 @@ func UpdateDirectoryPageDisk(page *DirectoryPageV2, dirFile *os.File) error {
 	return nil
 }
 
-func FindAvailablePage(dataFile *os.File, bytesNeeded int, endFlag bool) (*PageV2, error) {
-	var offset int64
+func FindAvailablePage(dataFile *os.File, bytesNeeded uint16, endFlag bool) (*PageV2, error) {
+	var lastPageOffset int64
 	var page *PageV2
 
 	stat, err := dataFile.Stat()
@@ -162,11 +161,11 @@ func FindAvailablePage(dataFile *os.File, bytesNeeded int, endFlag bool) (*PageV
 		return CreatePageV2(), nil
 	}
 
-	offset = stat.Size() - PageSizeV2
+	lastPageOffset = stat.Size() - PageSizeV2
 
 	for {
 		pageBytes := make([]byte, PageSizeV2)
-		_, err := dataFile.ReadAt(pageBytes, int64(offset))
+		_, err := dataFile.ReadAt(pageBytes, int64(lastPageOffset))
 		if err != nil {
 			if err == io.EOF {
 				fmt.Println("FindAvailablePage (End of file reached, creating new page)")
@@ -181,13 +180,13 @@ func FindAvailablePage(dataFile *os.File, bytesNeeded int, endFlag bool) (*PageV
 			return nil, fmt.Errorf("FindAvailablePage: %w", err)
 		}
 
-		canInsert := foundPage.Header.UpperPtr-foundPage.Header.LowerPtr > uint16(bytesNeeded)
+		canInsert := foundPage.Header.UpperPtr-foundPage.Header.LowerPtr > bytesNeeded
 		if canInsert {
 			page = foundPage
 			break
 		}
 
-		offset += PageSizeV2
+		lastPageOffset += PageSizeV2
 	}
 
 	return page, nil

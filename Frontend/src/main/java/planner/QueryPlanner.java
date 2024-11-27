@@ -16,6 +16,7 @@ import org.apache.calcite.sql.SqlNode;
 import org.apache.calcite.sql.SqlSelect;
 import org.apache.calcite.sql.ddl.SqlColumnDeclaration;
 import org.apache.calcite.sql.ddl.SqlCreateTable;
+import org.apache.calcite.sql.ddl.SqlKeyConstraint;
 import org.apache.calcite.sql.parser.SqlParseException;
 import org.apache.calcite.sql.parser.SqlParser;
 import org.apache.calcite.sql.parser.SqlParser.Config;
@@ -97,39 +98,37 @@ public class QueryPlanner {
   }
 
   private String handleInsert(SqlNode node) {
-
-    SqlInsert sqlInsert = (SqlInsert) node;
-    String tableName = sqlInsert.getTargetTable().toString();
+    SqlInsert sqlInsertNode = (SqlInsert) node;
+    String tableName = sqlInsertNode.getTargetTable().toString();
 
     List<String> columnNames = new ArrayList<>();
-    if (sqlInsert.getTargetColumnList() != null) {
-      for (SqlNode columnNode : sqlInsert.getTargetColumnList()) {
+    if (sqlInsertNode.getTargetColumnList() != null) {
+      for (SqlNode columnNode : sqlInsertNode.getTargetColumnList()) {
         columnNames.add(columnNode.toString());
       }
     }
 
     List<List<String>> rows = new ArrayList<>();
-    SqlNode source = sqlInsert.getSource();
-    if (source instanceof SqlBasicCall) {
-      SqlBasicCall basicCall = (SqlBasicCall) source;
-      for (SqlNode operand : basicCall.getOperandList())
-        if (operand instanceof SqlBasicCall) {
+    SqlBasicCall allRowsNode = (SqlBasicCall) sqlInsertNode.getSource();
 
-          SqlBasicCall rowCall = (SqlBasicCall) operand;
-          List<String> row = new ArrayList<>();
-          for (SqlNode value : rowCall.getOperandList()) {
-            row.add(value.toString());
-          }
-          rows.add(row);
-        }
+    for (SqlNode operand : allRowsNode.getOperandList()) {
+      SqlBasicCall singleRowNode = (SqlBasicCall) operand;
+
+      List<String> row = new ArrayList<>();
+      for (SqlNode rowValue : singleRowNode.getOperandList()) {
+        row.add(rowValue.toString());
+      }
+      rows.add(row);
     }
 
     JSONObject jsonBuilder = new JSONObject();
     JSONArray jsonRows = new JSONArray(rows);
+    JSONArray jsonSelectedCols = new JSONArray(columnNames);
 
     jsonBuilder.put("relOp", "INSERT");
-    jsonBuilder.put("tableName", tableName);
+    jsonBuilder.put("table", tableName);
     jsonBuilder.put("rows", jsonRows);
+    jsonBuilder.put("selectedCols", jsonSelectedCols);
 
     return jsonBuilder.toString();
   }
@@ -156,58 +155,70 @@ public class QueryPlanner {
   }
 
   private String handleCreate(SqlNode node) {
-    List<String> columns = new ArrayList<String>();
+    List<Pair<String, String>> columnsInfo = new ArrayList<Pair<String, String>>();
 
-    // #### could make it a pair but don't want to change addTableSchema rn ####
-    List<String> typeList = new ArrayList<String>();
-    SqlCreateTable createTable = (SqlCreateTable) node;
-    SqlIdentifier tableName = createTable.name;
+    SqlCreateTable createTableNode = (SqlCreateTable) node;
+    SqlIdentifier tableName = createTableNode.name;
 
-    List<SqlNode> columnsNodes = createTable.columnList.getList();
-    for (SqlNode columnNode : columnsNodes) {
+    List<SqlNode> columnNodeList = createTableNode.columnList.getList();
+    for (SqlNode columnNode : columnNodeList) {
       if (columnNode instanceof SqlColumnDeclaration) {
-        SqlColumnDeclaration column = (SqlColumnDeclaration) columnNode;
-        columns.add(column.name.getSimple());
-        typeList.add(column.dataType.getTypeName().toString());
-        System.out.println(column.dataType.getTypeName().toString());
+        SqlColumnDeclaration columnInfo = (SqlColumnDeclaration) columnNode;
+
+        String colName = columnInfo.name.getSimple();
+        String colType = columnInfo.dataType.getTypeName().toString();
+        Pair<String, String> columnPair = Pair.of(colName, colType);
+
+        columnsInfo.add(columnPair);
+      } else if (columnNode instanceof SqlKeyConstraint) {
+        SqlKeyConstraint primaryKeyNode = (SqlKeyConstraint) columnNode;
+        List<SqlNode> primaryKeyList = primaryKeyNode.getOperandList();
+
+        for (SqlNode primaryKey : primaryKeyList) {
+          if (primaryKey != null) {
+            Pair<String, String> pair = Pair.of(primaryKey.toString(), "PRIMARY");
+            columnsInfo.add(pair);
+          }
+        }
       }
     }
-    addTableSchema(tableName.getSimple(), columns);
-    return createTable(tableName.getSimple(), columns);
+
+    addSchemaInMemory(tableName.getSimple(), columnsInfo);
+    return encodeCreateTableSchema(tableName.getSimple(), columnsInfo);
   }
 
   private List<Pair<String, Object>> setSchemas(List<String> tableNames) {
-    List<Pair<String, Object>> refList = new ArrayList<>();
+    List<Pair<String, Object>> referenceList = new ArrayList<>();
     int availableIndex = 0;
 
     for (String tableName : tableNames) {
       Set<String> set = rootSchema.getTableNames();
       if (!set.contains(tableName)) {
-        List<String> columns = getSchemaService(tableName);
-        addTableSchema(tableName, columns);
-        availableIndex = ResolveReference(columns, refList, availableIndex);
+        List<Pair<String, String>> columns = getSchemaService(tableName); // fake service
+        addSchemaInMemory(tableName, columns);
+        availableIndex = ResolveReference(columns, referenceList, availableIndex);
       }
     }
 
-    return refList;
+    return referenceList;
   }
 
-  private int ResolveReference(List<String> columns, List<Pair<String, Object>> refList, int avlIndex) {
-    for (String col : columns) {
-      refList.add(Pair.of(((Integer) avlIndex).toString(), col));
+  private int ResolveReference(List<Pair<String, String>> columns, List<Pair<String, Object>> refList, int avlIndex) {
+    for (Pair<String, String> col : columns) {
+      refList.add(Pair.of(((Integer) avlIndex).toString(), col.left));
       avlIndex++;
     }
     return avlIndex;
   }
 
-  private void addTableSchema(String tableName, List<String> columns) {
+  private void addSchemaInMemory(String tableName, List<Pair<String, String>> columnsInfo) {
     rootSchema.add(tableName, new AbstractTable() {
       @Override
       public RelDataType getRowType(RelDataTypeFactory typeFactory) {
         RelDataTypeFactory.Builder builder = typeFactory.builder();
 
-        for (String column : columns) {
-          builder.add(column,
+        for (Pair<String, String> pair : columnsInfo) {
+          builder.add(pair.left,
               typeFactory.createTypeWithNullability(typeFactory.createSqlType(SqlTypeName.VARCHAR), true));
         }
 
@@ -247,31 +258,39 @@ public class QueryPlanner {
 
   // service to be implemented
   // get columns over the wire
-  private List<String> getSchemaService(String tableName) {
-    List<String> columns = new ArrayList<>();
+  private List<Pair<String, String>> getSchemaService(String tableName) {
+    List<Pair<String, String>> columns = new ArrayList<>();
     if (tableName.equals("Departments")) {
-      columns.add("DepartmentID");
-      columns.add("DepartmentName");
+      columns.add(Pair.of("DepartmentID", "VARCHAR"));
+      columns.add(Pair.of("DepartmentName", "VARCHAR"));
     } else if (tableName.equals("Employees")) {
-      columns.add("DepartmentID");
-      columns.add("Name");
+      columns.add(Pair.of("DepartmentID", "VARCHAR"));
+      columns.add(Pair.of("Name", "VARCHAR"));
     } else if (tableName.equals("kid")) {
-      columns.add("dad");
-      columns.add("mom");
+      columns.add(Pair.of("dad", "VARCHAR"));
+      columns.add(Pair.of("mom", "VARCHAR"));
     } else if (tableName.equals("User")) {
-      columns.add("city");
-      columns.add("age");
+      columns.add(Pair.of("city", "VARCHAR"));
+      columns.add(Pair.of("age", "VARCHAR"));
     }
     return columns;
   }
 
-  private String createTable(String tableName, List<String> columns) {
-    JSONObject jsonBuilder = new JSONObject();
-    JSONArray columnsArray = new JSONArray(columns);
-    jsonBuilder.put("relOp", "CREATE_TABLE");
-    jsonBuilder.put("tableName", tableName);
-    jsonBuilder.put("columns", columnsArray);
-    return jsonBuilder.toString();
+  private String encodeCreateTableSchema(String tableName, List<Pair<String, String>> columnsInfo) {
+    JSONObject jsonObj = new JSONObject();
+    JSONArray columnsArray = new JSONArray();
+
+    jsonObj.put("relOp", "CREATE_TABLE");
+    jsonObj.put("table", tableName);
+
+    for (Pair<String, String> pair : columnsInfo) {
+      JSONObject tempJsonObject = new JSONObject();
+      tempJsonObject.put(pair.left, pair.right);
+      columnsArray.put(tempJsonObject);
+    }
+
+    jsonObj.put("columns", columnsArray);
+    return jsonObj.toString();
   }
 
   public static void main(String[] args)
