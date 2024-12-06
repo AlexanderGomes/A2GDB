@@ -12,9 +12,8 @@ func main() {
 		log.Fatal("DB init failed: ", err)
 	}
 
-	sql1 := "INSERT INTO `User` (Username, Age, City) VALUES ('sander0909', 18, 'Richmond'), ('john_doe', 25, 'New York'), ('jane_smith', 30, 'Los Angeles')\n"
+	sql1 := "SELECT * FROM `User`\n"
 	encodedPlan1 := util.SendSql(sql1)
-
 	engine.EngineEntry(encodedPlan1)
 
 }

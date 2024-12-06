@@ -2,6 +2,7 @@ package planner;
 
 import org.apache.calcite.config.Lex;
 import org.apache.calcite.plan.Contexts;
+import org.apache.calcite.plan.RelOptUtil;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
@@ -37,6 +38,7 @@ import java.util.Set;
 import java.util.logging.Logger;
 import java.io.*;
 import java.net.*;
+import java.util.HashMap;
 
 public class QueryPlanner {
   private static Logger logger = Logger.getLogger(QueryPlanner.class.getName());
@@ -125,7 +127,7 @@ public class QueryPlanner {
     JSONArray jsonRows = new JSONArray(rows);
     JSONArray jsonSelectedCols = new JSONArray(columnNames);
 
-    jsonBuilder.put("relOp", "INSERT");
+    jsonBuilder.put("BACKEND_OP", "INSERT");
     jsonBuilder.put("table", tableName);
     jsonBuilder.put("rows", jsonRows);
     jsonBuilder.put("selectedCols", jsonSelectedCols);
@@ -135,7 +137,7 @@ public class QueryPlanner {
 
   private String handleSelect(SqlNode node) throws ValidationException, RelConversionException {
     List<String> tableNames = GetTableName(node);
-    List<Pair<String, Object>> refEntries = setSchemas(tableNames);
+    HashMap<Integer, String> refEntries = setSchemas(tableNames);
 
     SqlNode validatedSqlNode = planner.validate(node);
     RelNode root = planner.rel(validatedSqlNode).project();
@@ -143,15 +145,20 @@ public class QueryPlanner {
     JsonBuilder jBuilder = new JsonBuilder();
     RelJsonWriter jWriter = new RelJsonWriter(jBuilder);
 
-    jWriter.item("relOp", "references");
-
-    for (Pair<String, Object> entry : refEntries) {
-      jWriter.item(entry.left, entry.right);
-    }
+    List<String> columnNames = root.getRowType().getFieldNames();
+    jWriter.item("selected_columns", columnNames);
+    jWriter.item("refList", refEntries.toString());
 
     jWriter.done(root);
 
-    return jWriter.asString();
+    String initialJsonString = jWriter.asString();
+
+    JSONObject finalJson = new JSONObject(initialJsonString);
+    finalJson.put("BACKEND_OP", "SELECT");
+
+    System.out.println(finalJson);
+
+    return finalJson.toString();
   }
 
   private String handleCreate(SqlNode node) {
@@ -187,27 +194,27 @@ public class QueryPlanner {
     return encodeCreateTableSchema(tableName.getSimple(), columnsInfo);
   }
 
-  private List<Pair<String, Object>> setSchemas(List<String> tableNames) {
-    List<Pair<String, Object>> referenceList = new ArrayList<>();
+  private HashMap<Integer, String> setSchemas(List<String> tableNames) {
+    HashMap<Integer, String> refList = new HashMap<Integer, String>();
     int availableIndex = 0;
 
     for (String tableName : tableNames) {
       Set<String> set = rootSchema.getTableNames();
       if (!set.contains(tableName)) {
-        List<Pair<String, String>> columns = getSchemaService(tableName); // fake service
+        List<Pair<String, String>> columns = getSchema(tableName);
         addSchemaInMemory(tableName, columns);
-        availableIndex = ResolveReference(columns, referenceList, availableIndex);
+        availableIndex = ResolveReference(columns, refList, availableIndex);
       }
     }
-
-    return referenceList;
+    return refList;
   }
 
-  private int ResolveReference(List<Pair<String, String>> columns, List<Pair<String, Object>> refList, int avlIndex) {
+  private int ResolveReference(List<Pair<String, String>> columns, HashMap<Integer, String> refList, int avlIndex) {
     for (Pair<String, String> col : columns) {
-      refList.add(Pair.of(((Integer) avlIndex).toString(), col.left));
+      refList.put(avlIndex, col.left);
       avlIndex++;
     }
+
     return avlIndex;
   }
 
@@ -256,23 +263,26 @@ public class QueryPlanner {
     return tables;
   }
 
-  // service to be implemented
-  // get columns over the wire
-  private List<Pair<String, String>> getSchemaService(String tableName) {
+  private List<Pair<String, String>> getSchema(String tableName) {
     List<Pair<String, String>> columns = new ArrayList<>();
-    if (tableName.equals("Departments")) {
-      columns.add(Pair.of("DepartmentID", "VARCHAR"));
-      columns.add(Pair.of("DepartmentName", "VARCHAR"));
-    } else if (tableName.equals("Employees")) {
-      columns.add(Pair.of("DepartmentID", "VARCHAR"));
-      columns.add(Pair.of("Name", "VARCHAR"));
-    } else if (tableName.equals("kid")) {
-      columns.add(Pair.of("dad", "VARCHAR"));
-      columns.add(Pair.of("mom", "VARCHAR"));
-    } else if (tableName.equals("User")) {
-      columns.add(Pair.of("city", "VARCHAR"));
-      columns.add(Pair.of("age", "VARCHAR"));
+    Schemas.initialize();
+
+    String jsonColumns = Schemas.schemasMap.get(tableName);
+    if (jsonColumns == null) {
+      Schemas.close();
+      throw new IllegalArgumentException("Table schema not found for: " + tableName);
     }
+
+    JSONArray columnsArray = new JSONArray(jsonColumns);
+
+    for (int i = 0; i < columnsArray.length(); i++) {
+      JSONObject column = columnsArray.getJSONObject(i);
+      String key = column.keys().next();
+      String value = column.getString(key);
+      columns.add(Pair.of(key, value));
+    }
+
+    Schemas.close();
     return columns;
   }
 
@@ -280,7 +290,7 @@ public class QueryPlanner {
     JSONObject jsonObj = new JSONObject();
     JSONArray columnsArray = new JSONArray();
 
-    jsonObj.put("relOp", "CREATE_TABLE");
+    jsonObj.put("BACKEND_OP", "CREATE_TABLE");
     jsonObj.put("table", tableName);
 
     for (Pair<String, String> pair : columnsInfo) {
@@ -289,7 +299,10 @@ public class QueryPlanner {
       columnsArray.put(tempJsonObject);
     }
 
+    Schemas.Put(tableName, columnsArray.toString());
+
     jsonObj.put("columns", columnsArray);
+
     return jsonObj.toString();
   }
 

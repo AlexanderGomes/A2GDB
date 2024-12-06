@@ -14,96 +14,51 @@ type QueryEngine struct {
 func (qe *QueryEngine) EngineEntry(queryPlan interface{}) {
 	plan := queryPlan.(map[string]interface{})
 
-	switch planOp := plan["relOp"]; planOp {
+	switch planOp := plan["BACKEND_OP"]; planOp {
 	case "CREATE_TABLE":
 		qe.handleCreate(plan)
 	case "INSERT":
 		qe.handleInsert(plan)
 	case "SELECT":
+		qe.handleSelect(plan)
+	}
+}
 
+func (qe *QueryEngine) handleSelect(plan map[string]interface{}) {
+	nodes := plan["rels"].([]interface{})
+
+	for _, v := range nodes {
+		innerMap := v.(map[string]interface{})
+		switch nodeOp := innerMap["relOp"]; nodeOp {
+		case "LogicalTableScan":
+		case "LogicalProject":
+
+		}
 	}
 }
 
 func (qe *QueryEngine) handleInsert(plan map[string]interface{}) {
 	manager := qe.StorageManager
-	//#check if table exist
-	catalog := manager.PageCatalog.Tables
+
+	catalog := manager.PageCatalog
+	selectedCols := plan["selectedCols"].([]interface{})
 	tableName := plan["table"].(string)
 
-	tableInfo, ok := catalog[storage.TableName(tableName)]
-	if !ok {
-		log.Printf("Table: %s doesn't exist", tableName)
-		return
+	err := checkPresence(selectedCols, tableName, catalog)
+	if err != nil {
+		log.Fatalf("checkPresence failed: %s", err)
 	}
 
-	//#check if cols exist
-	selectedCols := plan["selectedCols"].([]interface{})
-	for _, selectedCol := range selectedCols {
-		selectedCol := selectedCol.(string)
+	bytesNeeded, rowsID, encodedRows := prepareRows(plan, selectedCols, tableName)
 
-		_, ok := tableInfo.Schema[selectedCol]
-		if !ok {
-			log.Printf("Column: %s on Table: %s doesn't exist", selectedCol, tableName)
-			return
-		}
-	}
-
-	// ##Set up in memory data structures and encode the rows
 	tableobj, err := manager.InMemoryTableSetUp(storage.TableName(tableName))
 	if err != nil {
-		log.Printf("Table: %s doesn't exist", tableName)
+		log.Fatalf("InMemoryTableSetUp Error: %s", err)
 	}
 
-	var bytesNeeded uint16
-	rowsID := []uint64{}
-	encodedRows := [][]byte{}
-
-	interfaceRows := plan["rows"].([]interface{})
-
-	for _, row := range interfaceRows {
-		newRow := storage.RowV2{
-			ID:     storage.GenerateRandomID(),
-			Values: make(map[string]string),
-		}
-
-		fmt.Println(newRow.ID)
-
-		//#Add rows values
-		for i, rowVal := range row.([]interface{}) {
-			strRowVal := rowVal.(string)
-			strRowCol := selectedCols[i].(string)
-
-			newRow.Values[strRowCol] = strRowVal
-		}
-
-		//#Encode rows
-		encodedRow, err := storage.SerializeRow(&newRow)
-		if err != nil {
-			log.Printf("Failed Encoding row %v For Table: %s", row, tableName)
-		}
-
-		encodedRows = append(encodedRows, encodedRow)
-		rowsID = append(rowsID, newRow.ID)
-	}
-
-	//#Update page and the necessary files
-	page, err := storage.FindAvailablePage(tableobj.DataFile, bytesNeeded, false)
+	err = findAndUpdate(tableobj, bytesNeeded, tableName, encodedRows, rowsID)
 	if err != nil {
-		log.Printf("Finding Available Page For Table: %s => NOT FOUND", tableName)
-	}
-
-	for i, encodedRow := range encodedRows {
-		err := page.AddTuple(encodedRow)
-		if err != nil {
-			log.Printf("Failed Adding Row %s, at Index %d, for Table: %s, Error: %s", encodedRow, i, tableName, err)
-			return
-		}
-	}
-
-	err = updatePageInfo(rowsID, page, tableobj)
-	if err != nil {
-		log.Printf("Failed Update Internal State For Page: %v", page)
-		return
+		log.Fatalf("findAndUpdate Failed: %s", err)
 	}
 }
 
@@ -159,6 +114,82 @@ func updatePageInfo(rowsID []uint64, pageFound *storage.PageV2, tableObj *storag
 
 	if err := storage.UpdateBp(rowsID, *tableObj, *pageInfObj); err != nil {
 		return fmt.Errorf("update B+ tree error: %w", err)
+	}
+
+	return nil
+}
+
+func checkPresence(selectedCols []interface{}, tableName string, catalog *storage.Catalog) error {
+	// #check if table exist
+	tableInfo, ok := catalog.Tables[storage.TableName(tableName)]
+	if !ok {
+		return fmt.Errorf("table: %s doesn't exist", tableName)
+	}
+
+	// #check if cols exist
+	for _, selectedCol := range selectedCols {
+		selectedCol := selectedCol.(string)
+
+		_, ok := tableInfo.Schema[selectedCol]
+		if !ok {
+			return fmt.Errorf("column: %s on table: %s doesn't exist", selectedCol, tableName)
+		}
+	}
+
+	return nil
+}
+
+func prepareRows(plan map[string]interface{}, selectedCols []interface{}, tableName string) (uint16, []uint64, [][]byte) {
+	var bytesNeeded uint16
+	rowsID := []uint64{}
+	encodedRows := [][]byte{}
+
+	interfaceRows := plan["rows"].([]interface{})
+
+	for _, row := range interfaceRows {
+		newRow := storage.RowV2{
+			ID:     storage.GenerateRandomID(),
+			Values: make(map[string]string),
+		}
+
+		//#Add row values
+		for i, rowVal := range row.([]interface{}) {
+			strRowVal := rowVal.(string)
+			strRowCol := selectedCols[i].(string)
+
+			newRow.Values[strRowCol] = strRowVal
+		}
+
+		//#Encode rows
+		encodedRow, err := storage.SerializeRow(&newRow)
+		if err != nil {
+			log.Printf("Failed Encoding row %v For Table: %s", row, tableName)
+		}
+
+		bytesNeeded += uint16(len(encodedRow))
+		encodedRows = append(encodedRows, encodedRow)
+		rowsID = append(rowsID, newRow.ID)
+	}
+
+	return bytesNeeded, rowsID, encodedRows
+}
+
+func findAndUpdate(tableObj *storage.TableObj, bytesNeeded uint16, tableName string, encodedRows [][]byte, rowsID []uint64) error {
+	page, err := storage.FindAvailablePage(tableObj.DataFile, bytesNeeded, false)
+	if err != nil {
+		return fmt.Errorf("available page for table %s not found", tableName)
+	}
+
+	for _, encodedRow := range encodedRows {
+		err := page.AddTuple(encodedRow)
+		if err != nil {
+			return fmt.Errorf("failed adding row %s, for table: %s, rrror: %s", encodedRow, tableName, err)
+		}
+	}
+
+	err = updatePageInfo(rowsID, page, tableObj)
+	if err != nil {
+		return fmt.Errorf("tnternal update failed: %v", page)
 	}
 
 	return nil

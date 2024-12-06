@@ -1,0 +1,24 @@
+{
+    "BACKEND_OP": "SELECT",
+    "rels": [
+        {
+            "inputs": [],
+            "id": "0",
+            "relOp": "LogicalTableScan",
+            "table": [
+                "User"
+            ]
+        },
+        {
+            "refList": "{0=`UserId`, 1=Username, 2=Age, 3=City}",
+            "selected_columns": [
+                "`UserId`",
+                "Username",
+                "Age",
+                "City"
+            ],
+            "id": "1",
+            "relOp": "LogicalProject"
+        }
+    ]
+}
