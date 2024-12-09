@@ -2,6 +2,7 @@ package main
 
 import (
 	"a2gdb/cmd"
+	"a2gdb/query-engine/engine"
 	"a2gdb/util"
 	"log"
 )
@@ -12,8 +13,25 @@ func main() {
 		log.Fatal("DB init failed: ", err)
 	}
 
+	selects(engine)
+}
+
+func selects(engine *engine.QueryEngine) {
 	sql1 := "SELECT * FROM `User`\n"
 	encodedPlan1 := util.SendSql(sql1)
 	engine.EngineEntry(encodedPlan1)
+}
 
+func insertMany(engine *engine.QueryEngine) {
+	for range 10000 {
+		sql1 := "INSERT INTO `User` (Username, Age, City) VALUES ('JaneSmith', 25, 'Los Angeles'), ('AliceBrown', 28, 'Chicago'), ('BobWhite', 35, 'Houston') \n"
+		encodedPlan1 := util.SendSql(sql1)
+		engine.EngineEntry(encodedPlan1)
+	}
+}
+
+func createTable(engine *engine.QueryEngine) {
+	sql := "CREATE TABLE `User`(PRIMARY KEY(UserId), Username VARCHAR, Age INT, City VARCHAR)\n"
+	encodedPlan1 := util.SendSql(sql)
+	engine.EngineEntry(encodedPlan1)
 }

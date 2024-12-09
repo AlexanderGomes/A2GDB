@@ -2,7 +2,6 @@ package planner;
 
 import org.apache.calcite.config.Lex;
 import org.apache.calcite.plan.Contexts;
-import org.apache.calcite.plan.RelOptUtil;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
@@ -155,8 +154,6 @@ public class QueryPlanner {
 
     JSONObject finalJson = new JSONObject(initialJsonString);
     finalJson.put("BACKEND_OP", "SELECT");
-
-    System.out.println(finalJson);
 
     return finalJson.toString();
   }

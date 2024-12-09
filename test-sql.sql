@@ -1,6 +1,6 @@
 CREATE TABLE `User`(PRIMARY KEY(UserId), Username VARCHAR, Age INT, City VARCHAR)
 
-SELECT * FROM `User`;
+SELECT * FROM `User`
 SELECT Username, Age FROM `User`;
 SELECT Username, Age, City FROM `User` WHERE Age > 20;
 SELECT Username, Age FROM `User` WHERE City = 'New York';

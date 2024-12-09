@@ -4,7 +4,10 @@ import (
 	"a2gdb/storage-engine/storage"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
+
+	"github.com/scylladb/go-set/strset"
 )
 
 type QueryEngine struct {
@@ -26,15 +29,75 @@ func (qe *QueryEngine) EngineEntry(queryPlan interface{}) {
 
 func (qe *QueryEngine) handleSelect(plan map[string]interface{}) {
 	nodes := plan["rels"].([]interface{})
+	var rows []*storage.RowV2
 
-	for _, v := range nodes {
-		innerMap := v.(map[string]interface{})
-		switch nodeOp := innerMap["relOp"]; nodeOp {
+	for _, node := range nodes {
+		innerMap := node.(map[string]interface{})
+		switch op := innerMap["relOp"]; op {
 		case "LogicalTableScan":
+			rows = qe.tableScan(innerMap)
 		case "LogicalProject":
-
+			qe.filter(innerMap, rows)
 		}
 	}
+}
+
+func (qe *QueryEngine) filter(nodeMap map[string]interface{}, rows []*storage.RowV2) {
+	columns := nodeMap["selected_columns"].([]interface{})
+	set := strset.New()
+
+	for _, column := range columns {
+		columnStr := column.(string)
+		cleanedColumn := strings.ReplaceAll(columnStr, "`", "")
+		set.Add(cleanedColumn)
+	}
+
+	for _, row := range rows {
+		for field := range row.Values {
+			if !set.Has(field) {
+				delete(row.Values, field)
+			}
+		}
+	}
+}
+
+func (qe *QueryEngine) tableScan(nodeMap map[string]interface{}) []*storage.RowV2 {
+	var rows []*storage.RowV2
+
+	table := nodeMap["table"].([]interface{})
+	tableName := table[0].(string)
+
+	tableObj, err := qe.GetTable(tableName)
+	if err != nil {
+		log.Fatalf("GetTable failed for: %s, error: %s", tableName, err)
+	}
+
+	directoryMap := tableObj.DirectoryPage.Value
+	pages, err := storage.GetTablePages(tableObj.DataFile, nil)
+	if err != nil {
+		log.Fatalf("GetTablePages failed for: %s, error: %s", tableName, err)
+	}
+
+	for _, page := range pages {
+		pageId := storage.PageID(page.Header.ID)
+		pageObj, ok := directoryMap[pageId]
+
+		if !ok {
+			log.Fatalf("PageObj not found for page: %v", page.Header.ID)
+		}
+
+		for _, location := range pageObj.PointerArray {
+			rowBytes := page.Data[location.Offset : location.Offset+location.Length]
+			row, err := storage.DecodeRow(rowBytes)
+			if err != nil {
+				log.Fatalf("DecodeRow error: %s", err)
+			}
+
+			rows = append(rows, row)
+		}
+	}
+
+	return rows
 }
 
 func (qe *QueryEngine) handleInsert(plan map[string]interface{}) {
@@ -44,16 +107,16 @@ func (qe *QueryEngine) handleInsert(plan map[string]interface{}) {
 	selectedCols := plan["selectedCols"].([]interface{})
 	tableName := plan["table"].(string)
 
-	err := checkPresence(selectedCols, tableName, catalog)
+	primary, err := checkPresenceGetPrimary(selectedCols, tableName, catalog)
 	if err != nil {
 		log.Fatalf("checkPresence failed: %s", err)
 	}
 
-	bytesNeeded, rowsID, encodedRows := prepareRows(plan, selectedCols, tableName)
+	bytesNeeded, rowsID, encodedRows := prepareRows(plan, selectedCols, tableName, primary)
 
-	tableobj, err := manager.InMemoryTableSetUp(storage.TableName(tableName))
+	tableobj, err := qe.GetTable(tableName)
 	if err != nil {
-		log.Fatalf("InMemoryTableSetUp Error: %s", err)
+		log.Fatalf("GetTable failed for: %s, error: %s", tableName, err)
 	}
 
 	err = findAndUpdate(tableobj, bytesNeeded, tableName, encodedRows, rowsID)
@@ -73,7 +136,9 @@ func (qe *QueryEngine) handleCreate(plan map[string]interface{}) {
 
 		for colName, colType := range columnMap {
 			cleanColName := strings.ReplaceAll(colName, "`", "")
-			tableInfo.Schema[cleanColName] = storage.ColumnType{Type: colType.(string), IsIndex: colType == "PRIMARY"}
+			colTypeStr := colType.(string)
+
+			tableInfo.Schema[cleanColName] = storage.ColumnType{Type: colTypeStr, IsIndex: colTypeStr == "PRIMARY"}
 		}
 	}
 
@@ -119,11 +184,13 @@ func updatePageInfo(rowsID []uint64, pageFound *storage.PageV2, tableObj *storag
 	return nil
 }
 
-func checkPresence(selectedCols []interface{}, tableName string, catalog *storage.Catalog) error {
+func checkPresenceGetPrimary(selectedCols []interface{}, tableName string, catalog *storage.Catalog) (string, error) {
+	var primary string
+
 	// #check if table exist
 	tableInfo, ok := catalog.Tables[storage.TableName(tableName)]
 	if !ok {
-		return fmt.Errorf("table: %s doesn't exist", tableName)
+		return "", fmt.Errorf("table: %s doesn't exist", tableName)
 	}
 
 	// #check if cols exist
@@ -132,14 +199,21 @@ func checkPresence(selectedCols []interface{}, tableName string, catalog *storag
 
 		_, ok := tableInfo.Schema[selectedCol]
 		if !ok {
-			return fmt.Errorf("column: %s on table: %s doesn't exist", selectedCol, tableName)
+			return "", fmt.Errorf("column: %s on table: %s doesn't exist", selectedCol, tableName)
 		}
 	}
 
-	return nil
+	//#get primary
+	for column, columnInfo := range tableInfo.Schema {
+		if columnInfo.IsIndex {
+			primary = column
+		}
+	}
+
+	return primary, nil
 }
 
-func prepareRows(plan map[string]interface{}, selectedCols []interface{}, tableName string) (uint16, []uint64, [][]byte) {
+func prepareRows(plan map[string]interface{}, selectedCols []interface{}, tableName, primary string) (uint16, []uint64, [][]byte) {
 	var bytesNeeded uint16
 	rowsID := []uint64{}
 	encodedRows := [][]byte{}
@@ -153,6 +227,7 @@ func prepareRows(plan map[string]interface{}, selectedCols []interface{}, tableN
 		}
 
 		//#Add row values
+		newRow.Values[primary] = strconv.FormatUint(newRow.ID, 10)
 		for i, rowVal := range row.([]interface{}) {
 			strRowVal := rowVal.(string)
 			strRowCol := selectedCols[i].(string)
@@ -193,4 +268,20 @@ func findAndUpdate(tableObj *storage.TableObj, bytesNeeded uint16, tableName str
 	}
 
 	return nil
+}
+
+func (qe *QueryEngine) GetTable(tableName string) (*storage.TableObj, error) {
+	var tableObj *storage.TableObj
+	var err error
+	manager := qe.StorageManager
+
+	tableObj, found := manager.TableObjs[storage.TableName(tableName)]
+	if !found {
+		tableObj, err = manager.InMemoryTableSetUp(storage.TableName(tableName))
+		if err != nil {
+			return nil, fmt.Errorf("GetTable: %w", err)
+		}
+	}
+
+	return tableObj, err
 }

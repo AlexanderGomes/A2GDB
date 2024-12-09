@@ -15,7 +15,7 @@ const (
 	BUFFER_SIZE    = 20000
 	NUM_DECODERS   = 20
 	PAGES_PER_READ = 10
-	MAX_FILE_SIZE  = 500 * 1024
+	MAX_FILE_SIZE  = 1 * 1024 * 1024
 )
 
 type TableObj struct {
