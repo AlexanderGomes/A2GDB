@@ -4,6 +4,7 @@ import (
 	"a2gdb/storage-engine/storage"
 	"fmt"
 	"log"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -40,9 +41,40 @@ func (qe *QueryEngine) handleSelect(plan map[string]interface{}) {
 			qe.columnSelect(innerMap, rows)
 		case "LogicalFilter":
 			qe.filterByColumn(innerMap, plan, &rows)
+		case "LogicalSort":
+			sortAscDesc(innerMap, &rows)
 		}
 	}
+}
 
+func sortAscDesc(innerMap map[string]interface{}, rows *[]*storage.RowV2) {
+	column := innerMap["column"].(string)
+	direction := innerMap["sortDirection"].(string)
+	limit, err := strconv.Atoi(innerMap["limit"].(string))
+
+	if err != nil {
+		log.Fatalf("Error converting string to int: %s", err)
+	}
+
+	sort.SliceStable(*rows, func(i, j int) bool {
+		valI, errI := strconv.Atoi((*rows)[i].Values[column])
+		valJ, errJ := strconv.Atoi((*rows)[j].Values[column])
+
+		if errI != nil || errJ != nil {
+			log.Fatalf("Error converting string to int: %s, %s", errI, errJ)
+			return false
+		}
+
+		if direction == "ASC" {
+			return valI < valJ
+		} else if direction == "DESC" {
+			return valI > valJ
+		}
+
+		return false
+	})
+
+	*rows = (*rows)[:limit]
 }
 
 func (qe *QueryEngine) filterByColumn(innerMap, plan map[string]interface{}, rows *[]*storage.RowV2) {

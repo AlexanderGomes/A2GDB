@@ -17,7 +17,6 @@ import org.apache.calcite.sql.SqlNode;
 import org.apache.calcite.sql.SqlNodeList;
 import org.apache.calcite.sql.SqlOrderBy;
 import org.apache.calcite.sql.SqlSelect;
-import org.apache.calcite.sql.SqlSpecialOperator;
 import org.apache.calcite.sql.ddl.SqlColumnDeclaration;
 import org.apache.calcite.sql.ddl.SqlCreateTable;
 import org.apache.calcite.sql.ddl.SqlKeyConstraint;
@@ -30,7 +29,6 @@ import org.apache.calcite.sql.validate.SqlConformanceEnum;
 import org.apache.calcite.tools.*;
 import org.apache.calcite.util.JsonBuilder;
 import org.apache.calcite.util.Pair;
-import org.checkerframework.checker.units.qual.s;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.apache.calcite.rel.externalize.RelJsonWriter;
@@ -121,21 +119,28 @@ public class QueryPlanner {
     String sortDirection = "";
     String column = "";
     boolean isDesc = false;
+    String fetchVal = "";
 
     SqlOrderBy orderByNode = (SqlOrderBy) node;
+    fetchVal = orderByNode.fetch != null ? orderByNode.fetch.toString() : fetchVal;
+
     SqlNode query = orderByNode.query;
     jsonPlan = handleSelect(query);
 
     SqlNodeList orderList = orderByNode.orderList;
-    column = orderList.toString().replace("`", "");
 
     for (SqlNode order : orderList) {
       if (order instanceof SqlBasicCall) {
+        SqlBasicCall sqlBasicCall = (SqlBasicCall) order;
+
+        List<SqlNode> operands = sqlBasicCall.getOperandList();
+        column = operands.get(0).toString();
         isDesc = true;
       }
     }
 
     sortDirection = isDesc ? "DESC" : "ASC";
+    column = !isDesc ? orderList.toString().replace("`", "") : column;
 
     ObjectMapper objectMapper = new ObjectMapper();
     JsonNode rootNode = objectMapper.readTree(jsonPlan);
@@ -145,6 +150,7 @@ public class QueryPlanner {
     newRelObject.put("relOp", "LogicalSort");
     newRelObject.put("sortDirection", sortDirection);
     newRelObject.put("column", column);
+    newRelObject.put("limit", fetchVal);
 
     relsArray.add(newRelObject);
 
