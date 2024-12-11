@@ -13,7 +13,7 @@ SELECT Username, Age, City FROM `User` WHERE Age BETWEEN 20 AND 30 [x]
 
 
 ##AGGREGATE QUERIES []
-SELECT City, COUNT(*) AS UserCount FROM `User` GROUP BY City []
+SELECT City, COUNT(*) AS UserCount FROM `User` GROUP BY City [x]
 SELECT City, COUNT(*) AS num_users, MAX(Age) AS max_age FROM `User` GROUP BY City []
 
 

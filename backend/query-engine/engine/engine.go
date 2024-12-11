@@ -43,8 +43,48 @@ func (qe *QueryEngine) handleSelect(plan map[string]interface{}) {
 			qe.filterByColumn(innerMap, plan, &rows)
 		case "LogicalSort":
 			sortAscDesc(innerMap, &rows)
+		case "LogicalAggregate":
+			groupBy(innerMap, &rows)
+		default:
+			log.Fatalf("Unsupported Type: %s", op)
 		}
 	}
+}
+
+func groupBy(innerMap map[string]interface{}, rows *[]*storage.RowV2) {
+	groupMap := map[string][]*storage.RowV2{}
+
+	customFieldSlice := innerMap["selected_columns"].([]interface{})
+	//customField := customFieldSlice[len(customFieldSlice)-1].(string)
+	groupByField := customFieldSlice[0].(string)
+
+	for _, row := range *rows {
+		groupKey := row.Values[groupByField]
+		groupMap[groupKey] = append(groupMap[groupKey], row)
+	}
+
+	//apply function to each group
+	aggInfoMap := innerMap["aggregates"].(map[string]interface{})
+	args := aggInfoMap["args"].([]interface{})
+	functionName := aggInfoMap["function"].(string)
+
+	if len(args) == 0 {
+		switch functionName {
+		case "COUNT":
+			countMap := count(groupMap)
+			fmt.Println(countMap)
+		}
+	}
+}
+
+func count(groupMap map[string][]*storage.RowV2) map[string]uint32 {
+	countMap := map[string]uint32{}
+
+	for k, v := range groupMap {
+		countMap[k] = uint32(len(v))
+	}
+
+	return countMap
 }
 
 func sortAscDesc(innerMap map[string]interface{}, rows *[]*storage.RowV2) {
@@ -269,9 +309,12 @@ func intComparison(conditionObj interface{}, reflist map[string]interface{}, row
 }
 
 func (qe *QueryEngine) columnSelect(nodeMap map[string]interface{}, rows []*storage.RowV2) {
-	columns := nodeMap["selected_columns"].([]interface{})
-	set := strset.New()
+	columns, ok := nodeMap["selected_columns"].([]interface{})
+	if !ok {
+		columns = nodeMap["fields"].([]interface{})
+	}
 
+	set := strset.New()
 	for _, column := range columns {
 		columnStr := column.(string)
 		cleanedColumn := strings.ReplaceAll(columnStr, "`", "")
