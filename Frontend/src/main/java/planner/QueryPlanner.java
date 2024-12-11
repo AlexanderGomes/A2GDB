@@ -12,8 +12,12 @@ import org.apache.calcite.sql.SqlBasicCall;
 import org.apache.calcite.sql.SqlIdentifier;
 import org.apache.calcite.sql.SqlInsert;
 import org.apache.calcite.sql.SqlJoin;
+import org.apache.calcite.sql.SqlLiteral;
 import org.apache.calcite.sql.SqlNode;
+import org.apache.calcite.sql.SqlNodeList;
+import org.apache.calcite.sql.SqlOrderBy;
 import org.apache.calcite.sql.SqlSelect;
+import org.apache.calcite.sql.SqlSpecialOperator;
 import org.apache.calcite.sql.ddl.SqlColumnDeclaration;
 import org.apache.calcite.sql.ddl.SqlCreateTable;
 import org.apache.calcite.sql.ddl.SqlKeyConstraint;
@@ -26,6 +30,7 @@ import org.apache.calcite.sql.validate.SqlConformanceEnum;
 import org.apache.calcite.tools.*;
 import org.apache.calcite.util.JsonBuilder;
 import org.apache.calcite.util.Pair;
+import org.checkerframework.checker.units.qual.s;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.apache.calcite.rel.externalize.RelJsonWriter;
@@ -86,34 +91,63 @@ public class QueryPlanner {
       if (sqlNode instanceof SqlCreateTable) {
         jsonPlan = handleCreate(sqlNode);
       } else if (sqlNode instanceof SqlSelect) {
+        System.out.println("here");
+
         jsonPlan = handleSelect(sqlNode);
       } else if (sqlNode instanceof SqlInsert) {
         jsonPlan = handleInsert(sqlNode);
+      } else if (sqlNode instanceof SqlOrderBy) {
+        jsonPlan = handleOrderBy(sqlNode);
       } else {
         throw new Exception("sqlNode type unhandled");
       }
 
-      planner.close();
     } catch (Exception e) {
+      planner.close();
       System.err.println("Couldn't Create Query Plan: " + e.getMessage());
       e.printStackTrace();
     }
+
+    planner.close();
     return jsonPlan;
   }
 
+  private String handleOrderBy(SqlNode node)
+      throws ValidationException, RelConversionException, JsonProcessingException {
+    String jsonPlan = "";
+    String sortDirection = "";
+    boolean isDesc = false;
+
+    SqlOrderBy orderByNode = (SqlOrderBy) node;
+    SqlNode query = orderByNode.query;
+    jsonPlan = handleSelect(query);
+
+    SqlNodeList orderList = orderByNode.orderList;
+    for (SqlNode order : orderList) {
+      if (order instanceof SqlBasicCall) {
+        isDesc = true;
+      }
+    }
+
+    sortDirection = isDesc ? "DESC" : "ASC";
+    System.out.println(sortDirection);
+    
+    return "";
+  }
+
   private String handleInsert(SqlNode node) {
-    SqlInsert sqlInsertNode = (SqlInsert) node;
-    String tableName = sqlInsertNode.getTargetTable().toString();
+    SqlInsert insertNode = (SqlInsert) node;
+    String tableName = insertNode.getTargetTable().toString();
 
     List<String> columnNames = new ArrayList<>();
-    if (sqlInsertNode.getTargetColumnList() != null) {
-      for (SqlNode columnNode : sqlInsertNode.getTargetColumnList()) {
+    if (insertNode.getTargetColumnList() != null) {
+      for (SqlNode columnNode : insertNode.getTargetColumnList()) {
         columnNames.add(columnNode.toString());
       }
     }
 
     List<List<String>> rows = new ArrayList<>();
-    SqlBasicCall allRowsNode = (SqlBasicCall) sqlInsertNode.getSource();
+    SqlBasicCall allRowsNode = (SqlBasicCall) insertNode.getSource();
 
     for (SqlNode operand : allRowsNode.getOperandList()) {
       SqlBasicCall singleRowNode = (SqlBasicCall) operand;

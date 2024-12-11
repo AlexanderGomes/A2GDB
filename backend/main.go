@@ -4,6 +4,7 @@ import (
 	"a2gdb/cmd"
 	"a2gdb/query-engine/engine"
 	"a2gdb/util"
+	"fmt"
 	"log"
 )
 
@@ -17,9 +18,10 @@ func main() {
 }
 
 func selects(engine *engine.QueryEngine) {
-	sql1 := "SELECT Username, City FROM `User` WHERE UserId = CAST('10084632547061476038' AS DECIMAL(20,0))\n"
+	sql1 := "SELECT Username, Age, City FROM `User` ORDER BY Age ASC\n"
 	encodedPlan1 := util.SendSql(sql1)
-	engine.EngineEntry(encodedPlan1)
+	fmt.Println(encodedPlan1)
+	// engine.EngineEntry(encodedPlan1)
 }
 
 func insertMany(engine *engine.QueryEngine) {
