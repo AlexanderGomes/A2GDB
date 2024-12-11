@@ -34,8 +34,11 @@ import org.checkerframework.checker.units.qual.s;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.apache.calcite.rel.externalize.RelJsonWriter;
-import com.fasterxml.jackson.databind.ObjectMapper;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.core.JsonProcessingException;
 
 import java.sql.SQLException;
@@ -116,6 +119,7 @@ public class QueryPlanner {
       throws ValidationException, RelConversionException, JsonProcessingException {
     String jsonPlan = "";
     String sortDirection = "";
+    String column = "";
     boolean isDesc = false;
 
     SqlOrderBy orderByNode = (SqlOrderBy) node;
@@ -123,6 +127,8 @@ public class QueryPlanner {
     jsonPlan = handleSelect(query);
 
     SqlNodeList orderList = orderByNode.orderList;
+    column = orderList.toString().replace("`", "");
+
     for (SqlNode order : orderList) {
       if (order instanceof SqlBasicCall) {
         isDesc = true;
@@ -130,9 +136,21 @@ public class QueryPlanner {
     }
 
     sortDirection = isDesc ? "DESC" : "ASC";
-    System.out.println(sortDirection);
-    
-    return "";
+
+    ObjectMapper objectMapper = new ObjectMapper();
+    JsonNode rootNode = objectMapper.readTree(jsonPlan);
+    ArrayNode relsArray = (ArrayNode) rootNode.path("rels");
+
+    ObjectNode newRelObject = objectMapper.createObjectNode();
+    newRelObject.put("relOp", "LogicalSort");
+    newRelObject.put("sortDirection", sortDirection);
+    newRelObject.put("column", column);
+
+    relsArray.add(newRelObject);
+
+    jsonPlan = objectMapper.writeValueAsString(rootNode);
+
+    return jsonPlan;
   }
 
   private String handleInsert(SqlNode node) {
