@@ -30,8 +30,6 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import org.apache.calcite.rel.externalize.RelJsonWriter;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.apache.calcite.rex.RexLiteral;
-import org.apache.calcite.rel.RelWriter;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 

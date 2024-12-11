@@ -18,7 +18,7 @@ const (
 )
 
 type RowV2 struct {
-	ID     int64
+	ID     uint64
 	Values map[string]string
 	Size   uint64
 }
