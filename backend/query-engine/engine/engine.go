@@ -87,9 +87,78 @@ func (qe *QueryEngine) filterByColumn(innerMap, plan map[string]interface{}, row
 		intComparison(conditionObj["operands"], refList, rows, kind.(string))
 	case "EQUALS":
 		equals(conditionObj["operands"], refList, rows, kind.(string))
+	case "AND":
+		rangeComparison(conditionObj["operands"], refList, rows, kind.(string))
 	default:
 		log.Fatalf("kind %s not supported", kind)
 	}
+}
+
+type LargeComparisons struct {
+	Left    int
+	Right   int
+	UserVal int
+}
+
+func compare(a, b int64, operator string, largeComp *LargeComparisons) bool {
+	switch operator {
+	case "GREATER_THAN":
+		return a > b
+	case "LESS_THAN":
+		return a < b
+	case "EQUALS":
+		return a == b
+	case "AND":
+		return largeComp.UserVal >= largeComp.Left && largeComp.UserVal <= largeComp.Right
+	default:
+		return false
+	}
+}
+
+func rangeComparison(conditionObj interface{}, reflist map[string]interface{}, rows *[]*storage.RowV2, kind string) {
+	maps := conditionObj.([]interface{})
+
+	leftObjOp := maps[0].(map[string]interface{})
+	leftObj := leftObjOp["operands"].([]interface{})
+	leftNameMaps := leftObj[0].(map[string]interface{})
+	leftNameSliceMap := leftNameMaps["operands"].([]interface{})
+	leftNameMap := leftNameSliceMap[0].(map[string]interface{})
+	colCode := leftNameMap["name"].(string)
+	leftValMap := leftObj[1].(map[string]interface{})
+
+	rightObjOp := maps[1].(map[string]interface{})
+	rightValSlice := rightObjOp["operands"].([]interface{})
+	rightValMap := rightValSlice[1].(map[string]interface{})
+
+	columnName := reflist[colCode].(string)
+	leftVal := int(leftValMap["literal"].(float64))
+	rightVal := int(rightValMap["literal"].(float64))
+
+	var filteredRows []*storage.RowV2
+	for _, row := range *rows {
+		userValStr, ok := row.Values[columnName]
+		if !ok {
+			log.Fatalf("field: %s not present in row: %d", columnName, row.ID)
+		}
+
+		userValInt, err := strconv.Atoi(userValStr)
+		if err != nil {
+			log.Fatalf("Error converting string to int: %s", err)
+		}
+
+		largeComp := LargeComparisons{
+			Left:    leftVal,
+			Right:   rightVal,
+			UserVal: userValInt,
+		}
+
+		matched := compare(0, 0, kind, &largeComp)
+		if matched {
+			filteredRows = append(filteredRows, row)
+		}
+	}
+
+	*rows = filteredRows
 }
 
 func equals(conditionObj interface{}, reflist map[string]interface{}, rows *[]*storage.RowV2, kind string) {
@@ -175,14 +244,14 @@ func intComparison(conditionObj interface{}, reflist map[string]interface{}, row
 
 	valMap := maps[1].(map[string]interface{})
 
-	colName := colNameMap["name"].(string)
+	colCode := colNameMap["name"].(string)
 	comparisonVal := int64(valMap["literal"].(float64))
-	reference := reflist[colName].(string)
+	colName := reflist[colCode].(string)
 
 	for _, row := range *rows {
-		fieldVal, ok := row.Values[reference]
+		fieldVal, ok := row.Values[colName]
 		if !ok {
-			log.Fatalf("field: %s not present in row: %d", reference, row.ID)
+			log.Fatalf("field: %s not present in row: %d", colName, row.ID)
 		}
 
 		parsedUserVal, err := strconv.ParseInt(fieldVal, 10, 64)
@@ -190,26 +259,13 @@ func intComparison(conditionObj interface{}, reflist map[string]interface{}, row
 			log.Fatalf("failed parsing %s, for row: %d", fieldVal, row.ID)
 		}
 
-		matchCondition := compare(parsedUserVal, comparisonVal, kind)
+		matchCondition := compare(parsedUserVal, comparisonVal, kind, nil)
 		if matchCondition {
 			filteredRows = append(filteredRows, row)
 		}
 	}
 
 	*rows = filteredRows
-}
-
-func compare(a, b int64, operator string) bool {
-	switch operator {
-	case "GREATER_THAN":
-		return a > b
-	case "LESS_THAN":
-		return a < b
-	case "EQUALS":
-		return a == b
-	default:
-		return false
-	}
 }
 
 func (qe *QueryEngine) columnSelect(nodeMap map[string]interface{}, rows []*storage.RowV2) {

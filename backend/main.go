@@ -17,7 +17,7 @@ func main() {
 }
 
 func selects(engine *engine.QueryEngine) {
-	sql1 := "SELECT Username, Age, City FROM `User` ORDER BY Age DESC LIMIT 3\n"
+	sql1 := "SELECT Username, Age, City FROM `User` WHERE Age BETWEEN 30 AND 35\n"
 	encodedPlan1 := util.SendSql(sql1)
 engine.EngineEntry(encodedPlan1)
 }

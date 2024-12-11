@@ -1,5 +1,4 @@
-CREATE TABLE `User`(PRIMARY KEY(UserId), Username VARCHAR, Age INT, City VARCHAR)
-
+CREATE TABLE `User`(PRIMARY KEY(UserId), Username VARCHAR, Age INT, City VARCHAR) [x]
 SELECT * FROM `User` [x]
 SELECT Username, Age FROM `User` [x]
 SELECT Username, Age, City FROM `User` WHERE Age > 20 [x]
@@ -7,12 +6,11 @@ SELECT Username, City FROM `User` WHERE UserId = CAST('10084632547061476038' AS 
 SELECT Username, Age FROM `User` WHERE City = 'New York'; [x]
 SELECT Username, Age, City FROM `User` ORDER BY Age ASC [x]
 SELECT Username, Age, City FROM `User` ORDER BY Age DESC [x]
+SELECT Username, Age, City FROM `User` ORDER BY Age ASC LIMIT 1 [x]
+SELECT Username, Age, City FROM `User` ORDER BY Age DESC LIMIT 1 [x]
+SELECT Username, Age, City FROM `User` WHERE Age BETWEEN 20 AND 30 [x]
 
-SELECT Username, Age, City FROM `User` ORDER BY Age ASC LIMIT 1;
-SELECT Username, Age, City FROM `User` ORDER BY Age DESC LIMIT 1;
 
-SELECT Username, Age, City FROM `User` WHERE Username LIKE 'j%';
-SELECT Username, Age, City FROM `User` WHERE Age BETWEEN 20 AND 30;
 SELECT City, COUNT(*) AS UserCount FROM `User` GROUP BY City;
 
 ////
