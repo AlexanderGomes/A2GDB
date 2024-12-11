@@ -3,6 +3,7 @@ package planner;
 import org.apache.calcite.config.Lex;
 import org.apache.calcite.plan.Contexts;
 import org.apache.calcite.rel.RelNode;
+import org.apache.calcite.rel.core.AggregateCall;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.rel.type.RelDataTypeSystem;
@@ -12,7 +13,6 @@ import org.apache.calcite.sql.SqlBasicCall;
 import org.apache.calcite.sql.SqlIdentifier;
 import org.apache.calcite.sql.SqlInsert;
 import org.apache.calcite.sql.SqlJoin;
-import org.apache.calcite.sql.SqlLiteral;
 import org.apache.calcite.sql.SqlNode;
 import org.apache.calcite.sql.SqlNodeList;
 import org.apache.calcite.sql.SqlOrderBy;
@@ -32,6 +32,7 @@ import org.apache.calcite.util.Pair;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.apache.calcite.rel.externalize.RelJsonWriter;
+import org.apache.calcite.rel.logical.LogicalAggregate;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -92,8 +93,6 @@ public class QueryPlanner {
       if (sqlNode instanceof SqlCreateTable) {
         jsonPlan = handleCreate(sqlNode);
       } else if (sqlNode instanceof SqlSelect) {
-        System.out.println("here");
-
         jsonPlan = handleSelect(sqlNode);
       } else if (sqlNode instanceof SqlInsert) {
         jsonPlan = handleInsert(sqlNode);
@@ -220,7 +219,41 @@ public class QueryPlanner {
     finalJson.put("BACKEND_OP", "SELECT");
     finalJson.put("refList", new JSONObject(refEntriesJsonString));
 
-    return finalJson.toString();
+    String jsonResponse = finalJson.toString();
+
+    if (root instanceof LogicalAggregate) {
+      LogicalAggregate aggregateNode = (LogicalAggregate) root;
+
+      List<AggregateCall> aggCalls = aggregateNode.getAggCallList();
+      for (AggregateCall call : aggCalls) {
+        String functionName = call.getAggregation().getName();
+        List<Integer> functionArgs = call.getArgList();
+
+        JsonNode rootNode = mapper.readTree(jsonResponse);
+        ArrayNode relsArray = (ArrayNode) rootNode.path("rels");
+
+        for (JsonNode rel : relsArray) {
+          if (rel.path("relOp").asText().equals("LogicalAggregate")) {
+            ObjectNode aggNode = (ObjectNode) rel;
+            ObjectNode aggregates = mapper.createObjectNode();
+
+            aggregates.put("function", functionName);
+
+            ArrayNode argsArray = mapper.createArrayNode();
+            for (Integer arg : functionArgs) {
+              argsArray.add(arg);
+            }
+            
+            aggregates.set("args", argsArray);
+
+            aggNode.set("aggregates", aggregates);
+            jsonResponse = mapper.writeValueAsString(rootNode);
+          }
+        }
+      }
+    }
+
+    return jsonResponse;
   }
 
   private String handleCreate(SqlNode node) {

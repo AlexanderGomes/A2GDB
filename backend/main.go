@@ -4,6 +4,7 @@ import (
 	"a2gdb/cmd"
 	"a2gdb/query-engine/engine"
 	"a2gdb/util"
+	"fmt"
 	"log"
 )
 
@@ -17,9 +18,10 @@ func main() {
 }
 
 func selects(engine *engine.QueryEngine) {
-	sql1 := "SELECT Username, Age, City FROM `User` WHERE Age BETWEEN 30 AND 35\n"
+	sql1 := "SELECT City, COUNT(*) AS UserCount FROM `User` GROUP BY City\n"
 	encodedPlan1 := util.SendSql(sql1)
-engine.EngineEntry(encodedPlan1)
+	fmt.Println(encodedPlan1)
+	// engine.EngineEntry(encodedPlan1)
 }
 
 func insertMany(engine *engine.QueryEngine) {

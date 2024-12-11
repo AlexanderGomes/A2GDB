@@ -1,3 +1,4 @@
+##BASIC QUERIES [x]
 CREATE TABLE `User`(PRIMARY KEY(UserId), Username VARCHAR, Age INT, City VARCHAR) [x]
 SELECT * FROM `User` [x]
 SELECT Username, Age FROM `User` [x]
@@ -11,9 +12,20 @@ SELECT Username, Age, City FROM `User` ORDER BY Age DESC LIMIT 1 [x]
 SELECT Username, Age, City FROM `User` WHERE Age BETWEEN 20 AND 30 [x]
 
 
-SELECT City, COUNT(*) AS UserCount FROM `User` GROUP BY City;
+##AGGREGATE QUERIES []
+SELECT City, COUNT(*) AS UserCount FROM `User` GROUP BY City []
+SELECT City, COUNT(*) AS num_users, MAX(Age) AS max_age FROM `User` GROUP BY City []
 
-////
+
+
+
+
+
+
+
+
+
+
 
 CREATE TABLE Orders (
     PRIMARY KEY(OrderID),
