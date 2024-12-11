@@ -18,7 +18,7 @@ const (
 )
 
 type RowV2 struct {
-	ID     uint64
+	ID     int64
 	Values map[string]string
 	Size   uint64
 }
@@ -52,7 +52,7 @@ type DirectoryPageV2 struct {
 
 type Offset uint64
 type PageInfo struct {
-	Offset       Offset 
+	Offset       Offset
 	PointerArray []TupleLocation
 	FSM          []int
 	Size         uint16
@@ -193,4 +193,11 @@ func GenerateRandomID() uint64 {
 	randomNum, _ := rand.Int(rand.Reader, max)
 
 	return randomNum.Uint64()
+}
+
+func GenerateRandomIDRow() int64 {
+	max := new(big.Int).Lsh(big.NewInt(1), 64)
+	randomNum, _ := rand.Int(rand.Reader, max)
+
+	return randomNum.Int64()
 }

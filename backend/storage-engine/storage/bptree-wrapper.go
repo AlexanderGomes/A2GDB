@@ -7,7 +7,7 @@ import (
 )
 
 type Item struct {
-	Key   uint64
+	Key   int64
 	Value Offset
 }
 
@@ -28,7 +28,7 @@ func NewTree(degree int) *btree.BTree {
 	return btree.New(degree)
 }
 
-func UpdateBp(rows []uint64, tableObj TableObj, pageInfObj PageInfo) error {
+func UpdateBp(rows []int64, tableObj TableObj, pageInfObj PageInfo) error {
 	var items []Item
 
 	for _, rowID := range rows {
@@ -59,7 +59,7 @@ func UpdateBp(rows []uint64, tableObj TableObj, pageInfObj PageInfo) error {
 	return nil
 }
 
-func GetItemByKey(t *btree.BTree, key uint64) (*Item, error) {
+func GetItemByKey(t *btree.BTree, key int64) (*Item, error) {
 	searchItem := Item{Key: key}
 
 	item := t.Get(searchItem)

@@ -37,12 +37,111 @@ func (qe *QueryEngine) handleSelect(plan map[string]interface{}) {
 		case "LogicalTableScan":
 			rows = qe.tableScan(innerMap)
 		case "LogicalProject":
-			qe.filter(innerMap, rows)
+			qe.columnSelect(innerMap, rows)
+		case "LogicalFilter":
+			qe.filterByColumn(innerMap, plan, &rows)
 		}
 	}
 }
 
-func (qe *QueryEngine) filter(nodeMap map[string]interface{}, rows []*storage.RowV2) {
+func (qe *QueryEngine) filterByColumn(innerMap, plan map[string]interface{}, rows *[]*storage.RowV2) {
+	conditionObj := innerMap["condition"].(map[string]interface{})
+	operation := conditionObj["op"].(map[string]interface{})
+	refList := plan["refList"].(map[string]interface{})
+
+	switch kind := operation["kind"]; kind {
+	case "GREATER_THAN", "LESS_THAN":
+		intComparisons(conditionObj["operands"], refList, rows, kind.(string))
+	case "EQUALS":
+		equals(conditionObj["operands"], refList, rows, kind.(string))
+	default:
+		log.Fatalf("kind %s not supported", kind)
+	}
+}
+
+func equals(conditionObj interface{}, reflist map[string]interface{}, rows *[]*storage.RowV2, kind string) {
+	var filteredRows []*storage.RowV2
+	maps := conditionObj.([]interface{})
+
+	typeObj := maps[1].(map[string]interface{})
+	typeMap := typeObj["type"].(map[string]interface{})
+	typeName := typeMap["type"].(string)
+
+	switch typeName {
+	case "INTEGER", "BIGINT":
+		intComparisons(conditionObj, reflist, rows, kind)
+	case "VARCHAR":
+		colNameMap := maps[0].(map[string]interface{})
+		colNameCode := colNameMap["name"].(string)
+		colName := reflist[colNameCode].(string)
+
+		colComparisonMap := maps[1].(map[string]interface{})
+		colComparisonVal := colComparisonMap["literal"].(string)
+
+		for _, row := range *rows {
+			fieldVal, ok := row.Values[colName]
+			if !ok {
+				log.Fatalf("field: %s not present in row: %d", colName, row.ID)
+			}
+
+			if fieldVal == colComparisonVal {
+				filteredRows = append(filteredRows, row)
+			}
+
+		}
+	}
+
+	*rows = filteredRows
+}
+
+func intComparisons(conditionObj interface{}, reflist map[string]interface{}, rows *[]*storage.RowV2, kind string) {
+	var filteredRows []*storage.RowV2
+	maps := conditionObj.([]interface{})
+
+	colObjMap := maps[0].(map[string]interface{})
+	colNameMapSlice := colObjMap["operands"].([]interface{})
+	colNameMap := colNameMapSlice[0].(map[string]interface{})
+
+	valMap := maps[1].(map[string]interface{})
+
+	colName := colNameMap["name"].(string)
+	comparisonVal := int64(valMap["literal"].(float64))
+	reference := reflist[colName].(string)
+
+	for _, row := range *rows {
+		fieldVal, ok := row.Values[reference]
+		if !ok {
+			log.Fatalf("field: %s not present in row: %d", reference, row.ID)
+		}
+
+		parsedUserVal, err := strconv.ParseInt(fieldVal, 10, 64)
+		if err != nil {
+			log.Fatalf("failed parsing %s, for row: %d", fieldVal, row.ID)
+		}
+
+		matchCondition := compare(parsedUserVal, comparisonVal, kind)
+		if matchCondition {
+			filteredRows = append(filteredRows, row)
+		}
+	}
+
+	*rows = filteredRows
+}
+
+func compare(a, b int64, operator string) bool {
+	switch operator {
+	case "GREATER_THAN":
+		return a > b
+	case "LESS_THAN":
+		return a < b
+	case "EQUALS":
+		return a == b
+	default:
+		return false
+	}
+}
+
+func (qe *QueryEngine) columnSelect(nodeMap map[string]interface{}, rows []*storage.RowV2) {
 	columns := nodeMap["selected_columns"].([]interface{})
 	set := strset.New()
 
@@ -149,7 +248,7 @@ func (qe *QueryEngine) handleCreate(plan map[string]interface{}) {
 	}
 }
 
-func updatePageInfo(rowsID []uint64, pageFound *storage.PageV2, tableObj *storage.TableObj) error {
+func updatePageInfo(rowsID []int64, pageFound *storage.PageV2, tableObj *storage.TableObj) error {
 	pageID := storage.PageID(pageFound.Header.ID)
 	dirPage := tableObj.DirectoryPage
 	pageInfObj, found := dirPage.Value[pageID]
@@ -213,26 +312,27 @@ func checkPresenceGetPrimary(selectedCols []interface{}, tableName string, catal
 	return primary, nil
 }
 
-func prepareRows(plan map[string]interface{}, selectedCols []interface{}, tableName, primary string) (uint16, []uint64, [][]byte) {
+func prepareRows(plan map[string]interface{}, selectedCols []interface{}, tableName, primary string) (uint16, []int64, [][]byte) {
 	var bytesNeeded uint16
-	rowsID := []uint64{}
+	rowsID := []int64{}
 	encodedRows := [][]byte{}
 
 	interfaceRows := plan["rows"].([]interface{})
 
 	for _, row := range interfaceRows {
 		newRow := storage.RowV2{
-			ID:     storage.GenerateRandomID(),
+			ID:     storage.GenerateRandomIDRow(),
 			Values: make(map[string]string),
 		}
 
 		//#Add row values
-		newRow.Values[primary] = strconv.FormatUint(newRow.ID, 10)
+		newRow.Values[primary] = strconv.FormatInt(newRow.ID, 10)
 		for i, rowVal := range row.([]interface{}) {
 			strRowVal := rowVal.(string)
 			strRowCol := selectedCols[i].(string)
 
-			newRow.Values[strRowCol] = strRowVal
+			cleanedVal := strings.ReplaceAll(strRowVal, "'", "")
+			newRow.Values[strRowCol] = cleanedVal
 		}
 
 		//#Encode rows
@@ -249,7 +349,7 @@ func prepareRows(plan map[string]interface{}, selectedCols []interface{}, tableN
 	return bytesNeeded, rowsID, encodedRows
 }
 
-func findAndUpdate(tableObj *storage.TableObj, bytesNeeded uint16, tableName string, encodedRows [][]byte, rowsID []uint64) error {
+func findAndUpdate(tableObj *storage.TableObj, bytesNeeded uint16, tableName string, encodedRows [][]byte, rowsID []int64) error {
 	page, err := storage.FindAvailablePage(tableObj.DataFile, bytesNeeded, false)
 	if err != nil {
 		return fmt.Errorf("available page for table %s not found", tableName)

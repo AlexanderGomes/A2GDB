@@ -3,3 +3,4 @@ tests/Testing_DB
 performance/bin
 Frontend/target
 .vscode
+*.md

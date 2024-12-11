@@ -4,6 +4,7 @@ import (
 	"a2gdb/cmd"
 	"a2gdb/query-engine/engine"
 	"a2gdb/util"
+	"fmt"
 	"log"
 )
 
@@ -17,13 +18,14 @@ func main() {
 }
 
 func selects(engine *engine.QueryEngine) {
-	sql1 := "SELECT * FROM `User`\n"
+	sql1 := "SELECT Username, City FROM `User` WHERE UserId = 5114566745054863428\n"
 	encodedPlan1 := util.SendSql(sql1)
+	fmt.Println(encodedPlan1)
 	engine.EngineEntry(encodedPlan1)
 }
 
 func insertMany(engine *engine.QueryEngine) {
-	for range 10000 {
+	for range 5000 {
 		sql1 := "INSERT INTO `User` (Username, Age, City) VALUES ('JaneSmith', 25, 'Los Angeles'), ('AliceBrown', 28, 'Chicago'), ('BobWhite', 35, 'Houston') \n"
 		encodedPlan1 := util.SendSql(sql1)
 		engine.EngineEntry(encodedPlan1)

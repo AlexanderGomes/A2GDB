@@ -29,6 +29,11 @@ import org.apache.calcite.util.Pair;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.apache.calcite.rel.externalize.RelJsonWriter;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.calcite.rex.RexLiteral;
+import org.apache.calcite.rel.RelWriter;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
 
 import java.sql.SQLException;
 import java.util.ArrayList;
@@ -134,9 +139,10 @@ public class QueryPlanner {
     return jsonBuilder.toString();
   }
 
-  private String handleSelect(SqlNode node) throws ValidationException, RelConversionException {
+  private String handleSelect(SqlNode node)
+      throws ValidationException, RelConversionException, JsonProcessingException {
     List<String> tableNames = GetTableName(node);
-    HashMap<Integer, String> refEntries = setSchemas(tableNames);
+    HashMap<String, String> refEntries = setSchemas(tableNames);
 
     SqlNode validatedSqlNode = planner.validate(node);
     RelNode root = planner.rel(validatedSqlNode).project();
@@ -146,14 +152,17 @@ public class QueryPlanner {
 
     List<String> columnNames = root.getRowType().getFieldNames();
     jWriter.item("selected_columns", columnNames);
-    jWriter.item("refList", refEntries.toString());
 
     jWriter.done(root);
 
     String initialJsonString = jWriter.asString();
 
+    ObjectMapper mapper = new ObjectMapper();
+    String refEntriesJsonString = mapper.writeValueAsString(refEntries);
     JSONObject finalJson = new JSONObject(initialJsonString);
+
     finalJson.put("BACKEND_OP", "SELECT");
+    finalJson.put("refList", new JSONObject(refEntriesJsonString));
 
     return finalJson.toString();
   }
@@ -180,7 +189,8 @@ public class QueryPlanner {
 
         for (SqlNode primaryKey : primaryKeyList) {
           if (primaryKey != null) {
-            Pair<String, String> pair = Pair.of(primaryKey.toString(), "PRIMARY");
+            String cleanedKey = primaryKey.toString().replace("`", "");
+            Pair<String, String> pair = Pair.of(cleanedKey, "PRIMARY");
             columnsInfo.add(pair);
           }
         }
@@ -191,24 +201,24 @@ public class QueryPlanner {
     return encodeCreateTableSchema(tableName.getSimple(), columnsInfo);
   }
 
-  private HashMap<Integer, String> setSchemas(List<String> tableNames) {
-    HashMap<Integer, String> refList = new HashMap<Integer, String>();
+  private HashMap<String, String> setSchemas(List<String> tableNames) {
+    HashMap<String, String> refList = new HashMap<String, String>();
     int availableIndex = 0;
 
     for (String tableName : tableNames) {
       Set<String> set = rootSchema.getTableNames();
+      List<Pair<String, String>> columns = getSchema(tableName);
       if (!set.contains(tableName)) {
-        List<Pair<String, String>> columns = getSchema(tableName);
         addSchemaInMemory(tableName, columns);
-        availableIndex = ResolveReference(columns, refList, availableIndex);
       }
+      availableIndex = ResolveReference(columns, refList, availableIndex);
     }
     return refList;
   }
 
-  private int ResolveReference(List<Pair<String, String>> columns, HashMap<Integer, String> refList, int avlIndex) {
+  private int ResolveReference(List<Pair<String, String>> columns, HashMap<String, String> refList, int avlIndex) {
     for (Pair<String, String> col : columns) {
-      refList.put(avlIndex, col.left);
+      refList.put(String.valueOf("$" + avlIndex), col.left);
       avlIndex++;
     }
 
