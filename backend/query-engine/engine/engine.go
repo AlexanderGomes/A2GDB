@@ -3,11 +3,13 @@ package engine
 import (
 	"a2gdb/storage-engine/storage"
 	"fmt"
-	"github.com/scylladb/go-set/strset"
 	"log"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/scylladb/go-set/strset"
 )
 
 type QueryEngine struct {
@@ -78,11 +80,36 @@ func groupBy(innerMap map[string]interface{}, rows *[]*storage.RowV2, selectedCo
 	case "MAX":
 		maxMap := maxCount(groupMap, argName)
 		fmt.Println(maxMap)
+	case "MIN":
+		minMap := minCount(groupMap, argName)
+		fmt.Println(minMap)
+	default:
+		log.Fatalf("Unsupported type: %s", functionName)
 	}
+}
+func minCount(groupMap map[string][]*storage.RowV2, field string) map[string]int {
+	maxtMap := map[string]int{}
+
+	for k, v := range groupMap {
+		minAge := math.MaxInt64
+		for _, row := range v {
+			userAgeStr := row.Values[field]
+			userAgeInt, err := strconv.Atoi(userAgeStr)
+			if err != nil {
+				log.Fatalf("Error converting string to int: %s", err)
+			}
+			if userAgeInt < minAge {
+				minAge = userAgeInt
+			}
+		}
+		maxtMap[k] = minAge
+	}
+
+	return maxtMap
 }
 
 func maxCount(groupMap map[string][]*storage.RowV2, field string) map[string]int {
-	maxtMap := map[string]int{}
+	minMap := map[string]int{}
 
 	for k, v := range groupMap {
 		var maxAge int
@@ -97,10 +124,10 @@ func maxCount(groupMap map[string][]*storage.RowV2, field string) map[string]int
 				maxAge = ageInt
 			}
 		}
-		maxtMap[k] = maxAge
+		minMap[k] = maxAge
 	}
 
-	return maxtMap
+	return minMap
 }
 
 func uniqueCount(groupMap map[string][]*storage.RowV2) map[string]uint32 {

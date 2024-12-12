@@ -4,6 +4,7 @@ import (
 	"a2gdb/cmd"
 	"a2gdb/query-engine/engine"
 	"a2gdb/util"
+	"fmt"
 	"log"
 )
 
@@ -13,20 +14,30 @@ func main() {
 		log.Fatal("DB init failed: ", err)
 	}
 
+	insertMany(engine)
 	selects(engine)
 }
 
 func selects(engine *engine.QueryEngine) {
-	sql1 := "SELECT City, MAX(Age) AS oldest_in_city FROM `User` GROUP BY City\n"
+	sql1 := "SELECT City, MIN(Age) AS oldest_in_city FROM `User` GROUP BY City\n"
 	encodedPlan1 := util.SendSql(sql1)
 	engine.EngineEntry(encodedPlan1)
 }
 
 func insertMany(engine *engine.QueryEngine) {
-	for range 5000 {
-		sql1 := "INSERT INTO `User` (Username, Age, City) VALUES ('JaneSmith', 25, 'Los Angeles'), ('AliceBrown', 28, 'Chicago'), ('BobWhite', 35, 'Houston') \n"
+	for i := range 5000 {
+		sql1 := fmt.Sprintf("INSERT INTO `User` (Username, Age, City) VALUES ('JaneSmith', %d, 'Los Angeles')\n", i)
+		sql2 := fmt.Sprintf("INSERT INTO `User` (Username, Age, City) VALUES ('AliceBrown', %d, 'Chicago')\n", i+5)
+		sql3 := fmt.Sprintf("INSERT INTO `User` (Username, Age, City) VALUES ('BobWhite', %d, 'Houston')\n", i+20)
+
 		encodedPlan1 := util.SendSql(sql1)
 		engine.EngineEntry(encodedPlan1)
+
+		encodedPlan2 := util.SendSql(sql2)
+		engine.EngineEntry(encodedPlan2)
+
+		encodedPlan3 := util.SendSql(sql3)
+		engine.EngineEntry(encodedPlan3)
 	}
 }
 
