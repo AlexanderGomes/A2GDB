@@ -3,12 +3,11 @@ package engine
 import (
 	"a2gdb/storage-engine/storage"
 	"fmt"
+	"github.com/scylladb/go-set/strset"
 	"log"
 	"sort"
 	"strconv"
 	"strings"
-
-	"github.com/scylladb/go-set/strset"
 )
 
 type QueryEngine struct {
@@ -29,8 +28,9 @@ func (qe *QueryEngine) EngineEntry(queryPlan interface{}) {
 }
 
 func (qe *QueryEngine) handleSelect(plan map[string]interface{}) {
-	nodes := plan["rels"].([]interface{})
 	var rows []*storage.RowV2
+	var selectedCols []interface{}
+	nodes := plan["rels"].([]interface{})
 
 	for _, node := range nodes {
 		innerMap := node.(map[string]interface{})
@@ -38,20 +38,20 @@ func (qe *QueryEngine) handleSelect(plan map[string]interface{}) {
 		case "LogicalTableScan":
 			rows = qe.tableScan(innerMap)
 		case "LogicalProject":
-			qe.columnSelect(innerMap, rows)
+			selectedCols = qe.columnSelect(innerMap, rows)
 		case "LogicalFilter":
 			qe.filterByColumn(innerMap, plan, &rows)
 		case "LogicalSort":
 			sortAscDesc(innerMap, &rows)
 		case "LogicalAggregate":
-			groupBy(innerMap, &rows)
+			groupBy(innerMap, &rows, selectedCols)
 		default:
 			log.Fatalf("Unsupported Type: %s", op)
 		}
 	}
 }
 
-func groupBy(innerMap map[string]interface{}, rows *[]*storage.RowV2) {
+func groupBy(innerMap map[string]interface{}, rows *[]*storage.RowV2, selectedCols []interface{}) {
 	groupMap := map[string][]*storage.RowV2{}
 
 	customFieldSlice := innerMap["selected_columns"].([]interface{})
@@ -65,19 +65,45 @@ func groupBy(innerMap map[string]interface{}, rows *[]*storage.RowV2) {
 
 	//apply function to each group
 	aggInfoMap := innerMap["aggregates"].(map[string]interface{})
-	args := aggInfoMap["args"].([]interface{})
+	argsSlice := aggInfoMap["args"].([]interface{})
+	argCode := int(argsSlice[0].(float64))
+
+	argName := selectedCols[argCode].(string)
 	functionName := aggInfoMap["function"].(string)
 
-	if len(args) == 0 {
-		switch functionName {
-		case "COUNT":
-			countMap := count(groupMap)
-			fmt.Println(countMap)
-		}
+	switch functionName {
+	case "COUNT":
+		countMap := uniqueCount(groupMap)
+		fmt.Println(countMap)
+	case "MAX":
+		maxMap := maxCount(groupMap, argName)
+		fmt.Println(maxMap)
 	}
 }
 
-func count(groupMap map[string][]*storage.RowV2) map[string]uint32 {
+func maxCount(groupMap map[string][]*storage.RowV2, field string) map[string]int {
+	maxtMap := map[string]int{}
+
+	for k, v := range groupMap {
+		var maxAge int
+		for _, row := range v {
+			ageStr := row.Values[field]
+			ageInt, err := strconv.Atoi(ageStr)
+			if err != nil {
+				log.Fatalf("Error converting string to int: %s", err)
+			}
+
+			if ageInt > maxAge {
+				maxAge = ageInt
+			}
+		}
+		maxtMap[k] = maxAge
+	}
+
+	return maxtMap
+}
+
+func uniqueCount(groupMap map[string][]*storage.RowV2) map[string]uint32 {
 	countMap := map[string]uint32{}
 
 	for k, v := range groupMap {
@@ -308,7 +334,7 @@ func intComparison(conditionObj interface{}, reflist map[string]interface{}, row
 	*rows = filteredRows
 }
 
-func (qe *QueryEngine) columnSelect(nodeMap map[string]interface{}, rows []*storage.RowV2) {
+func (qe *QueryEngine) columnSelect(nodeMap map[string]interface{}, rows []*storage.RowV2) []interface{} {
 	columns, ok := nodeMap["selected_columns"].([]interface{})
 	if !ok {
 		columns = nodeMap["fields"].([]interface{})
@@ -328,6 +354,8 @@ func (qe *QueryEngine) columnSelect(nodeMap map[string]interface{}, rows []*stor
 			}
 		}
 	}
+
+	return columns
 }
 
 func (qe *QueryEngine) tableScan(nodeMap map[string]interface{}) []*storage.RowV2 {

@@ -4,7 +4,6 @@ import (
 	"a2gdb/cmd"
 	"a2gdb/query-engine/engine"
 	"a2gdb/util"
-	"fmt"
 	"log"
 )
 
@@ -20,8 +19,7 @@ func main() {
 func selects(engine *engine.QueryEngine) {
 	sql1 := "SELECT City, MAX(Age) AS oldest_in_city FROM `User` GROUP BY City\n"
 	encodedPlan1 := util.SendSql(sql1)
-	fmt.Println(encodedPlan1)
-	//engine.EngineEntry(encodedPlan1)
+	engine.EngineEntry(encodedPlan1)
 }
 
 func insertMany(engine *engine.QueryEngine) {

@@ -243,7 +243,7 @@ public class QueryPlanner {
             for (Integer arg : functionArgs) {
               argsArray.add(arg);
             }
-            
+
             aggregates.set("args", argsArray);
 
             aggNode.set("aggregates", aggregates);
