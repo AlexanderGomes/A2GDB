@@ -14,12 +14,11 @@ func main() {
 		log.Fatal("DB init failed: ", err)
 	}
 
-	insertMany(engine)
 	selects(engine)
 }
 
 func selects(engine *engine.QueryEngine) {
-	sql1 := "SELECT City, MIN(Age) AS oldest_in_city FROM `User` GROUP BY City\n"
+	sql1 := "SELECT Username, Age, City FROM `User` WHERE Age BETWEEN 30 AND 40\n"
 	encodedPlan1 := util.SendSql(sql1)
 	engine.EngineEntry(encodedPlan1)
 }

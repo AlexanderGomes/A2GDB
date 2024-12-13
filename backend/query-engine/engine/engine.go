@@ -3,13 +3,20 @@ package engine
 import (
 	"a2gdb/storage-engine/storage"
 	"fmt"
+	"github.com/scylladb/go-set/strset"
 	"log"
 	"math"
 	"sort"
 	"strconv"
 	"strings"
+)
 
-	"github.com/scylladb/go-set/strset"
+const (
+	TABLE_SCAN = "LogicalTableScan"
+	PROJECTION = "LogicalProject"
+	PREDICATE  = "LogicalFilter"
+	SORT       = "LogicalSort"
+	AGGREGATE  = "LogicalAggregate"
 )
 
 type QueryEngine struct {
@@ -19,7 +26,7 @@ type QueryEngine struct {
 func (qe *QueryEngine) EngineEntry(queryPlan interface{}) {
 	plan := queryPlan.(map[string]interface{})
 
-	switch planOp := plan["BACKEND_OP"]; planOp {
+	switch operation := plan["STATEMENT"]; operation {
 	case "CREATE_TABLE":
 		qe.handleCreate(plan)
 	case "INSERT":
@@ -32,28 +39,33 @@ func (qe *QueryEngine) EngineEntry(queryPlan interface{}) {
 func (qe *QueryEngine) handleSelect(plan map[string]interface{}) {
 	var rows []*storage.RowV2
 	var selectedCols []interface{}
+	var colName string
+
 	nodes := plan["rels"].([]interface{})
+	referenceList := plan["refList"].(map[string]interface{})
 
 	for _, node := range nodes {
-		innerMap := node.(map[string]interface{})
-		switch op := innerMap["relOp"]; op {
-		case "LogicalTableScan":
-			rows = qe.tableScan(innerMap)
-		case "LogicalProject":
-			selectedCols = qe.columnSelect(innerMap, rows)
-		case "LogicalFilter":
-			qe.filterByColumn(innerMap, plan, &rows)
-		case "LogicalSort":
-			sortAscDesc(innerMap, &rows)
-		case "LogicalAggregate":
-			groupBy(innerMap, &rows, selectedCols)
+		nodeInnerMap := node.(map[string]interface{})
+
+		switch nodeOperation := nodeInnerMap["relOp"]; nodeOperation {
+		case TABLE_SCAN:
+			rows = qe.tableScan(nodeInnerMap)
+		case PROJECTION:
+			selectedCols, colName = columnSelect(nodeInnerMap, referenceList, rows)
+		case PREDICATE:
+			filterByColumn(nodeInnerMap, referenceList, &rows)
+		case SORT:
+			sortAscDesc(nodeInnerMap, &rows)
+		case AGGREGATE:
+			groupBy(nodeInnerMap, colName, &rows, selectedCols)
 		default:
-			log.Fatalf("Unsupported Type: %s", op)
+			log.Fatalf("Unsupported Type: %s", nodeOperation)
 		}
 	}
+
 }
 
-func groupBy(innerMap map[string]interface{}, rows *[]*storage.RowV2, selectedCols []interface{}) {
+func groupBy(innerMap map[string]interface{}, colName string, rows *[]*storage.RowV2, selectedCols []interface{}) {
 	groupMap := map[string][]*storage.RowV2{}
 
 	customFieldSlice := innerMap["selected_columns"].([]interface{})
@@ -65,13 +77,16 @@ func groupBy(innerMap map[string]interface{}, rows *[]*storage.RowV2, selectedCo
 		groupMap[groupKey] = append(groupMap[groupKey], row)
 	}
 
-	//apply function to each group
 	aggInfoMap := innerMap["aggregates"].(map[string]interface{})
 	argsSlice := aggInfoMap["args"].([]interface{})
-	argCode := int(argsSlice[0].(float64))
 
-	argName := selectedCols[argCode].(string)
 	functionName := aggInfoMap["function"].(string)
+
+	var argName string
+	if functionName != "COUNT" {
+		argCode := int(argsSlice[0].(float64))
+		argName = selectedCols[argCode].(string)
+	}
 
 	switch functionName {
 	case "COUNT":
@@ -83,23 +98,72 @@ func groupBy(innerMap map[string]interface{}, rows *[]*storage.RowV2, selectedCo
 	case "MIN":
 		minMap := minCount(groupMap, argName)
 		fmt.Println(minMap)
+	case "AVG":
+		avgMap := avgCount(groupMap, colName)
+		fmt.Println(avgMap)
+	case "SUM":
+		sumMap := sumCount(groupMap, colName)
+		fmt.Println(sumMap)
 	default:
 		log.Fatalf("Unsupported type: %s", functionName)
 	}
 }
+
+func sumCount(groupMap map[string][]*storage.RowV2, colName string) map[string]int {
+	sumMap := map[string]int{}
+
+	for k, v := range groupMap {
+		var sum int
+		for _, row := range v {
+			userValStr := row.Values[colName]
+			userValInt, err := strconv.Atoi(userValStr)
+			if err != nil {
+				log.Fatalf("Error converting string to int: %s", err)
+			}
+
+			sum += userValInt
+		}
+
+		sumMap[k] = sum
+	}
+
+	return sumMap
+}
+
+func avgCount(groupMap map[string][]*storage.RowV2, colName string) map[string]int {
+	avgMap := map[string]int{}
+
+	for k, v := range groupMap {
+		var sum int
+		for _, row := range v {
+			userValStr := row.Values[colName]
+			userValInt, err := strconv.Atoi(userValStr)
+			if err != nil {
+				log.Fatalf("Error converting string to int: %s", err)
+			}
+
+			sum += userValInt
+		}
+
+		avgMap[k] = sum / len(v)
+	}
+
+	return avgMap
+}
+
 func minCount(groupMap map[string][]*storage.RowV2, field string) map[string]int {
 	maxtMap := map[string]int{}
 
 	for k, v := range groupMap {
 		minAge := math.MaxInt64
 		for _, row := range v {
-			userAgeStr := row.Values[field]
-			userAgeInt, err := strconv.Atoi(userAgeStr)
+			userValStr := row.Values[field]
+			userValInt, err := strconv.Atoi(userValStr)
 			if err != nil {
 				log.Fatalf("Error converting string to int: %s", err)
 			}
-			if userAgeInt < minAge {
-				minAge = userAgeInt
+			if userValInt < minAge {
+				minAge = userValInt
 			}
 		}
 		maxtMap[k] = minAge
@@ -143,10 +207,12 @@ func uniqueCount(groupMap map[string][]*storage.RowV2) map[string]uint32 {
 func sortAscDesc(innerMap map[string]interface{}, rows *[]*storage.RowV2) {
 	column := innerMap["column"].(string)
 	direction := innerMap["sortDirection"].(string)
-	limit, err := strconv.Atoi(innerMap["limit"].(string))
 
+	limitPassed := true
+	limit, err := strconv.Atoi(innerMap["limit"].(string))
 	if err != nil {
-		log.Fatalf("Error converting string to int: %s", err)
+		log.Println("No limit passed")
+		limitPassed = false
 	}
 
 	sort.SliceStable(*rows, func(i, j int) bool {
@@ -154,7 +220,7 @@ func sortAscDesc(innerMap map[string]interface{}, rows *[]*storage.RowV2) {
 		valJ, errJ := strconv.Atoi((*rows)[j].Values[column])
 
 		if errI != nil || errJ != nil {
-			log.Fatalf("Error converting string to int: %s, %s", errI, errJ)
+			log.Fatalf("Error converting string to int (SliceStable): %s, %s", errI, errJ)
 			return false
 		}
 
@@ -167,13 +233,15 @@ func sortAscDesc(innerMap map[string]interface{}, rows *[]*storage.RowV2) {
 		return false
 	})
 
-	*rows = (*rows)[:limit]
+	if limitPassed {
+		*rows = (*rows)[:limit]
+		return
+	}
 }
 
-func (qe *QueryEngine) filterByColumn(innerMap, plan map[string]interface{}, rows *[]*storage.RowV2) {
+func filterByColumn(innerMap, refList map[string]interface{}, rows *[]*storage.RowV2) {
 	conditionObj := innerMap["condition"].(map[string]interface{})
 	operation := conditionObj["op"].(map[string]interface{})
-	refList := plan["refList"].(map[string]interface{})
 
 	switch kind := operation["kind"]; kind {
 	case "GREATER_THAN", "LESS_THAN":
@@ -305,6 +373,7 @@ func decimalComparison(maps []interface{}, reflist map[string]interface{}, rows 
 
 func charComparison(maps []interface{}, reflist map[string]interface{}, rows *[]*storage.RowV2) {
 	var filteredRows []*storage.RowV2
+
 	colNameMap := maps[0].(map[string]interface{})
 	colNameCode := colNameMap["name"].(string)
 	colName := reflist[colNameCode].(string)
@@ -361,7 +430,9 @@ func intComparison(conditionObj interface{}, reflist map[string]interface{}, row
 	*rows = filteredRows
 }
 
-func (qe *QueryEngine) columnSelect(nodeMap map[string]interface{}, rows []*storage.RowV2) []interface{} {
+func columnSelect(nodeMap, refList map[string]interface{}, rows []*storage.RowV2) ([]interface{}, string) {
+	var colName string
+
 	columns, ok := nodeMap["selected_columns"].([]interface{})
 	if !ok {
 		columns = nodeMap["fields"].([]interface{})
@@ -370,6 +441,18 @@ func (qe *QueryEngine) columnSelect(nodeMap map[string]interface{}, rows []*stor
 	set := strset.New()
 	for _, column := range columns {
 		columnStr := column.(string)
+
+		if strings.Contains(columnStr, "$") {
+			mapExpSlice := nodeMap["exprs"].([]interface{})
+			opObj := mapExpSlice[1].(map[string]interface{})
+			opSlice := opObj["operands"].([]interface{})
+			opMap := opSlice[0].(map[string]interface{})
+			colCode := opMap["name"].(string)
+
+			colName = refList[colCode].(string)
+			columnStr = colName
+		}
+
 		cleanedColumn := strings.ReplaceAll(columnStr, "`", "")
 		set.Add(cleanedColumn)
 	}
@@ -382,7 +465,7 @@ func (qe *QueryEngine) columnSelect(nodeMap map[string]interface{}, rows []*stor
 		}
 	}
 
-	return columns
+	return columns, colName
 }
 
 func (qe *QueryEngine) tableScan(nodeMap map[string]interface{}) []*storage.RowV2 {

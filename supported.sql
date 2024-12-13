@@ -1,11 +1,10 @@
-##BASIC QUERIES [x]
 INSERT INTO `User` (Username, Age, City) VALUES ('JaneSmith', 25, 'Los Angeles'), ('AliceBrown', 28, 'Chicago'), ('BobWhite', 35, 'Houston')
 CREATE TABLE `User`(PRIMARY KEY(UserId), Username VARCHAR, Age INT, City VARCHAR) [x]
 SELECT * FROM `User` [x]
 SELECT Username, Age FROM `User` [x]
 SELECT Username, Age, City FROM `User` WHERE Age > 20 [x]
 SELECT Username, City FROM `User` WHERE UserId = CAST('10084632547061476038' AS DECIMAL(20,0)) [x]
-SELECT Username, Age FROM `User` WHERE City = 'New York'; [x]
+SELECT Username, Age FROM `User` WHERE City = 'Los Angeles' [x]
 SELECT Username, Age, City FROM `User` ORDER BY Age ASC [x]
 SELECT Username, Age, City FROM `User` ORDER BY Age DESC [x]
 SELECT Username, Age, City FROM `User` ORDER BY Age ASC LIMIT 1 [x]
@@ -13,15 +12,19 @@ SELECT Username, Age, City FROM `User` ORDER BY Age DESC LIMIT 1 [x]
 SELECT Username, Age, City FROM `User` WHERE Age BETWEEN 20 AND 30 [x]
 
 
-##AGGREGATE QUERIES []
 SELECT City, COUNT(*) AS UserCount FROM `User` GROUP BY City [x]
-SELECT City, COUNT(*) AS num_users, MAX(Age) AS max_age FROM `User` GROUP BY City [x]
-SELECT City, COUNT(*) AS num_users, MIN(Age) AS max_age FROM `User` GROUP BY City []
-SELECT City, COUNT(*) AS num_users, AVG(Age) AS max_age FROM `User` GROUP BY City []
+SELECT City, MAX(Age) AS max_age FROM `User` GROUP BY City [x]
+SELECT City, MIN(Age) AS max_age FROM `User` GROUP BY City [x]
+SELECT City, AVG(Age) AS max_age FROM `User` GROUP BY City [x]
+SELECT City, SUM(Age) AS max_age FROM `User` GROUP BY City [x]
 
 
 
 
+// EXTRAS
+SELECT * FROM `User` WHERE City = 'Los Angeles' AND Age > 25 []
+SELECT * FROM `User` WHERE City = 'Houston' OR Age < 30 []
+SELECT * FROM `User` WHERE City IN ('Los Angeles', 'Chicago') []
 
 
 

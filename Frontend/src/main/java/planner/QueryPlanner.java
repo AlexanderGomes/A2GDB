@@ -186,7 +186,7 @@ public class QueryPlanner {
     JSONArray jsonRows = new JSONArray(rows);
     JSONArray jsonSelectedCols = new JSONArray(columnNames);
 
-    jsonBuilder.put("BACKEND_OP", "INSERT");
+    jsonBuilder.put("STATEMENT", "INSERT");
     jsonBuilder.put("table", tableName);
     jsonBuilder.put("rows", jsonRows);
     jsonBuilder.put("selectedCols", jsonSelectedCols);
@@ -216,7 +216,7 @@ public class QueryPlanner {
     String refEntriesJsonString = mapper.writeValueAsString(refEntries);
     JSONObject finalJson = new JSONObject(initialJsonString);
 
-    finalJson.put("BACKEND_OP", "SELECT");
+    finalJson.put("STATEMENT", "SELECT");
     finalJson.put("refList", new JSONObject(refEntriesJsonString));
 
     String jsonResponse = finalJson.toString();
@@ -386,7 +386,7 @@ public class QueryPlanner {
     JSONObject jsonObj = new JSONObject();
     JSONArray columnsArray = new JSONArray();
 
-    jsonObj.put("BACKEND_OP", "CREATE_TABLE");
+    jsonObj.put("STATEMENT", "CREATE_TABLE");
     jsonObj.put("table", tableName);
 
     for (Pair<String, String> pair : columnsInfo) {
