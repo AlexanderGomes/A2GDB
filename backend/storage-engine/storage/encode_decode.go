@@ -117,6 +117,7 @@ func DecodeDirectory(data []byte) (*DirectoryPageV2, error) {
 		if _, err := io.ReadFull(buf, encodedPageInfo); err != nil {
 			return nil, fmt.Errorf("error reading encoded PageInfo data: %w", err)
 		}
+		
 		pageInfo, err := DecodePageInfo(encodedPageInfo)
 		if err != nil {
 			return nil, fmt.Errorf("error decoding PageInfo: %w", err)
@@ -256,7 +257,7 @@ func DecodePageV2(data []byte) (*PageV2, error) {
 	return page, nil
 }
 
-func SerializeRow(row *RowV2) ([]byte, error) {
+func EncodeRow(row *RowV2) ([]byte, error) {
 	var buf bytes.Buffer
 
 	if err := binary.Write(&buf, binary.LittleEndian, row.ID); err != nil {
@@ -296,7 +297,6 @@ func DecodeRow(data []byte) (*RowV2, error) {
 	if err := binary.Read(buf, binary.LittleEndian, &row.ID); err != nil {
 		return nil, fmt.Errorf("error reading Row ID: %w", err)
 	}
-
 	var numValues uint32
 	if err := binary.Read(buf, binary.LittleEndian, &numValues); err != nil {
 		return nil, fmt.Errorf("error reading number of values: %w", err)

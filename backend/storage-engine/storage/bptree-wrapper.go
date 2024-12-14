@@ -29,6 +29,10 @@ func NewTree(degree int) *btree.BTree {
 }
 
 func UpdateBp(rows []uint64, tableObj TableObj, pageInfObj PageInfo) error {
+	if rows == nil {
+		return nil
+	}
+	
 	var items []Item
 
 	for _, rowID := range rows {

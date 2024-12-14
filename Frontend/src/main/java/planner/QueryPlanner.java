@@ -10,6 +10,8 @@ import org.apache.calcite.rel.type.RelDataTypeSystem;
 import org.apache.calcite.schema.SchemaPlus;
 import org.apache.calcite.schema.impl.AbstractTable;
 import org.apache.calcite.sql.SqlBasicCall;
+import org.apache.calcite.sql.SqlCall;
+import org.apache.calcite.sql.SqlDelete;
 import org.apache.calcite.sql.SqlIdentifier;
 import org.apache.calcite.sql.SqlInsert;
 import org.apache.calcite.sql.SqlJoin;
@@ -98,6 +100,8 @@ public class QueryPlanner {
         jsonPlan = handleInsert(sqlNode);
       } else if (sqlNode instanceof SqlOrderBy) {
         jsonPlan = handleOrderBy(sqlNode);
+      } else if (sqlNode instanceof SqlDelete) {
+        jsonPlan = handleDelete(sqlNode);
       } else {
         throw new Exception("sqlNode type unhandled");
       }
@@ -110,6 +114,34 @@ public class QueryPlanner {
 
     planner.close();
     return jsonPlan;
+  }
+
+  private String handleDelete(SqlNode node) {
+    JSONObject jsonObj = new JSONObject();
+
+    SqlDelete deleteNode = (SqlDelete) node;
+    String tableName = deleteNode.getTargetTable().toString();
+
+    SqlNode whereCondition = deleteNode.getCondition();
+    if (whereCondition != null) {
+      if (whereCondition instanceof SqlCall) {
+        SqlCall whereCall = (SqlCall) whereCondition;
+        if (whereCall.getOperator().getName().equals("=")) {
+          SqlNode leftOperand = whereCall.operand(0);
+          SqlNode rightOperand = whereCall.operand(1);
+
+          String columnName = leftOperand.toString();
+          String value = rightOperand.toString();
+
+          jsonObj.put("STATEMENT", "DELETE");
+          jsonObj.put("table", tableName);
+          jsonObj.put("column", columnName);
+          jsonObj.put("value", value);
+        }
+      }
+    }
+
+    return jsonObj.toString();
   }
 
   private String handleOrderBy(SqlNode node)
