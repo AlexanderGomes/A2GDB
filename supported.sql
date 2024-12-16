@@ -20,7 +20,7 @@
 
 
 -- CRUD
-[] DELETE FROM `User` WHERE Username = 'BobWhite'
+[x] DELETE FROM `User` WHERE Username = 'BobWhite'
 [] ALTER TABLE `User` ADD COLUMN Email VARCHAR;
 [] ALTER TABLE `User` DROP COLUMN Email;
 

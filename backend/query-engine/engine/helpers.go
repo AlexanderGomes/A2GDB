@@ -15,7 +15,7 @@ func (qe *QueryEngine) GetTable(tableName string) (*storage.TableObj, error) {
 
 	tableObj, found := manager.TableObjs[storage.TableName(tableName)]
 	if !found {
-		tableObj, err = manager.InMemoryTableSetUp(storage.TableName(tableName))
+		tableObj, err = manager.InMemoryTableSetUp(tableName)
 		if err != nil {
 			return nil, fmt.Errorf("GetTable: %w", err)
 		}
@@ -186,9 +186,13 @@ func (qe *QueryEngine) tableScan(tableName string) []*storage.RowV2 {
 	return rows
 }
 
-func processPagesForDeletion(pages []*storage.PageV2, deleteKey, deleteVal string, tableObj *storage.TableObj) {
+func processPagesForDeletion(pages []*storage.PageV2, deleteKey, deleteVal string, tableObj *storage.TableObj) []*storage.FreeSpace {
+	var freeSpaceMapping []*storage.FreeSpace
+	var freeSpacePage *storage.FreeSpace
+
 	for _, page := range pages {
 		pageObj := tableObj.DirectoryPage.Value[storage.PageID(page.Header.ID)]
+
 		for i := range pageObj.PointerArray {
 			location := &pageObj.PointerArray[i]
 			if location.Free {
@@ -202,8 +206,20 @@ func processPagesForDeletion(pages []*storage.PageV2, deleteKey, deleteVal strin
 			}
 
 			if row.Values[deleteKey] == deleteVal {
+				if freeSpacePage == nil {
+					freeSpacePage = &storage.FreeSpace{PageID: storage.PageID(page.Header.ID)}
+				}
+
+				freeSpacePage.NumFreeLocations++
+				freeSpacePage.FreeMemory += location.Length
 				location.Free = true
 			}
 		}
+
+		if freeSpacePage != nil {
+			freeSpaceMapping = append(freeSpaceMapping, freeSpacePage)
+		}
 	}
+
+	return freeSpaceMapping
 }

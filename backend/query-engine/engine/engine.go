@@ -5,14 +5,6 @@ import (
 	"log"
 )
 
-const (
-	TABLE_SCAN = "LogicalTableScan"
-	PROJECTION = "LogicalProject"
-	PREDICATE  = "LogicalFilter"
-	SORT       = "LogicalSort"
-	AGGREGATE  = "LogicalAggregate"
-)
-
 type QueryEngine struct {
 	StorageManager *storage.DiskManagerV2
 }
@@ -46,16 +38,16 @@ func (qe *QueryEngine) handleSelect(plan map[string]interface{}) {
 		nodeInnerMap := node.(map[string]interface{})
 
 		switch nodeOperation := nodeInnerMap["relOp"]; nodeOperation {
-		case TABLE_SCAN:
+		case "LogicalTableScan":
 			tableName := nodeInnerMap["table"].(string)
 			rows = qe.tableScan(tableName)
-		case PROJECTION:
+		case "LogicalProject":
 			selectedCols, colName = columnSelect(nodeInnerMap, referenceList, rows)
-		case PREDICATE:
+		case "LogicalFilter":
 			filterByColumn(nodeInnerMap, referenceList, &rows)
-		case SORT:
+		case "LogicalSort":
 			sortAscDesc(nodeInnerMap, &rows)
-		case AGGREGATE:
+		case "LogicalAggregate":
 			groupBy(nodeInnerMap, colName, &rows, selectedCols)
 		default:
 			log.Fatalf("Unsupported Type: %s", nodeOperation)

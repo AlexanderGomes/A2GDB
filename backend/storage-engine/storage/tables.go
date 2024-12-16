@@ -2,12 +2,13 @@ package storage
 
 import (
 	"fmt"
-	"github.com/google/btree"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/google/btree"
 )
 
 const (
@@ -19,59 +20,121 @@ const (
 )
 
 type TableObj struct {
-	DirectoryPage   *DirectoryPageV2
-	DirFile         *os.File
-	BpTree          *btree.BTree
-	BpFile          *os.File
-	DataFile        *os.File
-	RearrangedPages []*RearrangedPage
+	DirectoryPage *DirectoryPageV2
+	BpTree        *btree.BTree
+	Memory        map[int16][]*FreeSpace
+	DirFile       *os.File
+	BpFile        *os.File
+	DataFile      *os.File
+	MemFile       *os.File
 }
 
-func (dm *DiskManagerV2) InMemoryTableSetUp(name TableName) (*TableObj, error) {
-	dirFile, dirPage, err := GetDirInfo(dm.DBdirectory, string(name))
-	if err != nil {
-		return nil, fmt.Errorf("InMemoryTableSetUp: %w", err)
-	}
+type FreeSpace struct {
+	PageID           PageID
+	NumFreeLocations int
+	FreeMemory       uint16
+	Compacted        bool
+}
 
-	dataFile, err := GetDataFileInfo(dm.DBdirectory, string(name))
-	if err != nil {
-		return nil, fmt.Errorf("InMemoryTableSetUp: %w", err)
-	}
-
-	tree, bpFile, err := GetBpTree(dm.DBdirectory, string(name))
-	if err != nil {
-		return nil, fmt.Errorf("InMemoryTableSetUp: %w", err)
-	}
+func (dm *DiskManagerV2) InMemoryTableSetUp(tableName string) (*TableObj, error) {
+	dirObj, dirFilePtr := GetNonpageFile(dm.DBdirectory, tableName, "directory_page")
+	bptreeObj, bptreeFilePtr := GetNonpageFile(dm.DBdirectory, tableName, "bptree")
+	memObj, memFilePtr := GetNonpageFile(dm.DBdirectory, tableName, "freeMem")
+	_, dataFilePtr := GetNonpageFile(dm.DBdirectory, tableName, tableName)
 
 	tableObj := &TableObj{
-		DirectoryPage: dirPage,
-		DataFile:      dataFile,
-		DirFile:       dirFile,
-		BpFile:        bpFile,
-		BpTree:        tree,
+		DirectoryPage: dirObj.(*DirectoryPageV2),
+		BpTree:        bptreeObj.(*btree.BTree),
+		Memory:        memObj.(map[int16][]*FreeSpace),
+		DataFile:      dataFilePtr,
+		DirFile:       dirFilePtr,
+		BpFile:        bptreeFilePtr,
+		MemFile:       memFilePtr,
 	}
 
-	dm.TableObjs[name] = tableObj
+	dm.TableObjs[TableName(tableName)] = tableObj
 	return tableObj, nil
 }
 
-func GetBpTree(dbDirName, tableName string) (*btree.BTree, *os.File, error) {
-	bpPath := filepath.Join(dbDirName, "Tables", tableName, "bptree")
-	bpFile, err := os.OpenFile(bpPath, os.O_RDWR|os.O_CREATE, 0666)
+func GetNonpageFile(dbDirectory, tableName, fileName string) (interface{}, *os.File) {
+	var object interface{}
+
+	filePath := filepath.Join(dbDirectory, "Tables", tableName, fileName)
+	filePtr, err := os.OpenFile(filePath, os.O_RDWR, 0666)
 	if err != nil {
-		return nil, nil, fmt.Errorf("GetBpTree (error opening bp tree file): %w", err)
+		log.Fatalf("opening non page file failed: %s", err)
 	}
 
-	bpBytes, err := ReadNonPageFile(bpFile)
+	switch fileName {
+	case "bptree":
+		object, err = GetBpTree(filePtr)
+		if err != nil {
+			log.Fatalf("getting bp data failed: %s", err)
+		}
+	case "directory_page":
+		object, err = GetDirInfo(filePtr)
+		if err != nil {
+			log.Fatalf("getting directory data failed: %s", err)
+		}
+	case tableName:
+		return nil, filePtr
+	case "freeMem":
+		object, err = GetMemInfo(filePtr)
+		if err != nil {
+			log.Fatalf("getting mem obj failed: %s", err)
+		}
+	}
+
+	return object, filePtr
+}
+
+func GetMemInfo(fileptr *os.File) (map[int16][]*FreeSpace, error) {
+	byts, err := ReadNonPageFile(fileptr)
 	if err != nil {
-		return nil, nil, fmt.Errorf("GetBpTree: %w", err)
+		return nil, fmt.Errorf("GetDirInfo (error reading Dir File): %w", err)
+	}
+
+	if len(byts) == 0 {
+		return make(map[int16][]*FreeSpace), nil
+	}
+
+	memObj, err := DecodeMemObj(byts)
+	if err != nil {
+		return nil, fmt.Errorf("GetDirInfo (decoding): %w", err)
+	}
+
+	return memObj, nil
+}
+
+func GetDirInfo(fileptr *os.File) (*DirectoryPageV2, error) {
+	byts, err := ReadNonPageFile(fileptr)
+	if err != nil {
+		return nil, fmt.Errorf("GetDirInfo (error reading Dir File): %w", err)
+	}
+
+	if len(byts) == 0 {
+		return &DirectoryPageV2{make(map[PageID]*PageInfo)}, nil
+	}
+
+	dirPage, err := DecodeDirectory(byts)
+	if err != nil {
+		return nil, fmt.Errorf("GetDirInfo (decoding): %w", err)
+	}
+
+	return dirPage, nil
+}
+
+func GetBpTree(fileptr *os.File) (*btree.BTree, error) {
+	bpBytes, err := ReadNonPageFile(fileptr)
+	if err != nil {
+		return nil, fmt.Errorf("GetBpTree: %w", err)
 	}
 
 	tree := NewTree(20)
 	if len(bpBytes) > 0 {
 		items, err := DecodeItems(bpBytes)
 		if err != nil {
-			return nil, nil, fmt.Errorf("GetBpTree: %w", err)
+			return nil, fmt.Errorf("GetBpTree: %w", err)
 		}
 
 		for _, item := range items {
@@ -79,41 +142,7 @@ func GetBpTree(dbDirName, tableName string) (*btree.BTree, *os.File, error) {
 		}
 	}
 
-	return tree, bpFile, nil
-}
-
-func GetDataFileInfo(dbDirName, tableName string) (*os.File, error) {
-	tableDataPath := filepath.Join(dbDirName, "Tables", tableName, tableName)
-	dataFile, err := os.OpenFile(tableDataPath, os.O_RDWR, 0666)
-	if err != nil {
-		return nil, fmt.Errorf("GetDataFileInfo (error opening data file): %w", err)
-	}
-
-	return dataFile, nil
-}
-
-func GetDirInfo(dbDirName, tableName string) (*os.File, *DirectoryPageV2, error) {
-	dirFilePath := filepath.Join(dbDirName, "Tables", tableName, "directory_page")
-	dirFile, err := os.OpenFile(dirFilePath, os.O_RDWR, 0666)
-	if err != nil {
-		return nil, nil, fmt.Errorf("GetDirInfo (error opening directory_page file): %w", err)
-	}
-
-	byts, err := ReadNonPageFile(dirFile)
-	if err != nil {
-		return nil, nil, fmt.Errorf("GetDirInfo (error reading Dir File): %w", err)
-	}
-
-	if len(byts) == 0 {
-		return dirFile, &DirectoryPageV2{make(map[PageID]*PageInfo)}, nil
-	}
-
-	dirPage, err := DecodeDirectory(byts)
-	if err != nil {
-		return nil, nil, fmt.Errorf("GetDirInfo (decoding): %w", err)
-	}
-
-	return dirFile, dirPage, nil
+	return tree, nil
 }
 
 func (dm *DiskManagerV2) CreateTable(name TableName, info TableInfo) error {
@@ -133,6 +162,7 @@ func (dm *DiskManagerV2) CreateTable(name TableName, info TableInfo) error {
 	os.Create(filepath.Join(tablePath, string(name)))
 	os.Create(filepath.Join(tablePath, "directory_page"))
 	os.Create(filepath.Join(tablePath, "bptree"))
+	os.Create(filepath.Join(tablePath, "freeMem"))
 
 	return nil
 }

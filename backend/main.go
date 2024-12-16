@@ -18,16 +18,16 @@ func main() {
 }
 
 func selects(engine *engine.QueryEngine) {
-	sql1 := "DELETE FROM `User` WHERE Username = 'BobWhite5005'\n"
+	sql1 := "DELETE FROM `User` WHERE Username = 'AliceBrown'\n"
 	encodedPlan1 := util.SendSql(sql1)
 	engine.EngineEntry(encodedPlan1)
 }
 
 func insertMany(engine *engine.QueryEngine) {
 	for i := range 5000 {
-		sql1 := fmt.Sprintf("INSERT INTO `User` (Username, Age, City) VALUES ('JaneSmith%d', %d, 'Los Angeles')\n", i, i)
-		sql2 := fmt.Sprintf("INSERT INTO `User` (Username, Age, City) VALUES ('AliceBrown%d', %d, 'Chicago')\n", i+5, i+5)
-		sql3 := fmt.Sprintf("INSERT INTO `User` (Username, Age, City) VALUES ('BobWhite%d', %d, 'Houston')\n", i+20, i+20)
+		sql1 := fmt.Sprintf("INSERT INTO `User` (Username, Age, City) VALUES ('JaneSmith', %d, 'Los Angeles')\n", i)
+		sql2 := fmt.Sprintf("INSERT INTO `User` (Username, Age, City) VALUES ('AliceBrown', %d, 'Chicago')\n", i+5)
+		sql3 := fmt.Sprintf("INSERT INTO `User` (Username, Age, City) VALUES ('BobWhite', %d, 'Houston')\n", i+20)
 
 		encodedPlan1 := util.SendSql(sql1)
 		engine.EngineEntry(encodedPlan1)

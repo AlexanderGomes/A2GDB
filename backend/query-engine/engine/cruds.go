@@ -23,7 +23,7 @@ func (qe *QueryEngine) handleDelete(plan map[string]interface{}) {
 	deleteValStr := plan["value"].(string)
 	cleanedVal := strings.ReplaceAll(deleteValStr, "'", "")
 
-	processPagesForDeletion(tablePages, deleteKey, cleanedVal, tableObj)
+	freeSpaceMapping := processPagesForDeletion(tablePages, deleteKey, cleanedVal, tableObj)
 
 	for _, page := range tablePages {
 		err := updatePageInfo(nil, page, tableObj)
@@ -31,6 +31,8 @@ func (qe *QueryEngine) handleDelete(plan map[string]interface{}) {
 			log.Panicf("writing to disk failed, table %s, page %+v", tableName, page)
 		}
 	}
+
+	qe.vaccumEntry(freeSpaceMapping, tableObj)
 }
 
 func (qe *QueryEngine) handleUpdate(plan map[string]interface{}) {}

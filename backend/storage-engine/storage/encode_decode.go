@@ -7,6 +7,96 @@ import (
 	"io"
 )
 
+func EncodeMemObj(memObj map[int16][]*FreeSpace) ([]byte, error) {
+	var buf bytes.Buffer
+
+	if err := binary.Write(&buf, binary.LittleEndian, int16(len(memObj))); err != nil {
+		return nil, err
+	}
+
+	for key, freeSpaces := range memObj {
+		if err := binary.Write(&buf, binary.LittleEndian, key); err != nil {
+			return nil, err
+		}
+
+		if err := binary.Write(&buf, binary.LittleEndian, int16(len(freeSpaces))); err != nil {
+			return nil, err
+		}
+
+		for _, fs := range freeSpaces {
+			if err := binary.Write(&buf, binary.LittleEndian, fs.PageID); err != nil {
+				return nil, err
+			}
+
+			if err := binary.Write(&buf, binary.LittleEndian, int32(fs.NumFreeLocations)); err != nil {
+				return nil, err
+			}
+
+			if err := binary.Write(&buf, binary.LittleEndian, fs.FreeMemory); err != nil {
+				return nil, err
+			}
+
+			if err := binary.Write(&buf, binary.LittleEndian, fs.Compacted); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	return buf.Bytes(), nil
+}
+
+func DecodeMemObj(data []byte) (map[int16][]*FreeSpace, error) {
+	buf := bytes.NewReader(data)
+	memObj := make(map[int16][]*FreeSpace)
+
+	var numKeys int16
+	if err := binary.Read(buf, binary.LittleEndian, &numKeys); err != nil {
+		return nil, err
+	}
+
+	for i := int16(0); i < numKeys; i++ {
+		var key int16
+		if err := binary.Read(buf, binary.LittleEndian, &key); err != nil {
+			return nil, err
+		}
+
+		var numFreeSpaces int16
+		if err := binary.Read(buf, binary.LittleEndian, &numFreeSpaces); err != nil {
+			return nil, err
+		}
+
+		freeSpaces := make([]*FreeSpace, numFreeSpaces)
+		for j := int16(0); j < numFreeSpaces; j++ {
+			fs := &FreeSpace{}
+
+			if err := binary.Read(buf, binary.LittleEndian, &fs.PageID); err != nil {
+				return nil, err
+			}
+
+			var numFreeLocations int32
+			if err := binary.Read(buf, binary.LittleEndian, &numFreeLocations); err != nil {
+				return nil, err
+			}
+
+			fs.NumFreeLocations = int(numFreeLocations)
+
+			if err := binary.Read(buf, binary.LittleEndian, &fs.FreeMemory); err != nil {
+				return nil, err
+			}
+
+			if err := binary.Read(buf, binary.LittleEndian, &fs.Compacted); err != nil {
+				return nil, err
+			}
+
+			freeSpaces[j] = fs
+		}
+
+		memObj[key] = freeSpaces
+	}
+
+	return memObj, nil
+}
+
 func EncodeDirectory(dir *DirectoryPageV2) ([]byte, error) {
 	buf := bytes.NewBuffer(make([]byte, 0, 1024*20))
 
@@ -68,25 +158,6 @@ func EncodePageInfo(pageInfo *PageInfo) ([]byte, error) {
 		}
 	}
 
-	numFSM := uint32(len(pageInfo.FSM))
-	if err := binary.Write(&buf, binary.LittleEndian, numFSM); err != nil {
-		return nil, err
-	}
-
-	for _, fsmValue := range pageInfo.FSM {
-		if err := binary.Write(&buf, binary.LittleEndian, int32(fsmValue)); err != nil {
-			return nil, err
-		}
-	}
-
-	if err := binary.Write(&buf, binary.LittleEndian, pageInfo.Rearranged); err != nil {
-		return nil, err
-	}
-
-	if err := binary.Write(&buf, binary.LittleEndian, pageInfo.Size); err != nil {
-		return nil, err
-	}
-
 	return buf.Bytes(), nil
 }
 
@@ -117,7 +188,7 @@ func DecodeDirectory(data []byte) (*DirectoryPageV2, error) {
 		if _, err := io.ReadFull(buf, encodedPageInfo); err != nil {
 			return nil, fmt.Errorf("error reading encoded PageInfo data: %w", err)
 		}
-		
+
 		pageInfo, err := DecodePageInfo(encodedPageInfo)
 		if err != nil {
 			return nil, fmt.Errorf("error decoding PageInfo: %w", err)
@@ -162,28 +233,6 @@ func DecodePageInfo(data []byte) (*PageInfo, error) {
 		tuple.Free = freeByte == 1
 
 		pageInfo.PointerArray[i] = tuple
-	}
-
-	var numFSM uint32
-	if err := binary.Read(buf, binary.LittleEndian, &numFSM); err != nil {
-		return nil, fmt.Errorf("error reading number of FSM elements: %w", err)
-	}
-
-	pageInfo.FSM = make([]int, numFSM)
-	for i := uint32(0); i < numFSM; i++ {
-		var fsmValue int32
-		if err := binary.Read(buf, binary.LittleEndian, &fsmValue); err != nil {
-			return nil, fmt.Errorf("error reading FSM value: %w", err)
-		}
-		pageInfo.FSM[i] = int(fsmValue)
-	}
-
-	if err := binary.Read(buf, binary.LittleEndian, &pageInfo.Rearranged); err != nil {
-		return nil, fmt.Errorf("error reading Rearranged flag: %w", err)
-	}
-
-	if err := binary.Read(buf, binary.LittleEndian, &pageInfo.Size); err != nil {
-		return nil, fmt.Errorf("error reading Size: %w", err)
 	}
 
 	return &pageInfo, nil
