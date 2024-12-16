@@ -186,9 +186,10 @@ func (qe *QueryEngine) tableScan(tableName string) []*storage.RowV2 {
 	return rows
 }
 
-func processPagesForDeletion(pages []*storage.PageV2, deleteKey, deleteVal string, tableObj *storage.TableObj) []*storage.FreeSpace {
-	var freeSpaceMapping []*storage.FreeSpace
+func processPagesForDeletion(pages []*storage.PageV2, deleteKey, deleteVal string, tableObj *storage.TableObj) ([]*storage.FreeSpace, []*storage.PageV2) {
 	var freeSpacePage *storage.FreeSpace
+	var freeSpaceMapping []*storage.FreeSpace
+	var rearragePages []*storage.PageV2
 
 	for _, page := range pages {
 		pageObj := tableObj.DirectoryPage.Value[storage.PageID(page.Header.ID)]
@@ -218,8 +219,9 @@ func processPagesForDeletion(pages []*storage.PageV2, deleteKey, deleteVal strin
 
 		if freeSpacePage != nil {
 			freeSpaceMapping = append(freeSpaceMapping, freeSpacePage)
+			rearragePages = append(rearragePages, page)
 		}
 	}
 
-	return freeSpaceMapping
+	return freeSpaceMapping, rearragePages
 }

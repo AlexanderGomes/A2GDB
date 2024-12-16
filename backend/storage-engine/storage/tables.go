@@ -33,7 +33,6 @@ type FreeSpace struct {
 	PageID           PageID
 	NumFreeLocations int
 	FreeMemory       uint16
-	Compacted        bool
 }
 
 func (dm *DiskManagerV2) InMemoryTableSetUp(tableName string) (*TableObj, error) {

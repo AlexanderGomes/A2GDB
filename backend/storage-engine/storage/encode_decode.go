@@ -35,10 +35,6 @@ func EncodeMemObj(memObj map[int16][]*FreeSpace) ([]byte, error) {
 			if err := binary.Write(&buf, binary.LittleEndian, fs.FreeMemory); err != nil {
 				return nil, err
 			}
-
-			if err := binary.Write(&buf, binary.LittleEndian, fs.Compacted); err != nil {
-				return nil, err
-			}
 		}
 	}
 
@@ -84,9 +80,6 @@ func DecodeMemObj(data []byte) (map[int16][]*FreeSpace, error) {
 				return nil, err
 			}
 
-			if err := binary.Read(buf, binary.LittleEndian, &fs.Compacted); err != nil {
-				return nil, err
-			}
 
 			freeSpaces[j] = fs
 		}

@@ -7,19 +7,37 @@ import (
 
 const (
 	ALMOST_FULL_PAGE = 486
-	FIRST_LEVEL      = 886
-	SECOND_LEVEL     = 1286
-	THIRD_LEVEL      = 1686
-	FOURTH_LEVEL     = 2086
-	FIFITH_LEVEL     = 2486
-	SIXTH_LEVEL      = 2886
-	SEVENTH_LEVEL    = 3286
-	EIGHT_LEVEL      = 3686
+	EIGHT_LEVEL      = 886
+	SEVENTH_LEVEL    = 1286
+	SIXTH_LEVEL      = 1686
+	FIFITH_LEVEL     = 2086
+	FOURTH_LEVEL     = 2486
+	THIRD_LEVEL      = 2886
+	SECOND_LEVEL     = 3286
+	FIRST_LEVEL      = 3686
 	EMPTY_PAGE       = 4086
 )
 
-func (qe *QueryEngine) vaccumEntry(newSpace []*storage.FreeSpace, tableObj *storage.TableObj) {
+func (qe *QueryEngine) vaccumEntry(newSpace []*storage.FreeSpace, rearragePages []*storage.PageV2, tableObj *storage.TableObj) {
+	claimCompressSpace(rearragePages, tableObj)
+	memSeparation(newSpace, tableObj)
+}
 
+func claimCompressSpace(rearragePages []*storage.PageV2, tableObj *storage.TableObj) {
+	for _, page := range rearragePages {
+		newPage, err := storage.RearrangePAGE(page, tableObj)
+		if err != nil {
+			log.Fatalf("failed rearrage page %+v", page)
+		}
+
+		err = updatePageInfo(nil, newPage, tableObj)
+		if err != nil {
+			log.Fatalf("failed updaing page, error: %s", err)
+		}
+	}
+}
+
+func memSeparation(newSpace []*storage.FreeSpace, tableObj *storage.TableObj) {
 	for _, space := range newSpace {
 		switch {
 		case space.FreeMemory <= ALMOST_FULL_PAGE:

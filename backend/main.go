@@ -14,6 +14,8 @@ func main() {
 		log.Fatal("DB init failed: ", err)
 	}
 
+	createTable(engine)
+	insertMany(engine)
 	selects(engine)
 }
 

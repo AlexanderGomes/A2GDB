@@ -198,3 +198,28 @@ func GenerateRandomIDRow() int64 {
 
 	return randomNum.Int64()
 }
+
+func RearrangePAGE(page *PageV2, tableObj *TableObj) (*PageV2, error) {
+	newPage := CreatePageV2()
+	newPage.Header.ID = page.Header.ID
+
+	pageObj, ok := tableObj.DirectoryPage.Value[PageID(page.Header.ID)]
+	if !ok {
+		return nil, fmt.Errorf("RearrangePAGE :pageObj not found")
+	}
+
+	for _, location := range pageObj.PointerArray {
+		if !location.Free {
+			rowBytes := page.Data[location.Offset : location.Offset+location.Length]
+
+			err := newPage.AddTuple(rowBytes)
+			if err != nil {
+				return nil, fmt.Errorf("RearrangePAGE: %w", err)
+			}
+		}
+	}
+
+	pageObj.PointerArray = newPage.PointerArray
+
+	return newPage, nil
+}

@@ -23,7 +23,7 @@ func (qe *QueryEngine) handleDelete(plan map[string]interface{}) {
 	deleteValStr := plan["value"].(string)
 	cleanedVal := strings.ReplaceAll(deleteValStr, "'", "")
 
-	freeSpaceMapping := processPagesForDeletion(tablePages, deleteKey, cleanedVal, tableObj)
+	freeSpaceMapping, rearragePages := processPagesForDeletion(tablePages, deleteKey, cleanedVal, tableObj)
 
 	for _, page := range tablePages {
 		err := updatePageInfo(nil, page, tableObj)
@@ -32,7 +32,7 @@ func (qe *QueryEngine) handleDelete(plan map[string]interface{}) {
 		}
 	}
 
-	qe.vaccumEntry(freeSpaceMapping, tableObj)
+	qe.vaccumEntry(freeSpaceMapping, rearragePages, tableObj)
 }
 
 func (qe *QueryEngine) handleUpdate(plan map[string]interface{}) {}
