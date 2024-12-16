@@ -18,16 +18,16 @@ const (
 	EMPTY_PAGE       = 4086
 )
 
-func (qe *QueryEngine) vaccumEntry(newSpace []*storage.FreeSpace, rearragePages []*storage.PageV2, tableObj *storage.TableObj) {
-	claimCompressSpace(rearragePages, tableObj)
+func (qe *QueryEngine) vaccumEntry(newSpace []*storage.FreeSpace, tableObj *storage.TableObj) {
+	claimCompressSpace(newSpace, tableObj)
 	memSeparation(newSpace, tableObj)
 }
 
-func claimCompressSpace(rearragePages []*storage.PageV2, tableObj *storage.TableObj) {
-	for _, page := range rearragePages {
-		newPage, err := storage.RearrangePAGE(page, tableObj)
+func claimCompressSpace(newSpace []*storage.FreeSpace, tableObj *storage.TableObj) {
+	for _, page := range newSpace {
+		newPage, err := storage.RearrangePAGE(page.TempPagePtr, tableObj)
 		if err != nil {
-			log.Fatalf("failed rearrage page %+v", page)
+			log.Fatalf("failed rearrage page %+v, error: %s", page, err)
 		}
 
 		err = updatePageInfo(nil, newPage, tableObj)

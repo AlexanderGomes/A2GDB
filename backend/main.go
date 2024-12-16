@@ -20,7 +20,7 @@ func main() {
 }
 
 func selects(engine *engine.QueryEngine) {
-	sql1 := "DELETE FROM `User` WHERE Username = 'AliceBrown'\n"
+	sql1 := "DELETE FROM `User` WHERE Username = 'JaneSmith'\n"
 	encodedPlan1 := util.SendSql(sql1)
 	engine.EngineEntry(encodedPlan1)
 }
