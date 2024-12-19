@@ -14,31 +14,22 @@ func main() {
 		log.Fatal("DB init failed: ", err)
 	}
 
-	createTable(engine)
 	insertMany(engine)
-	selects(engine)
 }
 
 func selects(engine *engine.QueryEngine) {
-	sql1 := "DELETE FROM `User` WHERE Username = 'JaneSmith'\n"
+	sql1 := "DELETE FROM `User` WHERE Username = 'BobWhite'\n"
 	encodedPlan1 := util.SendSql(sql1)
 	engine.EngineEntry(encodedPlan1)
 }
 
 func insertMany(engine *engine.QueryEngine) {
-	for i := range 5000 {
+	for i := range 10000 {
 		sql1 := fmt.Sprintf("INSERT INTO `User` (Username, Age, City) VALUES ('JaneSmith', %d, 'Los Angeles')\n", i)
-		sql2 := fmt.Sprintf("INSERT INTO `User` (Username, Age, City) VALUES ('AliceBrown', %d, 'Chicago')\n", i+5)
-		sql3 := fmt.Sprintf("INSERT INTO `User` (Username, Age, City) VALUES ('BobWhite', %d, 'Houston')\n", i+20)
+
 
 		encodedPlan1 := util.SendSql(sql1)
 		engine.EngineEntry(encodedPlan1)
-
-		encodedPlan2 := util.SendSql(sql2)
-		engine.EngineEntry(encodedPlan2)
-
-		encodedPlan3 := util.SendSql(sql3)
-		engine.EngineEntry(encodedPlan3)
 	}
 }
 

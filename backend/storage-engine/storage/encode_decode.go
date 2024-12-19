@@ -7,7 +7,7 @@ import (
 	"io"
 )
 
-func EncodeMemObj(memObj map[int16][]*FreeSpace) ([]byte, error) {
+func EncodeMemObj(memObj map[uint16][]*FreeSpace) ([]byte, error) {
 	var buf bytes.Buffer
 
 	if err := binary.Write(&buf, binary.LittleEndian, int16(len(memObj))); err != nil {
@@ -28,10 +28,6 @@ func EncodeMemObj(memObj map[int16][]*FreeSpace) ([]byte, error) {
 				return nil, err
 			}
 
-			if err := binary.Write(&buf, binary.LittleEndian, int32(fs.NumFreeLocations)); err != nil {
-				return nil, err
-			}
-
 			if err := binary.Write(&buf, binary.LittleEndian, fs.FreeMemory); err != nil {
 				return nil, err
 			}
@@ -41,9 +37,9 @@ func EncodeMemObj(memObj map[int16][]*FreeSpace) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func DecodeMemObj(data []byte) (map[int16][]*FreeSpace, error) {
+func DecodeMemObj(data []byte) (map[uint16][]*FreeSpace, error) {
 	buf := bytes.NewReader(data)
-	memObj := make(map[int16][]*FreeSpace)
+	memObj := make(map[uint16][]*FreeSpace)
 
 	var numKeys int16
 	if err := binary.Read(buf, binary.LittleEndian, &numKeys); err != nil {
@@ -51,7 +47,7 @@ func DecodeMemObj(data []byte) (map[int16][]*FreeSpace, error) {
 	}
 
 	for i := int16(0); i < numKeys; i++ {
-		var key int16
+		var key uint16
 		if err := binary.Read(buf, binary.LittleEndian, &key); err != nil {
 			return nil, err
 		}
@@ -69,17 +65,9 @@ func DecodeMemObj(data []byte) (map[int16][]*FreeSpace, error) {
 				return nil, err
 			}
 
-			var numFreeLocations int32
-			if err := binary.Read(buf, binary.LittleEndian, &numFreeLocations); err != nil {
-				return nil, err
-			}
-
-			fs.NumFreeLocations = int(numFreeLocations)
-
 			if err := binary.Read(buf, binary.LittleEndian, &fs.FreeMemory); err != nil {
 				return nil, err
 			}
-
 
 			freeSpaces[j] = fs
 		}
@@ -121,10 +109,67 @@ func EncodeDirectory(dir *DirectoryPageV2) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+func DecodePageInfo(data []byte) (*PageInfo, error) {
+	buf := bytes.NewReader(data)
+
+	var pageInfo PageInfo
+
+	if err := binary.Read(buf, binary.LittleEndian, &pageInfo.Offset); err != nil {
+		return nil, fmt.Errorf("error reading Offset: %w", err)
+	}
+
+	var index uint32
+	if err := binary.Read(buf, binary.LittleEndian, &index); err != nil {
+		return nil, fmt.Errorf("error reading Index: %w", err)
+	}
+
+	pageInfo.Index = int(index)
+
+	if err := binary.Read(buf, binary.LittleEndian, &pageInfo.Level); err != nil {
+		return nil, fmt.Errorf("error reading Index: %w", err)
+	}
+
+	var numTuples uint32
+	if err := binary.Read(buf, binary.LittleEndian, &numTuples); err != nil {
+		return nil, fmt.Errorf("error reading number of tuples: %w", err)
+	}
+
+	pageInfo.PointerArray = make([]TupleLocation, numTuples)
+	for i := uint32(0); i < numTuples; i++ {
+		var tuple TupleLocation
+		if err := binary.Read(buf, binary.LittleEndian, &tuple.Offset); err != nil {
+			return nil, fmt.Errorf("error reading TupleLocation.Offset: %w", err)
+		}
+
+		if err := binary.Read(buf, binary.LittleEndian, &tuple.Length); err != nil {
+			return nil, fmt.Errorf("error reading TupleLocation.Length: %w", err)
+		}
+
+		freeByte, err := buf.ReadByte()
+		if err != nil {
+			return nil, fmt.Errorf("error reading TupleLocation.Free: %w", err)
+		}
+
+		tuple.Free = freeByte == 1
+
+		pageInfo.PointerArray[i] = tuple
+	}
+
+	return &pageInfo, nil
+}
+
 func EncodePageInfo(pageInfo *PageInfo) ([]byte, error) {
 	var buf bytes.Buffer
 
 	if err := binary.Write(&buf, binary.LittleEndian, pageInfo.Offset); err != nil {
+		return nil, err
+	}
+
+	if err := binary.Write(&buf, binary.LittleEndian, uint32(pageInfo.Index)); err != nil {
+		return nil, err
+	}
+
+	if err := binary.Write(&buf, binary.LittleEndian, pageInfo.Level); err != nil {
 		return nil, err
 	}
 
@@ -191,44 +236,6 @@ func DecodeDirectory(data []byte) (*DirectoryPageV2, error) {
 	}
 
 	return &dir, nil
-}
-
-func DecodePageInfo(data []byte) (*PageInfo, error) {
-	buf := bytes.NewReader(data)
-
-	var pageInfo PageInfo
-
-	if err := binary.Read(buf, binary.LittleEndian, &pageInfo.Offset); err != nil {
-		return nil, fmt.Errorf("error reading Offset: %w", err)
-	}
-
-	var numTuples uint32
-	if err := binary.Read(buf, binary.LittleEndian, &numTuples); err != nil {
-		return nil, fmt.Errorf("error reading number of tuples: %w", err)
-	}
-
-	pageInfo.PointerArray = make([]TupleLocation, numTuples)
-	for i := uint32(0); i < numTuples; i++ {
-		var tuple TupleLocation
-		if err := binary.Read(buf, binary.LittleEndian, &tuple.Offset); err != nil {
-			return nil, fmt.Errorf("error reading TupleLocation.Offset: %w", err)
-		}
-
-		if err := binary.Read(buf, binary.LittleEndian, &tuple.Length); err != nil {
-			return nil, fmt.Errorf("error reading TupleLocation.Length: %w", err)
-		}
-
-		freeByte, err := buf.ReadByte()
-		if err != nil {
-			return nil, fmt.Errorf("error reading TupleLocation.Free: %w", err)
-		}
-
-		tuple.Free = freeByte == 1
-
-		pageInfo.PointerArray[i] = tuple
-	}
-
-	return &pageInfo, nil
 }
 
 func EncodePageHeader(header PageHeader, buf *bytes.Buffer) error {

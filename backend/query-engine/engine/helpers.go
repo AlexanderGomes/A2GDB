@@ -62,10 +62,7 @@ func prepareRows(plan map[string]interface{}, selectedCols []interface{}, tableN
 }
 
 func findAndUpdate(tableObj *storage.TableObj, bytesNeeded uint16, tableName string, encodedRows [][]byte, rowsID []uint64) error {
-	page, err := storage.FindAvailablePage(tableObj.DataFile, bytesNeeded, false)
-	if err != nil {
-		return fmt.Errorf("available page for table %s not found", tableName)
-	}
+	page := getAvailablePage(tableObj, bytesNeeded)
 
 	for _, encodedRow := range encodedRows {
 		err := page.AddTuple(encodedRow)
@@ -74,11 +71,15 @@ func findAndUpdate(tableObj *storage.TableObj, bytesNeeded uint16, tableName str
 		}
 	}
 
-	err = updatePageInfo(rowsID, page, tableObj)
+	availableSpace := page.Header.UpperPtr - page.Header.LowerPtr
+	newSpace := storage.FreeSpace{PageID: storage.PageID(page.Header.ID), FreeMemory: availableSpace}
+
+	err := updatePageInfo(rowsID, page, tableObj)
 	if err != nil {
 		return fmt.Errorf("tnternal update failed: %v", page)
 	}
 
+	memSeparationSingle(newSpace, tableObj)
 	return nil
 }
 
@@ -192,7 +193,6 @@ func processPagesForDeletion(pages []*storage.PageV2, deleteKey, deleteVal strin
 	for _, page := range pages {
 		var freeSpacePage *storage.FreeSpace
 		pageObj := tableObj.DirectoryPage.Value[storage.PageID(page.Header.ID)]
-
 		for i := range pageObj.PointerArray {
 			location := &pageObj.PointerArray[i]
 			if location.Free {
@@ -211,7 +211,6 @@ func processPagesForDeletion(pages []*storage.PageV2, deleteKey, deleteVal strin
 					freeSpacePage.TempPagePtr = page
 				}
 
-				freeSpacePage.NumFreeLocations++
 				freeSpacePage.FreeMemory += location.Length
 				location.Free = true
 			}

@@ -32,7 +32,7 @@ func (qe *QueryEngine) handleDelete(plan map[string]interface{}) {
 		}
 	}
 
-	qe.vaccumEntry(freeSpaceMapping, tableObj)
+	vaccumEntry(freeSpaceMapping, tableObj)
 }
 
 func (qe *QueryEngine) handleUpdate(plan map[string]interface{}) {}

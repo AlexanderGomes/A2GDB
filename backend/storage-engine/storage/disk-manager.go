@@ -3,7 +3,6 @@ package storage
 import (
 	"a2gdb/storage-engine/logger"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 )
@@ -146,48 +145,4 @@ func UpdateDirectoryPageDisk(page *DirectoryPageV2, dirFile *os.File) error {
 	}
 
 	return nil
-}
-
-func FindAvailablePage(dataFile *os.File, bytesNeeded uint16, endFlag bool) (*PageV2, error) {
-	var lastPageOffset int64
-	var page *PageV2
-
-	stat, err := dataFile.Stat()
-	if err != nil {
-		return nil, fmt.Errorf("FindAvailablePage: %w", err)
-	}
-
-	if endFlag || stat.Size() == 0 {
-		return CreatePageV2(), nil
-	}
-
-	lastPageOffset = stat.Size() - PageSizeV2
-
-	for {
-		pageBytes := make([]byte, PageSizeV2)
-		_, err := dataFile.ReadAt(pageBytes, int64(lastPageOffset))
-		if err != nil {
-			if err == io.EOF {
-				fmt.Println("FindAvailablePage (End of file reached, creating new page)")
-				return CreatePageV2(), nil
-			}
-
-			return nil, fmt.Errorf("FindAvailablePage (error reading from file non-EOF): %w", err)
-		}
-
-		foundPage, err := DecodePageV2(pageBytes)
-		if err != nil {
-			return nil, fmt.Errorf("FindAvailablePage: %w", err)
-		}
-
-		canInsert := foundPage.Header.UpperPtr-foundPage.Header.LowerPtr > bytesNeeded
-		if canInsert {
-			page = foundPage
-			break
-		}
-
-		lastPageOffset += PageSizeV2
-	}
-
-	return page, nil
 }

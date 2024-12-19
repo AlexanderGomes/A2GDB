@@ -22,7 +22,7 @@ const (
 type TableObj struct {
 	DirectoryPage *DirectoryPageV2
 	BpTree        *btree.BTree
-	Memory        map[int16][]*FreeSpace
+	Memory        map[uint16][]*FreeSpace
 	DirFile       *os.File
 	BpFile        *os.File
 	DataFile      *os.File
@@ -30,10 +30,9 @@ type TableObj struct {
 }
 
 type FreeSpace struct {
-	PageID           PageID
-	NumFreeLocations int
-	FreeMemory       uint16
-	TempPagePtr      *PageV2
+	PageID      PageID
+	FreeMemory  uint16
+	TempPagePtr *PageV2
 }
 
 func (dm *DiskManagerV2) InMemoryTableSetUp(tableName string) (*TableObj, error) {
@@ -45,7 +44,7 @@ func (dm *DiskManagerV2) InMemoryTableSetUp(tableName string) (*TableObj, error)
 	tableObj := &TableObj{
 		DirectoryPage: dirObj.(*DirectoryPageV2),
 		BpTree:        bptreeObj.(*btree.BTree),
-		Memory:        memObj.(map[int16][]*FreeSpace),
+		Memory:        memObj.(map[uint16][]*FreeSpace),
 		DataFile:      dataFilePtr,
 		DirFile:       dirFilePtr,
 		BpFile:        bptreeFilePtr,
@@ -88,14 +87,14 @@ func GetNonpageFile(dbDirectory, tableName, fileName string) (interface{}, *os.F
 	return object, filePtr
 }
 
-func GetMemInfo(fileptr *os.File) (map[int16][]*FreeSpace, error) {
+func GetMemInfo(fileptr *os.File) (map[uint16][]*FreeSpace, error) {
 	byts, err := ReadNonPageFile(fileptr)
 	if err != nil {
 		return nil, fmt.Errorf("GetDirInfo (error reading Dir File): %w", err)
 	}
 
 	if len(byts) == 0 {
-		return make(map[int16][]*FreeSpace), nil
+		return make(map[uint16][]*FreeSpace), nil
 	}
 
 	memObj, err := DecodeMemObj(byts)
