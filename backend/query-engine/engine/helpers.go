@@ -73,13 +73,12 @@ func findAndUpdate(tableObj *storage.TableObj, bytesNeeded uint16, tableName str
 
 	availableSpace := page.Header.UpperPtr - page.Header.LowerPtr
 	newSpace := storage.FreeSpace{PageID: storage.PageID(page.Header.ID), FreeMemory: availableSpace}
-
 	err := updatePageInfo(rowsID, page, tableObj)
 	if err != nil {
 		return fmt.Errorf("tnternal update failed: %v", page)
 	}
 
-	memSeparationSingle(newSpace, tableObj)
+	memSeparationSingle(&newSpace, tableObj)
 	return nil
 }
 
@@ -209,6 +208,7 @@ func processPagesForDeletion(pages []*storage.PageV2, deleteKey, deleteVal strin
 				if freeSpacePage == nil {
 					freeSpacePage = &storage.FreeSpace{PageID: storage.PageID(page.Header.ID)}
 					freeSpacePage.TempPagePtr = page
+					freeSpacePage.FreeMemory = pageObj.ExactFreeMem
 				}
 
 				freeSpacePage.FreeMemory += location.Length

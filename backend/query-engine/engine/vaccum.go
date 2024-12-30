@@ -2,7 +2,10 @@ package engine
 
 import (
 	"a2gdb/storage-engine/storage"
+	"fmt"
 	"log"
+
+	"github.com/samber/lo"
 )
 
 const (
@@ -16,12 +19,13 @@ const (
 	SECOND_LEVEL     = 3286
 	FIRST_LEVEL      = 3686
 	EMPTY_PAGE       = 4082
-	NEXT_LEVEL       = 400
+
+	NEXT_LEVEL = 400
 )
 
-func vaccumEntry(newSpace []*storage.FreeSpace, tableObj *storage.TableObj) {
-	claimCompressSpace(newSpace, tableObj)
+func cleanOrgnize(newSpace []*storage.FreeSpace, tableObj *storage.TableObj) {
 	memSeparationMass(newSpace, tableObj)
+	claimCompressSpace(newSpace, tableObj)
 }
 
 func claimCompressSpace(newSpace []*storage.FreeSpace, tableObj *storage.TableObj) {
@@ -39,22 +43,57 @@ func claimCompressSpace(newSpace []*storage.FreeSpace, tableObj *storage.TableOb
 }
 
 func memSeparationMass(newSpace []*storage.FreeSpace, tableObj *storage.TableObj) {
+	dirPage := tableObj.DirectoryPage.Value
+
 	for _, space := range newSpace {
-		// find page
-		// remove from current league
-		// add to new league
-		
 		memTag := getTag(space.FreeMemory)
+		pageInfo := dirPage[space.PageID]
+		fmt.Println("level(before): ", pageInfo.Level)
+
+		if pageInfo.Level != 0 {
+			rankSlice := tableObj.Memory[pageInfo.Level]
+			tableObj.Memory[pageInfo.Level] = lo.Filter(rankSlice, func(item *storage.FreeSpace, i int) bool {
+				return space.PageID != item.PageID
+			})
+		}
+
+		if memTag == 0 {
+			memTag = EMPTY_PAGE
+		}
+
 		tableObj.Memory[memTag] = append(tableObj.Memory[memTag], space)
+		pageInfo.Level = memTag
+		pageInfo.ExactFreeMem = space.FreeMemory
+		fmt.Println("level(after): ", pageInfo.Level)
 	}
 
+	log.Printf("tableMem: %+v", tableObj.Memory)
 	saveMemMapping(tableObj)
 }
 
-func memSeparationSingle(newSpace storage.FreeSpace, tableObj *storage.TableObj) {
+func memSeparationSingle(newSpace *storage.FreeSpace, tableObj *storage.TableObj) {
 	memTag := getTag(newSpace.FreeMemory)
-	tableObj.Memory[memTag] = append(tableObj.Memory[memTag], &newSpace)
+	dirPage := tableObj.DirectoryPage.Value
+	pageInfo := dirPage[newSpace.PageID]
+
+	if memTag == 0 {
+		memTag = EMPTY_PAGE
+	}
+
+	tableObj.Memory[memTag] = append(tableObj.Memory[memTag], newSpace)
+
+	pageInfo.Level = memTag
+	pageInfo.ExactFreeMem = newSpace.FreeMemory
+
+	log.Printf("pageInfo:  %d, %d", pageInfo.Level, pageInfo.ExactFreeMem)
+	log.Printf("tableMem: %+v", tableObj.Memory)
+	log.Printf("saving to disk")
+
 	saveMemMapping(tableObj)
+	err := storage.UpdateDirectoryPageDisk(tableObj.DirectoryPage, tableObj.DirFile)
+	if err != nil {
+		log.Printf("failed saving directory page to disk while inserting")
+	}
 }
 
 func saveMemMapping(tableObj *storage.TableObj) {
@@ -91,9 +130,11 @@ func searchPage(tableObj *storage.TableObj, memoryNedded, level uint16) ([]*stor
 		}
 
 		for i, mem := range memSlice {
-			if memoryNedded <= mem.FreeMemory {
+			if memoryNedded < mem.FreeMemory {
 				spaceInfo = mem
 				deleteIndex = i
+				log.Printf("memSlice: %+v", memSlice)
+				log.Printf("found spaceInfo : %+v", spaceInfo)
 				break
 			}
 		}
@@ -118,11 +159,15 @@ func getAvailablePage(tableObj *storage.TableObj, memoryNedded uint16) *storage.
 	var deleteIndex int
 
 	memSlice, spaceInfo, memTag, deleteIndex = searchPage(tableObj, memoryNedded, memoryNedded)
-	if memTag == 0 {
+	if memTag == 0 && spaceInfo == nil {
+		log.Printf("created new page, values %v, %+v, %d, %d", memSlice, spaceInfo, memTag, deleteIndex)
 		return storage.CreatePageV2()
 	}
 
-	memSlice = append(memSlice[:deleteIndex], memSlice[deleteIndex+1:]...)
+	memSlice = lo.Filter(memSlice, func(item *storage.FreeSpace, i int) bool {
+		return i != deleteIndex
+	})
+
 	tableObj.Memory[memTag] = memSlice
 
 	pageInfo := tableObj.DirectoryPage.Value[spaceInfo.PageID]

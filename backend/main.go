@@ -8,13 +8,14 @@ import (
 	"log"
 )
 
+// map[1686:[0x14000126b40] 2086:[] 2486:[] 2886:[] 3286:[] 3686:[] 4082:[]]
 func main() {
 	engine, err := cmd.InitDatabase(2, "A2G_DB")
 	if err != nil {
 		log.Fatal("DB init failed: ", err)
 	}
 
-	insertMany(engine)
+	selects(engine)
 }
 
 func selects(engine *engine.QueryEngine) {
@@ -24,12 +25,19 @@ func selects(engine *engine.QueryEngine) {
 }
 
 func insertMany(engine *engine.QueryEngine) {
-	for i := range 10000 {
+	for i := range 300 {
 		sql1 := fmt.Sprintf("INSERT INTO `User` (Username, Age, City) VALUES ('JaneSmith', %d, 'Los Angeles')\n", i)
-
+		sql2 := fmt.Sprintf("INSERT INTO `User` (Username, Age, City) VALUES ('AliceBrown', %d, 'Chicago')\n", i+5)
+		sql3 := fmt.Sprintf("INSERT INTO `User` (Username, Age, City) VALUES ('BobWhite', %d, 'Houston')\n", i+20)
 
 		encodedPlan1 := util.SendSql(sql1)
 		engine.EngineEntry(encodedPlan1)
+
+		encodedPlan2 := util.SendSql(sql2)
+		engine.EngineEntry(encodedPlan2)
+
+		encodedPlan3 := util.SendSql(sql3)
+		engine.EngineEntry(encodedPlan3)
 	}
 }
 

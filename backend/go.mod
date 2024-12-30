@@ -12,6 +12,8 @@ require (
 require (
 	github.com/bits-and-blooms/bitset v1.14.3 // indirect
 	github.com/dgryski/go-metro v0.0.0-20180109044635-280f6062b5bc // indirect
+	github.com/samber/lo v1.47.0 // indirect
 	github.com/scylladb/go-set v1.0.2 // indirect
 	golang.org/x/sys v0.0.0-20220715151400-c0bba94af5f8 // indirect
+	golang.org/x/text v0.16.0 // indirect
 )

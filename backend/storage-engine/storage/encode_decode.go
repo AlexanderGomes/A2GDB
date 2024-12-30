@@ -118,14 +118,11 @@ func DecodePageInfo(data []byte) (*PageInfo, error) {
 		return nil, fmt.Errorf("error reading Offset: %w", err)
 	}
 
-	var index uint32
-	if err := binary.Read(buf, binary.LittleEndian, &index); err != nil {
+	if err := binary.Read(buf, binary.LittleEndian, &pageInfo.Level); err != nil {
 		return nil, fmt.Errorf("error reading Index: %w", err)
 	}
 
-	pageInfo.Index = int(index)
-
-	if err := binary.Read(buf, binary.LittleEndian, &pageInfo.Level); err != nil {
+	if err := binary.Read(buf, binary.LittleEndian, &pageInfo.ExactFreeMem); err != nil {
 		return nil, fmt.Errorf("error reading Index: %w", err)
 	}
 
@@ -165,11 +162,11 @@ func EncodePageInfo(pageInfo *PageInfo) ([]byte, error) {
 		return nil, err
 	}
 
-	if err := binary.Write(&buf, binary.LittleEndian, uint32(pageInfo.Index)); err != nil {
+	if err := binary.Write(&buf, binary.LittleEndian, pageInfo.Level); err != nil {
 		return nil, err
 	}
 
-	if err := binary.Write(&buf, binary.LittleEndian, pageInfo.Level); err != nil {
+	if err := binary.Write(&buf, binary.LittleEndian, pageInfo.ExactFreeMem); err != nil {
 		return nil, err
 	}
 
