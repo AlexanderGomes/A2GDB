@@ -207,7 +207,7 @@ func RearrangePAGE(page *PageV2, tableObj *TableObj) (*PageV2, error) {
 
 	pageObj, ok := tableObj.DirectoryPage.Value[PageID(page.Header.ID)]
 	if !ok {
-		return nil, fmt.Errorf("RearrangePAGE :pageObj not found")
+		return nil, fmt.Errorf("RearrangePAGE: pageObj not found")
 	}
 
 	for _, location := range pageObj.PointerArray {

@@ -224,8 +224,9 @@ func processPagesForDeletion(pages []*storage.PageV2, deleteKey, deleteVal strin
 	return freeSpaceMapping
 }
 
-func processPagesForUpdate(pages []*storage.PageV2, updateKey, updateVal, filterKey, filterVal string, tableObj *storage.TableObj) []*storage.FreeSpace {
+func processPagesForUpdate(pages []*storage.PageV2, updateKey, updateVal, filterKey, filterVal, tableName string, tableObj *storage.TableObj) ([]*storage.FreeSpace, [][]byte) {
 	var freeSpaceMapping []*storage.FreeSpace
+	var nonAddedRows [][]byte
 
 	for _, page := range pages {
 		var freeSpacePage *storage.FreeSpace
@@ -245,6 +246,7 @@ func processPagesForUpdate(pages []*storage.PageV2, updateKey, updateVal, filter
 			if row.Values[filterKey] == filterVal {
 				if freeSpacePage == nil {
 					freeSpacePage = &storage.FreeSpace{PageID: storage.PageID(page.Header.ID), TempPagePtr: page, FreeMemory: pageObj.ExactFreeMem}
+					log.Printf("free space initialized: %+v", freeSpacePage)
 				}
 
 				row.Values[updateKey] = updateVal
@@ -255,43 +257,52 @@ func processPagesForUpdate(pages []*storage.PageV2, updateKey, updateVal, filter
 
 				err = page.AddTuple(rowBytes)
 				location.Free = true
-				freeSpacePage.FreeMemory -= location.Length
 
 				if err == nil {
-					log.Printf("Added row to the same page: %+v", row)
-					freeSpacePage.FreeMemory += uint16(len(rowBytes))
+					freeSpacePage.FreeMemory -= location.Length // remove old
+					log.Printf("free space after removal: %+v", freeSpacePage)
+
+					freeSpacePage.FreeMemory += uint16(len(rowBytes)) // add new
+					log.Printf("free space after adding: %+v", freeSpacePage)
+					log.Printf("added new tuple: %+v", freeSpacePage)
 					continue
 				}
 
-				// handle like an insert
-				log.Printf("Finding new page for row: %+v", row)
-
-				newPage := getAvailablePage(tableObj, uint16(len(rowBytes)))
-				err = newPage.AddTuple(rowBytes)
-				if err != nil {
-					log.Fatalf("Unexpected error: %s", err)
-				}
-
-				availableSpace := newPage.Header.UpperPtr - newPage.Header.LowerPtr
-				tempFreeSpacePage := &storage.FreeSpace{
-					PageID:      storage.PageID(newPage.Header.ID),
-					TempPagePtr: newPage,
-					FreeMemory:  availableSpace}
-					
-				memSeparationSingle(tempFreeSpacePage, tableObj)
-
-				err = updatePageInfo(nil, page, tableObj)
-				if err != nil {
-					log.Fatalf("internal update failed: %v", page)
-				}
-
+				// handle adding into another page
+				log.Printf("Added row: %+v", row)
+				nonAddedRows = append(nonAddedRows, rowBytes)
 			}
 		}
 
 		if freeSpacePage != nil {
 			freeSpaceMapping = append(freeSpaceMapping, freeSpacePage)
+			log.Printf("freeSpaceMapping Added: %+v", freeSpacePage)
 		}
 	}
 
-	return freeSpaceMapping
+	return freeSpaceMapping, nonAddedRows
+}
+
+func handleLikeInsert(rows [][]byte, tableObj *storage.TableObj, tableName string) {
+	log.Println("Handling rows")
+
+	batchSize := 5
+	totalRows := len(rows)
+
+	for i := 0; i < totalRows; i += batchSize {
+		end := i + batchSize
+		if end > totalRows {
+			end = totalRows
+		}
+
+		batch := rows[i:end]
+		fmt.Printf("Processing rows %d to %d\n", i, end-1)
+
+		bytesNeeded := 0
+		for _, row := range batch {
+			bytesNeeded += len(row)
+		}
+
+		findAndUpdate(tableObj, uint16(bytesNeeded), tableName, batch, nil)
+	}
 }

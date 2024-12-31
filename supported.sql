@@ -26,7 +26,7 @@
 
 -- CRUD
 [x] DELETE FROM `User` WHERE Username = 'BobWhite' --[x]
-[ ] UPDATE `User` SET Age = 30 WHERE Username = 'JaneSmith' --[]
+[x] UPDATE `User` SET Age = 30 WHERE Username = 'JaneSmith' --[]
 
 [] ALTER TABLE `User` ADD COLUMN Email VARCHAR;
 [] ALTER TABLE `User` DROP COLUMN Email;

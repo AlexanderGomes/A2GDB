@@ -6,18 +6,6 @@ import (
 	"strings"
 )
 
-// ## update && memory system
-// - fits on the current page
-//     - chek if it fits first, if it fails move on.
-//     - adding to a new one changes their rank of memory
-//     - removing from the current page changes their rank of memory
-
-// - needs a new page
-//     - remove from current page
-//     - handle like insert into new page
-//     - removing from the current page changes their rank of memory
-//     - adding to a new one changes their rank of memory
-
 func (qe *QueryEngine) handleUpdate(plan map[string]interface{}) {
 	filterColumn := plan["filter_column"].(string)
 	filterValue := strings.ReplaceAll(plan["filter_value"].(string), "'", "")
@@ -37,8 +25,9 @@ func (qe *QueryEngine) handleUpdate(plan map[string]interface{}) {
 		log.Panicf("couldn't get table pages for table %s, error: %s", tableName, err)
 	}
 
-	freeSpaceMapping := processPagesForUpdate(tablePages, modifyColumn, modifyValue, filterColumn, filterValue, tableObj)
+	freeSpaceMapping, nonAddedRows := processPagesForUpdate(tablePages, modifyColumn, modifyValue, filterColumn, filterValue, tableName, tableObj)
 
+	// ### why do we need this ?
 	for _, page := range tablePages {
 		err := updatePageInfo(nil, page, tableObj)
 		if err != nil {
@@ -47,6 +36,7 @@ func (qe *QueryEngine) handleUpdate(plan map[string]interface{}) {
 	}
 
 	cleanOrgnize(freeSpaceMapping, tableObj)
+	handleLikeInsert(nonAddedRows, tableObj, tableName)
 }
 
 func (qe *QueryEngine) handleDelete(plan map[string]interface{}) {
