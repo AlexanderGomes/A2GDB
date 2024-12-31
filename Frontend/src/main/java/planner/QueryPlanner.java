@@ -19,6 +19,7 @@ import org.apache.calcite.sql.SqlNode;
 import org.apache.calcite.sql.SqlNodeList;
 import org.apache.calcite.sql.SqlOrderBy;
 import org.apache.calcite.sql.SqlSelect;
+import org.apache.calcite.sql.SqlUpdate;
 import org.apache.calcite.sql.ddl.SqlColumnDeclaration;
 import org.apache.calcite.sql.ddl.SqlCreateTable;
 import org.apache.calcite.sql.ddl.SqlKeyConstraint;
@@ -102,6 +103,8 @@ public class QueryPlanner {
         jsonPlan = handleOrderBy(sqlNode);
       } else if (sqlNode instanceof SqlDelete) {
         jsonPlan = handleDelete(sqlNode);
+      } else if (sqlNode instanceof SqlUpdate) {
+        jsonPlan = handleUpdate(sqlNode);
       } else {
         throw new Exception("sqlNode type unhandled");
       }
@@ -114,6 +117,33 @@ public class QueryPlanner {
 
     planner.close();
     return jsonPlan;
+  }
+
+  private String handleUpdate(SqlNode node) {
+    SqlUpdate updateNode = (SqlUpdate) node;
+
+    SqlNode updateCondition = updateNode.getCondition();
+    SqlBasicCall condition = (SqlBasicCall) updateCondition;
+
+    String leftOperand = condition.getOperandList().get(0).toString();
+    String rightOperand = condition.getOperandList().get(1).toString();
+
+    String tableName = updateNode.getTargetTable().toString();
+
+    String targetColumn = updateNode.getTargetColumnList().get(0).toString();
+    String sourceExpression = updateNode.getSourceExpressionList().get(0).toString();
+
+    JSONObject jsonObj = new JSONObject();
+    jsonObj.put("STATEMENT", "UPDATE");
+    jsonObj.put("table", tableName);
+
+    jsonObj.put("modify_column", targetColumn);
+    jsonObj.put("modify_value", sourceExpression);
+
+    jsonObj.put("filter_column", leftOperand);
+    jsonObj.put("filter_value", rightOperand);
+
+    return jsonObj.toString();
   }
 
   private String handleDelete(SqlNode node) {

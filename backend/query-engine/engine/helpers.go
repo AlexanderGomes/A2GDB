@@ -223,3 +223,75 @@ func processPagesForDeletion(pages []*storage.PageV2, deleteKey, deleteVal strin
 
 	return freeSpaceMapping
 }
+
+func processPagesForUpdate(pages []*storage.PageV2, updateKey, updateVal, filterKey, filterVal string, tableObj *storage.TableObj) []*storage.FreeSpace {
+	var freeSpaceMapping []*storage.FreeSpace
+
+	for _, page := range pages {
+		var freeSpacePage *storage.FreeSpace
+		pageObj := tableObj.DirectoryPage.Value[storage.PageID(page.Header.ID)]
+		for i := range pageObj.PointerArray {
+			location := &pageObj.PointerArray[i]
+			if location.Free {
+				continue
+			}
+
+			rowBytes := page.Data[location.Offset : location.Offset+location.Length]
+			row, err := storage.DecodeRow(rowBytes)
+			if err != nil {
+				log.Panicf("couldn't decode row, location: %+v, error: %s", location, err)
+			}
+
+			if row.Values[filterKey] == filterVal {
+				if freeSpacePage == nil {
+					freeSpacePage = &storage.FreeSpace{PageID: storage.PageID(page.Header.ID), TempPagePtr: page, FreeMemory: pageObj.ExactFreeMem}
+				}
+
+				row.Values[updateKey] = updateVal
+				rowBytes, err := storage.EncodeRow(row)
+				if err != nil {
+					log.Panicf("couldn't encode row %+v, error: %s", row, err)
+				}
+
+				err = page.AddTuple(rowBytes)
+				location.Free = true
+				freeSpacePage.FreeMemory -= location.Length
+
+				if err == nil {
+					log.Printf("Added row to the same page: %+v", row)
+					freeSpacePage.FreeMemory += uint16(len(rowBytes))
+					continue
+				}
+
+				// handle like an insert
+				log.Printf("Finding new page for row: %+v", row)
+
+				newPage := getAvailablePage(tableObj, uint16(len(rowBytes)))
+				err = newPage.AddTuple(rowBytes)
+				if err != nil {
+					log.Fatalf("Unexpected error: %s", err)
+				}
+
+				availableSpace := newPage.Header.UpperPtr - newPage.Header.LowerPtr
+				tempFreeSpacePage := &storage.FreeSpace{
+					PageID:      storage.PageID(newPage.Header.ID),
+					TempPagePtr: newPage,
+					FreeMemory:  availableSpace}
+					
+				memSeparationSingle(tempFreeSpacePage, tableObj)
+
+				err = updatePageInfo(nil, page, tableObj)
+				if err != nil {
+					log.Fatalf("internal update failed: %v", page)
+				}
+
+			}
+		}
+
+		if freeSpacePage != nil {
+			freeSpaceMapping = append(freeSpaceMapping, freeSpacePage)
+		}
+	}
+
+	return freeSpaceMapping
+}

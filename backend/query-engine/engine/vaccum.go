@@ -42,7 +42,7 @@ func claimCompressSpace(newSpace []*storage.FreeSpace, tableObj *storage.TableOb
 	}
 }
 
-func memSeparationMass(newSpace []*storage.FreeSpace, tableObj *storage.TableObj) {
+func  memSeparationMass(newSpace []*storage.FreeSpace, tableObj *storage.TableObj) {
 	dirPage := tableObj.DirectoryPage.Value
 
 	for _, space := range newSpace {

@@ -21,6 +21,8 @@ func (qe *QueryEngine) EngineEntry(queryPlan interface{}) {
 		qe.handleSelect(plan)
 	case "DELETE":
 		qe.handleDelete(plan)
+	case "UPDATE":
+		qe.handleUpdate(plan)
 	default:
 		log.Panicf("Unsupported Type: %s", operation)
 	}
