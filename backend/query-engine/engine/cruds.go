@@ -97,8 +97,7 @@ func (qe *QueryEngine) handleCreate(plan map[string]interface{}) {
 
 	err := qe.StorageManager.CreateTable(storage.TableName(tableName), tableInfo)
 	if err != nil {
-		log.Println("Error Creating Table: ", err)
-		return
+		log.Fatal("Error Creating Table: ", err)
 	}
 }
 
