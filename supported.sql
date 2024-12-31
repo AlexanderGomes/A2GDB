@@ -1,31 +1,36 @@
 -- basic queries
 [x] INSERT INTO `User` (Username, Age, City) VALUES ('JaneSmith', 25, 'Los Angeles'), ('AliceBrown', 28, 'Chicago'), ('BobWhite', 35, 'Houston')
 [x] CREATE TABLE `User`(PRIMARY KEY(UserId), Username VARCHAR, Age INT, City VARCHAR) 
-[x] CREATE TABLE Orders (PRIMARY KEY(OrderID),Username VARCHAR(50),OrderAmount DECIMAL)
-[x] SELECT * FROM `User` 
-[x] SELECT Username, Age FROM `User` 
-[x] SELECT Username, Age, City FROM `User` WHERE Age > 20 
-[x] SELECT Username, City FROM `User` WHERE UserId = CAST('10084632547061476038' AS DECIMAL(20,0)) 
-[x] SELECT Username, Age FROM `User` WHERE City = 'Los Angeles' 
-[x] SELECT Username, Age, City FROM `User` ORDER BY Age ASC 
-[x] SELECT Username, Age, City FROM `User` ORDER BY Age DESC 
-[x] SELECT Username, Age, City FROM `User` ORDER BY Age ASC LIMIT 1 
-[x] SELECT Username, Age, City FROM `User` ORDER BY Age DESC LIMIT 1 
-[x] SELECT Username, Age, City FROM `User` WHERE Age BETWEEN 20 AND 30 
-[x] SELECT City, COUNT(*) AS UserCount FROM `User` GROUP BY City 
-[x] SELECT City, MAX(Age) AS max_age FROM `User` GROUP BY City 
-[x] SELECT City, MIN(Age) AS max_age FROM `User` GROUP BY City 
-[x] SELECT City, AVG(Age) AS max_age FROM `User` GROUP BY City 
-[x] SELECT City, SUM(Age) AS max_age FROM `User` GROUP BY City 
+[x] CREATE TABLE Orders (PRIMARY KEY(OrderID),Username VARCHAR(50),OrderAmount DECIMAL) --[x]
+
+[x] SELECT * FROM `User` --[x]
+[x] SELECT Username, Age FROM `User` --[x]
+
+[x] SELECT Username, Age, City FROM `User` WHERE Age > 20 --[x]
+[x] SELECT Username, Age, City FROM `User` WHERE Age = 20 --[x]
+[x] SELECT Username, Age, City FROM `User` WHERE Age < 20 --[x]
+[x] SELECT * FROM `User` WHERE UserId = CAST('10084632547061476038' AS DECIMAL(20,0)) --[x]
+[x] SELECT Username, Age, City FROM `User` WHERE Age BETWEEN 20 AND 30 --[x]
+
+[x] SELECT Username, Age, City FROM `User` ORDER BY Age ASC --[x]
+[x] SELECT Username, Age, City FROM `User` ORDER BY Age DESC --[x]
+[x] SELECT Username, Age, City FROM `User` ORDER BY Age ASC LIMIT 1 --[x]
+[x] SELECT Username, Age, City FROM `User` ORDER BY Age DESC LIMIT 1 --[x]
+
+[x] SELECT City, COUNT(*) AS UserCount FROM `User` GROUP BY City --[x]
+[x] SELECT City, MAX(Age) AS max_age FROM `User` GROUP BY City --[x]
+[x] SELECT City, MIN(Age) AS max_age FROM `User` GROUP BY City --[x]
+[x] SELECT City, AVG(Age) AS max_age FROM `User` GROUP BY City --[x]
+[x] SELECT City, SUM(Age) AS max_age FROM `User` GROUP BY City --[x]
 
 
 -- CRUD
-[x] DELETE FROM `User` WHERE Username = 'BobWhite'
+[x] DELETE FROM `User` WHERE Username = 'BobWhite' --[x]
+[ ] UPDATE `User` SET Age = 30 WHERE Username = 'JaneSmith' --[]
+
 [] ALTER TABLE `User` ADD COLUMN Email VARCHAR;
 [] ALTER TABLE `User` DROP COLUMN Email;
 
--- need to implement free space management before this
-[] UPDATE `User` SET Age = 30 WHERE Username = 'JaneSmith'
 
 -- EXTRA
 [] SELECT * FROM `User` WHERE City = 'Los Angeles' AND Age > 25

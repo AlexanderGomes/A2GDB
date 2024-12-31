@@ -9,8 +9,10 @@ type QueryEngine struct {
 	StorageManager *storage.DiskManagerV2
 }
 
-func (qe *QueryEngine) EngineEntry(queryPlan interface{}) {
+func (qe *QueryEngine) EngineEntry(queryPlan interface{}) ([]*storage.RowV2, map[string]int) {
 	plan := queryPlan.(map[string]interface{})
+	var rows []*storage.RowV2
+	var groupByMap map[string]int
 
 	switch operation := plan["STATEMENT"]; operation {
 	case "CREATE_TABLE":
@@ -18,7 +20,7 @@ func (qe *QueryEngine) EngineEntry(queryPlan interface{}) {
 	case "INSERT":
 		qe.handleInsert(plan)
 	case "SELECT":
-		qe.handleSelect(plan)
+		rows, groupByMap = qe.handleSelect(plan)
 	case "DELETE":
 		qe.handleDelete(plan)
 	case "UPDATE":
@@ -26,12 +28,15 @@ func (qe *QueryEngine) EngineEntry(queryPlan interface{}) {
 	default:
 		log.Panicf("Unsupported Type: %s", operation)
 	}
+
+	return rows, groupByMap
 }
 
-func (qe *QueryEngine) handleSelect(plan map[string]interface{}) {
+func (qe *QueryEngine) handleSelect(plan map[string]interface{}) ([]*storage.RowV2, map[string]int) {
 	var rows []*storage.RowV2
 	var selectedCols []interface{}
 	var colName string
+	var groupByMap map[string]int
 
 	nodes := plan["rels"].([]interface{})
 	referenceList := plan["refList"].(map[string]interface{})
@@ -41,7 +46,7 @@ func (qe *QueryEngine) handleSelect(plan map[string]interface{}) {
 
 		switch nodeOperation := nodeInnerMap["relOp"]; nodeOperation {
 		case "LogicalTableScan":
-			tableName := nodeInnerMap["table"].(string)
+			tableName := nodeInnerMap["table"].([]interface{})[0].(string)
 			rows = qe.tableScan(tableName)
 		case "LogicalProject":
 			selectedCols, colName = columnSelect(nodeInnerMap, referenceList, rows)
@@ -50,9 +55,11 @@ func (qe *QueryEngine) handleSelect(plan map[string]interface{}) {
 		case "LogicalSort":
 			sortAscDesc(nodeInnerMap, &rows)
 		case "LogicalAggregate":
-			groupBy(nodeInnerMap, colName, &rows, selectedCols)
+			groupByMap = groupBy(nodeInnerMap, colName, &rows, selectedCols)
 		default:
 			log.Fatalf("Unsupported Type: %s", nodeOperation)
 		}
 	}
+
+	return rows, groupByMap
 }

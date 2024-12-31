@@ -2,7 +2,6 @@ package engine
 
 import (
 	"a2gdb/storage-engine/storage"
-	"fmt"
 	"github.com/scylladb/go-set/strset"
 	"log"
 	"math"
@@ -11,7 +10,8 @@ import (
 	"strings"
 )
 
-func groupBy(innerMap map[string]interface{}, colName string, rows *[]*storage.RowV2, selectedCols []interface{}) {
+func groupBy(innerMap map[string]interface{}, colName string, rows *[]*storage.RowV2, selectedCols []interface{}) map[string]int {
+	var resMap map[string]int
 	groupMap := map[string][]*storage.RowV2{}
 
 	customFieldSlice := innerMap["selected_columns"].([]interface{})
@@ -36,23 +36,20 @@ func groupBy(innerMap map[string]interface{}, colName string, rows *[]*storage.R
 
 	switch functionName {
 	case "COUNT":
-		countMap := uniqueCount(groupMap)
-		fmt.Println(countMap)
+		resMap = uniqueCount(groupMap)
 	case "MAX":
-		maxMap := maxCount(groupMap, argName)
-		fmt.Println(maxMap)
+		resMap = maxCount(groupMap, argName)
 	case "MIN":
-		minMap := minCount(groupMap, argName)
-		fmt.Println(minMap)
+		resMap = minCount(groupMap, argName)
 	case "AVG":
-		avgMap := avgCount(groupMap, colName)
-		fmt.Println(avgMap)
+		resMap = avgCount(groupMap, colName)
 	case "SUM":
-		sumMap := sumCount(groupMap, colName)
-		fmt.Println(sumMap)
+		resMap = sumCount(groupMap, colName)
 	default:
 		log.Fatalf("Unsupported type: %s", functionName)
 	}
+
+	return resMap
 }
 
 func sumCount(groupMap map[string][]*storage.RowV2, colName string) map[string]int {
@@ -140,11 +137,11 @@ func maxCount(groupMap map[string][]*storage.RowV2, field string) map[string]int
 	return minMap
 }
 
-func uniqueCount(groupMap map[string][]*storage.RowV2) map[string]uint32 {
-	countMap := map[string]uint32{}
+func uniqueCount(groupMap map[string][]*storage.RowV2) map[string]int {
+	countMap := map[string]int{}
 
 	for k, v := range groupMap {
-		countMap[k] = uint32(len(v))
+		countMap[k] = len(v)
 	}
 
 	return countMap
@@ -413,5 +410,3 @@ func columnSelect(nodeMap, refList map[string]interface{}, rows []*storage.RowV2
 
 	return columns, colName
 }
-
-
