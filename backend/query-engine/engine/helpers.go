@@ -206,9 +206,10 @@ func processPagesForDeletion(pages []*storage.PageV2, deleteKey, deleteVal strin
 
 			if row.Values[deleteKey] == deleteVal {
 				if freeSpacePage == nil {
-					freeSpacePage = &storage.FreeSpace{PageID: storage.PageID(page.Header.ID)}
-					freeSpacePage.TempPagePtr = page
-					freeSpacePage.FreeMemory = pageObj.ExactFreeMem
+					freeSpacePage = &storage.FreeSpace{
+						PageID:      storage.PageID(page.Header.ID),
+						TempPagePtr: page,
+						FreeMemory:  pageObj.ExactFreeMem}
 				}
 
 				freeSpacePage.FreeMemory += location.Length
@@ -224,7 +225,7 @@ func processPagesForDeletion(pages []*storage.PageV2, deleteKey, deleteVal strin
 	return freeSpaceMapping
 }
 
-func processPagesForUpdate(pages []*storage.PageV2, updateKey, updateVal, filterKey, filterVal, tableName string, tableObj *storage.TableObj) ([]*storage.FreeSpace, [][]byte) {
+func processPagesForUpdate(pages []*storage.PageV2, updateKey, updateVal, filterKey, filterVal string, tableObj *storage.TableObj) ([]*storage.FreeSpace, [][]byte) {
 	var freeSpaceMapping []*storage.FreeSpace
 	var nonAddedRows [][]byte
 
@@ -255,28 +256,14 @@ func processPagesForUpdate(pages []*storage.PageV2, updateKey, updateVal, filter
 					log.Panicf("couldn't encode row %+v, error: %s", row, err)
 				}
 
-				err = page.AddTuple(rowBytes)
 				location.Free = true
-
-				if err == nil {
-					freeSpacePage.FreeMemory -= location.Length // remove old
-					log.Printf("free space after removal: %+v", freeSpacePage)
-
-					freeSpacePage.FreeMemory += uint16(len(rowBytes)) // add new
-					log.Printf("free space after adding: %+v", freeSpacePage)
-					log.Printf("added new tuple: %+v", freeSpacePage)
-					continue
-				}
-
-				// handle adding into another page
-				log.Printf("Added row: %+v", row)
+				freeSpacePage.FreeMemory -= location.Length
 				nonAddedRows = append(nonAddedRows, rowBytes)
 			}
 		}
 
 		if freeSpacePage != nil {
 			freeSpaceMapping = append(freeSpaceMapping, freeSpacePage)
-			log.Printf("freeSpaceMapping Added: %+v", freeSpacePage)
 		}
 	}
 

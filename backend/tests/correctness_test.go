@@ -259,6 +259,38 @@ func TestGroupBy(t *testing.T) {
 	}
 }
 
+const filterField = "Username"
+const filterValue = "JaneSmith"
+const modifiedField = "Age"
+const modifiedValue = "121"
+
+func TestUpdate(t *testing.T) {
+	sql1 := "UPDATE `User` SET Age = 121 WHERE Username = 'JaneSmith'\n"
+	encodedPlan1, err := util.SendSql(sql1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sharedDB.EngineEntry(encodedPlan1)
+
+	t.Run("Total Tuples After Update", func(t *testing.T) {
+		checkTupleNumber(t, expectedStressNumber)
+	})
+
+	t.Run("Total Modified Tuples", func(t *testing.T) {
+		var modifiedCount int
+		rows := getRows(t)
+		for _, row := range rows {
+			if row.Values[filterField] == filterValue && row.Values[modifiedField] == modifiedValue {
+				modifiedCount++
+			}
+		}
+
+		if modifiedCount != expectedStressNumber {
+			t.Fatalf("expected count: [%d], modified count: [%d]", expectedStressNumber, modifiedCount)
+		}
+	})
+}
+
 func checkTupleNumber(t *testing.T, expectedNumber int) {
 	var count int
 	tableObj, err := sharedDB.GetTable(tableName)
@@ -289,7 +321,7 @@ func checkTupleNumber(t *testing.T, expectedNumber int) {
 	}
 
 	if count != expectedNumber {
-		t.Fatal("Wrong number of tuples inserted")
+		t.Fatalf("expected count: [%d], actual count: [%d]", expectedNumber, count)
 	}
 }
 
@@ -460,6 +492,25 @@ func findByPrimary(t *testing.T) {
 	}
 }
 
+func validateResults(t *testing.T, identity string, rowLength, age, lastAge, smallest, biggest, expectedStressNumber int) {
+	switch identity {
+	case "ASC_LIMIT_1":
+		checkRowCount(t, identity, rowLength, 1)
+		checkAge(t, identity, age, smallest)
+
+	case "DESC_LIMIT_1":
+		checkRowCount(t, identity, rowLength, 1)
+		checkAge(t, identity, age, biggest)
+
+	case "ASC":
+		checkRowCount(t, identity, rowLength, expectedStressNumber)
+		checkOrder(t, identity, lastAge, biggest)
+	case "DESC":
+		checkRowCount(t, identity, rowLength, expectedStressNumber)
+		checkOrder(t, identity, lastAge, smallest)
+	}
+}
+
 func checkRowCount(t *testing.T, identity string, rowLength, expectedCount int) {
 	if rowLength != expectedCount {
 		t.Fatalf("[%s] incorrect number of rows returned: %d (expected: %d)", identity, rowLength, expectedCount)
@@ -478,21 +529,34 @@ func checkOrder(t *testing.T, identity string, actual, expected int) {
 	}
 }
 
-func validateResults(t *testing.T, identity string, rowLength, age, lastAge, smallest, biggest, expectedStressNumber int) {
-	switch identity {
-	case "ASC_LIMIT_1":
-		checkRowCount(t, identity, rowLength, 1)
-		checkAge(t, identity, age, smallest)
-
-	case "DESC_LIMIT_1":
-		checkRowCount(t, identity, rowLength, 1)
-		checkAge(t, identity, age, biggest)
-
-	case "ASC":
-		checkRowCount(t, identity, rowLength, expectedStressNumber)
-		checkOrder(t, identity, lastAge, biggest)
-	case "DESC":
-		checkRowCount(t, identity, rowLength, expectedStressNumber)
-		checkOrder(t, identity, lastAge, smallest)
+func getRows(t *testing.T) []*storage.RowV2 {
+	var rows []*storage.RowV2
+	tableObj, err := sharedDB.GetTable(tableName)
+	if err != nil {
+		t.Fatalf("couldn't get table object for table %s, error: %s", tableName, err)
 	}
+
+	tablePages, err := storage.GetTablePages(tableObj.DataFile, nil)
+	if err != nil {
+		t.Fatalf("couldn't get table pages for table %s, error: %s", tableName, err)
+	}
+
+	for _, page := range tablePages {
+		pageObj, ok := tableObj.DirectoryPage.Value[storage.PageID(page.Header.ID)]
+		if !ok {
+			t.Fatalf("directory page contains wrong value for page: %+v", page)
+		}
+
+		for _, location := range pageObj.PointerArray {
+			rowBytes := page.Data[location.Offset : location.Offset+location.Length]
+			row, err := storage.DecodeRow(rowBytes)
+			if err != nil {
+				t.Fatalf("couldn't decode row, location: %+v, error: %s", location, err)
+			}
+
+			rows = append(rows, row)
+		}
+	}
+
+	return rows
 }

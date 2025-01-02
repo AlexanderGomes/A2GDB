@@ -25,18 +25,10 @@ func (qe *QueryEngine) handleUpdate(plan map[string]interface{}) {
 		log.Panicf("couldn't get table pages for table %s, error: %s", tableName, err)
 	}
 
-	freeSpaceMapping, nonAddedRows := processPagesForUpdate(tablePages, modifyColumn, modifyValue, filterColumn, filterValue, tableName, tableObj)
+	freeSpaceMapping, nonAddedRows := processPagesForUpdate(tablePages, modifyColumn, modifyValue, filterColumn, filterValue, tableObj)
 
-	// ### why do we need this ?
-	for _, page := range tablePages {
-		err := updatePageInfo(nil, page, tableObj)
-		if err != nil {
-			log.Panicf("writing to disk failed, table %s, page %+v", tableName, page)
-		}
-	}
-
-	cleanOrgnize(freeSpaceMapping, tableObj)
-	handleLikeInsert(nonAddedRows, tableObj, tableName)
+	cleanOrgnize(freeSpaceMapping, tableObj)            // deletes old
+	handleLikeInsert(nonAddedRows, tableObj, tableName) // inserts new
 }
 
 func (qe *QueryEngine) handleDelete(plan map[string]interface{}) {
@@ -57,13 +49,6 @@ func (qe *QueryEngine) handleDelete(plan map[string]interface{}) {
 	cleanedVal := strings.ReplaceAll(deleteValStr, "'", "")
 
 	freeSpaceMapping := processPagesForDeletion(tablePages, deleteKey, cleanedVal, tableObj)
-
-	for _, page := range tablePages {
-		err := updatePageInfo(nil, page, tableObj)
-		if err != nil {
-			log.Panicf("writing to disk failed, table %s, page %+v", tableName, page)
-		}
-	}
 
 	cleanOrgnize(freeSpaceMapping, tableObj)
 }
