@@ -1,11 +1,12 @@
 package engine
 
 import (
+	"a2gdb/logger"
 	"a2gdb/storage-engine/storage"
-	"fmt"
 	"log"
 
 	"github.com/samber/lo"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -24,31 +25,23 @@ const (
 )
 
 func cleanOrgnize(newSpace []*storage.FreeSpace, tableObj *storage.TableObj) {
-	memSeparationMass(newSpace, tableObj)
-	claimCompressSpace(newSpace, tableObj)
-}
+	dirPage := tableObj.DirectoryPage.Value
+	logger.Log.WithField("tableObj", tableObj.Memory).Info("Before memory separation")
 
-func claimCompressSpace(newSpace []*storage.FreeSpace, tableObj *storage.TableObj) {
-	for _, page := range newSpace {
-		newPage, err := storage.RearrangePAGE(page.TempPagePtr, tableObj)
+	for _, space := range newSpace {
+		newPage, err := storage.RearrangePAGE(space.TempPagePtr, tableObj)
 		if err != nil {
-			log.Fatalf("failed rearrage page %+v, error: %s", page, err)
+			log.Fatalf("failed rearrage page %+v, error: %s", space, err)
 		}
 
 		err = updatePageInfo(nil, newPage, tableObj)
 		if err != nil {
 			log.Fatalf("failed updaing page, error: %s", err)
 		}
-	}
-}
 
-func memSeparationMass(newSpace []*storage.FreeSpace, tableObj *storage.TableObj) {
-	dirPage := tableObj.DirectoryPage.Value
-
-	for _, space := range newSpace {
+		space.TempPagePtr = nil
 		memTag := getTag(space.FreeMemory)
 		pageInfo := dirPage[space.PageID]
-		fmt.Println("level(before): ", pageInfo.Level)
 
 		if pageInfo.Level != 0 {
 			rankSlice := tableObj.Memory[pageInfo.Level]
@@ -61,16 +54,15 @@ func memSeparationMass(newSpace []*storage.FreeSpace, tableObj *storage.TableObj
 			memTag = EMPTY_PAGE
 		}
 
-		tableObj.Memory[memTag] = append(tableObj.Memory[memTag], space)
 		pageInfo.Level = memTag
-		pageInfo.ExactFreeMem = space.FreeMemory
-		fmt.Println("level(after): ", pageInfo.Level)
+		tableObj.Memory[memTag] = append(tableObj.Memory[memTag], space)
 	}
 
-	log.Printf("tableMem: %+v", tableObj.Memory)
+	logger.Log.WithField("tableObj", tableObj.Memory).Info("After memory separation")
 	saveMemMapping(tableObj)
 }
 
+// ###[x] last two fields of pageObj aren't being saved on the updatePageInfo function but it gets add and saved here.
 func memSeparationSingle(newSpace *storage.FreeSpace, tableObj *storage.TableObj) {
 	memTag := getTag(newSpace.FreeMemory)
 	dirPage := tableObj.DirectoryPage.Value
@@ -84,16 +76,16 @@ func memSeparationSingle(newSpace *storage.FreeSpace, tableObj *storage.TableObj
 
 	pageInfo.Level = memTag
 	pageInfo.ExactFreeMem = newSpace.FreeMemory
-
-	log.Printf("pageInfo:  %d, %d", pageInfo.Level, pageInfo.ExactFreeMem)
-	log.Printf("tableMem: %+v", tableObj.Memory)
-	log.Printf("saving to disk")
-
 	saveMemMapping(tableObj)
+
+	logger.Log.WithFields(logrus.Fields{"memTag": memTag, "updated_pageObj": pageInfo}).Info("memory separation done")
+
 	err := storage.UpdateDirectoryPageDisk(tableObj.DirectoryPage, tableObj.DirFile)
 	if err != nil {
 		log.Printf("failed saving directory page to disk while inserting")
 	}
+
+	logger.Log.Info("Insertion Completed")
 }
 
 func saveMemMapping(tableObj *storage.TableObj) {
@@ -133,8 +125,6 @@ func searchPage(tableObj *storage.TableObj, memoryNedded, level uint16) ([]*stor
 			if memoryNedded < mem.FreeMemory {
 				spaceInfo = mem
 				deleteIndex = i
-				log.Printf("memSlice: %+v", memSlice)
-				log.Printf("found spaceInfo : %+v", spaceInfo)
 				break
 			}
 		}
@@ -160,7 +150,7 @@ func getAvailablePage(tableObj *storage.TableObj, memoryNedded uint16) *storage.
 
 	memSlice, spaceInfo, memTag, deleteIndex = searchPage(tableObj, memoryNedded, memoryNedded)
 	if memTag == 0 && spaceInfo == nil {
-		log.Printf("created new page, values %v, %+v, %d, %d", memSlice, spaceInfo, memTag, deleteIndex)
+		logger.Log.Info("Created new page")
 		return storage.CreatePageV2()
 	}
 
@@ -180,6 +170,8 @@ func getAvailablePage(tableObj *storage.TableObj, memoryNedded uint16) *storage.
 	if err != nil {
 		log.Panicf("decoding page from offset %s failed", err)
 	}
+
+	logger.Log.WithFields(logrus.Fields{"pageInfObj": pageInfo, "availablePage": availablePage.Header, "memoryLevel": memTag}).Info("Found Page")
 
 	return availablePage
 }

@@ -1,7 +1,7 @@
 package storage
 
 import (
-	"a2gdb/storage-engine/logger"
+	"a2gdb/logger"
 	"fmt"
 	"os"
 	"path/filepath"

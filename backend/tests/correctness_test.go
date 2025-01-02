@@ -87,7 +87,7 @@ func TestDelete(t *testing.T) {
 	}
 	sharedDB.EngineEntry(encodedPlan1)
 
-	tableObj, err := sharedDB.GetTable(tableName)
+	tableObj, err := sharedDB.GetTableObj(tableName)
 	if err != nil {
 		t.Fatalf("couldn't get table object for table %s, error: %s", tableName, err)
 	}
@@ -293,7 +293,7 @@ func TestUpdate(t *testing.T) {
 
 func checkTupleNumber(t *testing.T, expectedNumber int) {
 	var count int
-	tableObj, err := sharedDB.GetTable(tableName)
+	tableObj, err := sharedDB.GetTableObj(tableName)
 	if err != nil {
 		t.Fatalf("couldn't get table object for table %s, error: %s", tableName, err)
 	}
@@ -531,7 +531,7 @@ func checkOrder(t *testing.T, identity string, actual, expected int) {
 
 func getRows(t *testing.T) []*storage.RowV2 {
 	var rows []*storage.RowV2
-	tableObj, err := sharedDB.GetTable(tableName)
+	tableObj, err := sharedDB.GetTableObj(tableName)
 	if err != nil {
 		t.Fatalf("couldn't get table object for table %s, error: %s", tableName, err)
 	}

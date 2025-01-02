@@ -1,5 +1,5 @@
 package storage
-
+//[x]
 import (
 	"fmt"
 	"io"
@@ -12,10 +12,10 @@ import (
 )
 
 const (
-	PERCENTAGE     = 25
-	BUFFER_SIZE    = 20000
+	PERCENTAGE     = 20
+	BUFFER_SIZE    = 2000
 	NUM_DECODERS   = 20
-	PAGES_PER_READ = 10
+	PAGES_PER_READ = 100
 	MAX_FILE_SIZE  = 1 * 1024 * 1024
 )
 

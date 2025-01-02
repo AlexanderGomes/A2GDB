@@ -47,7 +47,7 @@ func (qe *QueryEngine) handleSelect(plan map[string]interface{}) ([]*storage.Row
 		switch nodeOperation := nodeInnerMap["relOp"]; nodeOperation {
 		case "LogicalTableScan":
 			tableName := nodeInnerMap["table"].([]interface{})[0].(string)
-			rows = qe.tableScan(tableName)
+			rows = qe.getAllRows(tableName)
 		case "LogicalProject":
 			selectedCols, colName = columnSelect(nodeInnerMap, referenceList, rows)
 		case "LogicalFilter":
