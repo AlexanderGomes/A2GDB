@@ -6,5 +6,5 @@ Database systems operate at extreme scales, processing billions of tuples and of
 
 High-Frequency Trading (HFT) systems take this even further, pushing limits with massive data throughput and nanosecond-level performance. At these scales, your knowledge of computer science fundamentals matters, and even then, you’re constantly challenged to learn more.
 
-Not every application needs extreme performance, but the complacency in modern software development is hard to ignore. When websites just showing products like apple's consume a peak of 1GB and a medium of 600MB of RAM or a simple notes app uses 400–500MB, something is wrong. We’ve become too reliant on hardware improvements and have stagnated in software efficiency, or at the very least we're assuming that everybody has the latest phone and the best internet access.
+Not every application needs extreme performance, but the complacency in modern software development is hard to ignore. When websites just showing products  consume a peak of 1GB and a medium of 600MB of RAM or a simple notes app uses 400–500MB, something is wrong. We’ve become too reliant on hardware improvements and have stagnated in software efficiency, or at the very least we're assuming that everybody has the latest phone and the best internet access.
 
