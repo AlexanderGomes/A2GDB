@@ -273,7 +273,7 @@ func processPagesForUpdate(pages []*storage.PageV2, updateKey, updateVal, filter
 				}
 
 				location.Free = true
-				freeSpacePage.FreeMemory -= location.Length
+				freeSpacePage.FreeMemory = location.Length
 
 				nonAddedRows = append(nonAddedRows, rowBytes)
 			}

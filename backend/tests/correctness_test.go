@@ -16,13 +16,25 @@ import (
 
 var sharedDB *engine.QueryEngine
 
+const REMOVE_A2G = true
+const REMOVE_LOGS = true
+
 func TestMain(m *testing.M) {
 	exitCode := m.Run()
 
 	fmt.Println("Tearing down resources...")
-	err := os.RemoveAll("./A2G_DB")
-	if err != nil {
-		fmt.Printf("Error removing folder: %v\n", err)
+	if REMOVE_A2G {
+		err := os.RemoveAll("./A2G_DB")
+		if err != nil {
+			fmt.Printf("Error removing folder: %v\n", err)
+		}
+	}
+
+	if REMOVE_LOGS {
+		err := os.RemoveAll("./app.json")
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
 
 	os.Exit(exitCode)
@@ -262,10 +274,10 @@ func TestGroupBy(t *testing.T) {
 const filterField = "Username"
 const filterValue = "JaneSmith"
 const modifiedField = "Age"
-const modifiedValue = "121"
+const modifiedValue = "121209"
 
 func TestUpdate(t *testing.T) {
-	sql1 := "UPDATE `User` SET Age = 121 WHERE Username = 'JaneSmith'\n"
+	sql1 := "UPDATE `User` SET Age = 121209 WHERE Username = 'JaneSmith'\n"
 	encodedPlan1, err := util.SendSql(sql1)
 	if err != nil {
 		t.Fatal(err)
@@ -277,17 +289,56 @@ func TestUpdate(t *testing.T) {
 	})
 
 	t.Run("Total Modified Tuples", func(t *testing.T) {
-		var modifiedCount int
-		rows := getRows(t)
-		for _, row := range rows {
-			if row.Values[filterField] == filterValue && row.Values[modifiedField] == modifiedValue {
-				modifiedCount++
-			}
-		}
+		checkModifiedTuples(t)
+	})
+}
 
-		if modifiedCount != expectedStressNumber {
-			t.Fatalf("expected count: [%d], modified count: [%d]", expectedStressNumber, modifiedCount)
+func checkModifiedTuples(t *testing.T) {
+	var modifiedCount int
+	rows := getRows(t)
+	for _, row := range rows {
+		if row.Values[filterField] == filterValue && row.Values[modifiedField] == modifiedValue {
+			modifiedCount++
 		}
+	}
+
+	if modifiedCount != expectedStressNumber {
+		t.Fatalf("expected count: [%d], modified count: [%d]", expectedStressNumber, modifiedCount)
+	}
+}
+
+func checkUnmodifiedTuples(t *testing.T) {
+	var unModifiedCount int
+	rows := getRows(t)
+	for _, row := range rows {
+		if row.Values[modifiedField] != modifiedValue {
+			unModifiedCount++
+		}
+	}
+
+	if unModifiedCount != (EXPECTED_AFTER_UPDATE - expectedStressNumber) {
+		t.Fatalf("expected count: [%d], modified count: [%d]", EXPECTED_AFTER_UPDATE-expectedStressNumber, unModifiedCount)
+	}
+}
+
+const INSERT_AFTER_UPDATE = expectedStressNumber + 1000
+const EXPECTED_AFTER_UPDATE = expectedStressNumber + expectedStressNumber + 1000
+
+func TestInsertAfterUpdate(t *testing.T) {
+	t.Run("StressInsert", func(t *testing.T) {
+		insertMany(t, INSERT_AFTER_UPDATE)
+	})
+
+	t.Run("CheckTupleNumber", func(t *testing.T) {
+		checkTupleNumber(t, EXPECTED_AFTER_UPDATE)
+	})
+
+	t.Run("Total Modified Tuples", func(t *testing.T) {
+		checkModifiedTuples(t)
+	})
+
+	t.Run("Total Unmodified Tuples", func(t *testing.T) {
+		checkUnmodifiedTuples(t)
 	})
 }
 

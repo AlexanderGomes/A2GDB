@@ -60,7 +60,7 @@ func (qe *QueryEngine) handleDelete(plan map[string]interface{}) {
 	logger.Log.WithFields(logrus.Fields{"deleteKey": deleteKey, "deleteVal": deleteVal, "tableName": tableName}).Info("processPagesForDeletion inputs")
 	freeSpaceMapping := processPagesForDeletion(tablePages, deleteKey, deleteVal, tableObj)
 
-	cleanOrgnize(freeSpaceMapping, tableObj) // deletes old
+	cleanOrgnize(freeSpaceMapping, tableObj)
 	logger.Log.Info("Delete Completed")
 }
 

@@ -39,6 +39,8 @@ func cleanOrgnize(newSpace []*storage.FreeSpace, tableObj *storage.TableObj) {
 			log.Fatalf("failed updaing page, error: %s", err)
 		}
 
+		totalSpace := newPage.Header.UpperPtr - newPage.Header.LowerPtr
+		logger.Log.WithFields(logrus.Fields{"totalSpace": totalSpace, "LowerPtr": newPage.Header.LowerPtr, "UpperPtr": newPage.Header.UpperPtr}).Info("Cleaned Page")
 		space.TempPagePtr = nil
 		memTag := getTag(space.FreeMemory)
 		pageInfo := dirPage[space.PageID]
@@ -202,3 +204,4 @@ func getTag(pageMem uint16) uint16 {
 		return 0
 	}
 }
+

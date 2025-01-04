@@ -384,6 +384,7 @@ public class QueryPlanner {
 
         for (Pair<String, String> pair : columnsInfo) {
           builder.add(pair.left,
+              // #### changing the type from VARCHAR to ANY causes a different query plan which breaks your backend
               typeFactory.createTypeWithNullability(typeFactory.createSqlType(SqlTypeName.VARCHAR), true));
         }
 

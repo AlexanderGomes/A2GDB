@@ -1,7 +1,8 @@
 -- basic queries
-[x] INSERT INTO `User` (Username, Age, City) VALUES ('JaneSmith', 25, 'Los Angeles'), ('AliceBrown', 28, 'Chicago'), ('BobWhite', 35, 'Houston')
-[x] CREATE TABLE `User`(PRIMARY KEY(UserId), Username VARCHAR, Age INT, City VARCHAR) 
-[x] CREATE TABLE Orders (PRIMARY KEY(OrderID),Username VARCHAR(50),OrderAmount DECIMAL) --[x]
+[x] INSERT INTO `User` (Username, Age, City) VALUES ('JaneSmith', 25, 'Los Angeles'), ('AliceBrown', 28, 'Chicago'), ('BobWhite', 35, 'Houston')--[x]
+[x] CREATE TABLE `User`(PRIMARY KEY(UserId), Username VARCHAR, Age INT, City VARCHAR) --[x]
+[x] DELETE FROM `User` WHERE Username = 'JaneSmith' --[x]
+[x] UPDATE `User` SET Age = 121209 WHERE Username = 'JaneSmith' --[x]
 
 [x] SELECT * FROM `User` --[x]
 [x] SELECT Username, Age FROM `User` --[x]
@@ -24,60 +25,33 @@
 [x] SELECT City, SUM(Age) AS max_age FROM `User` GROUP BY City --[x]
 
 
--- CRUD
-[x] DELETE FROM `User` WHERE Username = 'JaneSmith' --[x]
-[x] UPDATE `User` SET Age = 121 WHERE Username = 'JaneSmith' --[x]
-
-[] ALTER TABLE `User` ADD COLUMN Email VARCHAR;
-[] ALTER TABLE `User` DROP COLUMN Email;
-
-
--- EXTRA
-[] SELECT * FROM `User` WHERE City = 'Los Angeles' AND Age > 25
-[] SELECT * FROM `User` WHERE City = 'Houston' OR Age < 30
-[] SELECT * FROM `User` WHERE City IN ('Los Angeles', 'Chicago')
-[] SELECT * FROM `User` WHERE Age > (SELECT AVG(Age) FROM `User`)
-[] SELECT * FROM `User` ORDER BY Age ASC LIMIT 10 OFFSET 20;
-[] SELECT * FROM `User` WHERE Username LIKE 'A%';
-[] SELECT City, COUNT(*) AS UserCount  FROM `User` GROUP BY City HAVING COUNT(*) > 1;
-
-
-
---COMPLEX QUERIES
-
--- subqueries
-[] SELECT Username, (SELECT COUNT(*) FROM `Order` o WHERE o.UserId = u.UserId) AS OrderCount FROM `User` u;
-
--- JOINS
+-- INNER JOIN (or simply JOIN)
+-- Returns only the rows where there is a match in both tables based on the join condition.
+-- If no match is found in either table, the row is excluded.
 SELECT User.Username, User.Age, User.City, Orders.OrderAmount
 FROM `User`
-INNER JOIN Orders ON User.Username = Orders.Username;
+JOIN Orders ON User.Username = Orders.Username
 
+-- LEFT JOIN (or LEFT OUTER JOIN)
+-- Returns all rows from the left table (`User`) and the matching rows from the right table (`Orders`).
+-- If there is no match in the right table, the result will contain NULL for the columns of the right table.
 SELECT User.Username, User.Age, User.City, Orders.OrderAmount
 FROM `User`
 LEFT JOIN Orders ON User.Username = Orders.Username;
 
+-- RIGHT JOIN (or RIGHT OUTER JOIN)
+-- Returns all rows from the right table (`Orders`) and the matching rows from the left table (`User`).
+-- If there is no match in the left table, the result will contain NULL for the columns of the left table.
 SELECT User.Username, User.Age, User.City, Orders.OrderAmount
 FROM `User`
 RIGHT JOIN Orders ON User.Username = Orders.Username;
 
+-- FULL OUTER JOIN
+-- Returns all rows from both the left (`User`) and right (`Orders`) tables.
+-- If there is no match in either table, the result will contain NULL for the missing columns in the non-matching table.
+-- This join ensures that no data is excluded, even if there is no match in either table.
 SELECT User.Username, User.Age, User.City, Orders.OrderAmount
 FROM `User`
 FULL OUTER JOIN Orders ON User.Username = Orders.Username;
 
-SELECT User.Username, User.Age, User.City, Orders.OrderAmount
-FROM `User`
-INNER JOIN Orders ON User.Username = Orders.Username
-WHERE Orders.OrderAmount > 50;
 
-SELECT User.Username, SUM(Orders.OrderAmount) AS TotalSpent
-FROM `User`
-INNER JOIN Orders ON User.Username = Orders.Username
-GROUP BY User.Username;
-
-SELECT User.Username, SUM(Orders.OrderAmount) AS TotalSpent
-FROM `User`
-INNER JOIN Orders ON User.Username = Orders.Username
-GROUP BY User.Username
-ORDER BY TotalSpent DESC
-LIMIT 1;

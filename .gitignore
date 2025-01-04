@@ -5,3 +5,4 @@ Frontend/target
 .vscode
 *.md
 *.json
+frontend/src/main/java/resources
