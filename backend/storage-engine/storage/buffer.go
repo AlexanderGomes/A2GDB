@@ -1,8 +1,9 @@
 package storage
 
 import (
+	"a2gdb/logger"
 	"errors"
-	"fmt"
+	"log"
 )
 
 const (
@@ -10,18 +11,6 @@ const (
 	InsertData  = "INSERT DATA"
 	MaxPoolSize = 4000
 )
-
-type BufferReq struct {
-	Operation string
-	PageID    PageID
-	Data      []RowV2
-}
-
-type BufferRes struct {
-	PageID  PageID
-	PagePtr *PageV2
-	Error   error
-}
 
 type FrameID int
 type BufferPoolManager struct {
@@ -32,16 +21,11 @@ type BufferPoolManager struct {
 	DiskManager *DiskManagerV2
 }
 
-func (bpm *BufferPoolManager) FlushAll() {
-
-}
-
 func (bpm *BufferPoolManager) InsertPage(page *PageV2) error {
 	if len(bpm.freeList) == 0 {
-		for i := 0; i < 20; i++ {
-			bpm.Evict()
-		}
+		bpm.Evict()
 	}
+
 	frameID := bpm.freeList[0]
 	bpm.freeList = bpm.freeList[1:]
 
@@ -51,18 +35,28 @@ func (bpm *BufferPoolManager) InsertPage(page *PageV2) error {
 	return nil
 }
 
+func (bpm *BufferPoolManager) FlushAll() {
+
+}
+
 func (bpm *BufferPoolManager) Evict() error {
 	frameID, err := bpm.Replacer.Evict()
 	if err != nil {
 		return err
 	}
+
 	page := bpm.Pages[frameID]
 
-	// #TODO - write page to disk
+	//## disk
+	tableObj := bpm.DiskManager.TableObjs[page.TABLE]
+	err = UpdatePageInfo(nil, page, tableObj)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	bpm.DeletePage(PageID(page.Header.ID))
 
-	fmt.Println("PAGE EVICTED:", page.Header.ID)
+	logger.Log.WithField("pageId", page.Header.ID).Info("PAGE EVICTED")
 	return nil
 }
 
@@ -73,6 +67,7 @@ func (bpm *BufferPoolManager) DeletePage(pageID PageID) (FrameID, error) {
 		bpm.freeList = append(bpm.freeList, frameID)
 		return frameID, nil
 	}
+
 	return 0, errors.New("page not found")
 }
 

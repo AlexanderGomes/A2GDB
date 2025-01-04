@@ -1,9 +1,10 @@
 package storage
 
 import (
+	"a2gdb/logger"
 	"fmt"
+
 	"github.com/google/btree"
-	"io"
 )
 
 type Item struct {
@@ -32,32 +33,44 @@ func UpdateBp(rows []uint64, tableObj TableObj, pageInfObj PageInfo) error {
 	if rows == nil {
 		return nil
 	}
-	
+
 	var items []Item
 
-	for _, rowID := range rows {
-		item := Item{
-			Key:   rowID,
-			Value: pageInfObj.Offset,
+	// deleting
+	if rows[0] == 0 {
+		for _, rowID := range rows {
+			item := Item{
+				Key:   rowID,
+				Value: pageInfObj.Offset,
+			}
+
+			logger.Log.WithField("item", item).Info("Deleting From Bptree")
+
+			tableObj.BpTree.Delete(item)
 		}
 
-		items = append(items, item)
-		tableObj.BpTree.ReplaceOrInsert(item)
+		items = GetAllItems(tableObj.BpTree)
+	} else {
+		for _, rowID := range rows {
+			item := Item{
+				Key:   rowID,
+				Value: pageInfObj.Offset,
+			}
+
+			logger.Log.WithField("item", item).Info("Deleting From Bptree")
+			items = append(items, item)
+			tableObj.BpTree.ReplaceOrInsert(item)
+		}
 	}
 
 	itemsBytes, err := EncodeItems(items)
 	if err != nil {
-		return fmt.Errorf("UpdateBp: %w", err)
+		return fmt.Errorf("updateBp: %w", err)
 	}
 
-	_, err = tableObj.BpFile.Seek(0, io.SeekEnd)
+	err = WriteNonPageFile(tableObj.BpFile, itemsBytes)
 	if err != nil {
-		return fmt.Errorf("UpdateBp (can't seek to the end): %w", err)
-	}
-
-	_, err = tableObj.BpFile.Write(itemsBytes)
-	if err != nil {
-		return fmt.Errorf("UpdateBp (failed writing bp to disk): %w", err)
+		return fmt.Errorf("saving bp to disk failed: %w", err)
 	}
 
 	return nil

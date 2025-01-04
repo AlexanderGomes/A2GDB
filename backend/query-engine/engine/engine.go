@@ -6,7 +6,7 @@ import (
 )
 
 type QueryEngine struct {
-	StorageManager *storage.DiskManagerV2
+	BufferPoolManager *storage.BufferPoolManager
 }
 
 func (qe *QueryEngine) EngineEntry(queryPlan interface{}) ([]*storage.RowV2, map[string]int) {
@@ -47,7 +47,7 @@ func (qe *QueryEngine) handleSelect(plan map[string]interface{}) ([]*storage.Row
 		switch nodeOperation := nodeInnerMap["relOp"]; nodeOperation {
 		case "LogicalTableScan":
 			tableName := nodeInnerMap["table"].([]interface{})[0].(string)
-			rows = qe.getAllRows(tableName)
+			rows = storage.GetAllRows(tableName, qe.BufferPoolManager.DiskManager)
 		case "LogicalProject":
 			selectedCols, colName = columnSelect(nodeInnerMap, referenceList, rows)
 		case "LogicalFilter":

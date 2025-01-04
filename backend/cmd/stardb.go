@@ -15,7 +15,7 @@ func InitDatabase(k int, dirName string) (*engine.QueryEngine, error) {
 	}
 
 	queryEngine := &engine.QueryEngine{
-		StorageManager: bufferPool.DiskManager,
+		BufferPoolManager: bufferPool,
 	}
 
 	logger.Log.Info("Database initialized successfully")

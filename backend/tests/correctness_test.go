@@ -89,8 +89,43 @@ func TestInsert(t *testing.T) {
 		checkTupleNumber(t, expectedStressNumber)
 	})
 
+	t.Run("checkBp", func(t *testing.T) {
+		checkBp(t)
+	})
 }
 
+func checkBp(t *testing.T) {
+	manager := sharedDB.BufferPoolManager.DiskManager
+	tableObj, err := storage.GetTableObj(tableName, manager)
+	if err != nil {
+		t.Fatalf("couldn't get table object for table %s, error: %s", tableName, err)
+	}
+
+	tablePages, err := storage.GetTablePages(tableObj.DataFile, nil)
+	if err != nil {
+		t.Fatalf("couldn't get table pages for table %s, error: %s", tableName, err)
+	}
+
+	for _, page := range tablePages {
+		pageObj := tableObj.DirectoryPage.Value[storage.PageID(page.Header.ID)]
+		for i := range pageObj.PointerArray {
+			location := &pageObj.PointerArray[i]
+
+			rowBytes := page.Data[location.Offset : location.Offset+location.Length]
+			row, err := storage.DecodeRow(rowBytes)
+			if err != nil {
+				t.Fatalf("couldn't decode row, location: %+v, error: %s", location, err)
+			}
+
+			item := storage.Item{Key: row.ID}
+			obj := tableObj.BpTree.Get(item)
+			if obj == nil {
+				t.Fatalf("couldn't find rowId: %d, for pageID: %d", row.ID, page.Header.ID)
+			}
+		}
+	}
+
+}
 func TestDelete(t *testing.T) {
 	sql1 := fmt.Sprintf("DELETE FROM `%s` WHERE %s = '%s'\n", tableName, checkKey, checkVal)
 	encodedPlan1, err := util.SendSql(sql1)
@@ -99,7 +134,8 @@ func TestDelete(t *testing.T) {
 	}
 	sharedDB.EngineEntry(encodedPlan1)
 
-	tableObj, err := sharedDB.GetTableObj(tableName)
+	manager := sharedDB.BufferPoolManager.DiskManager
+	tableObj, err := storage.GetTableObj(tableName, manager)
 	if err != nil {
 		t.Fatalf("couldn't get table object for table %s, error: %s", tableName, err)
 	}
@@ -130,6 +166,25 @@ func TestDelete(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestCheckBpAfterDelete(t *testing.T) {
+	rows := storage.GetAllRows(tableName, sharedDB.BufferPoolManager.DiskManager)
+	if len(rows) != 0 {
+		t.Fatal("not all rows were deleted data file")
+	}
+
+	manager := sharedDB.BufferPoolManager.DiskManager
+	tableObj, err := storage.GetTableObj(tableName, manager)
+	if err != nil {
+		t.Fatalf("couldn't get table object for table %s, error: %s", tableName, err)
+	}
+
+	items := storage.GetAllItems(tableObj.BpTree)
+	if len(items) != 0 {
+		t.Fatal("not all rows were deleted from bp")
+	}
+
 }
 
 func TestInsertAfterDelete(t *testing.T) {
@@ -291,6 +346,11 @@ func TestUpdate(t *testing.T) {
 	t.Run("Total Modified Tuples", func(t *testing.T) {
 		checkModifiedTuples(t)
 	})
+
+	t.Run("CheckBp Atfer Update", func(t *testing.T) {
+		checkBp(t)
+	})
+
 }
 
 func checkModifiedTuples(t *testing.T) {
@@ -344,7 +404,8 @@ func TestInsertAfterUpdate(t *testing.T) {
 
 func checkTupleNumber(t *testing.T, expectedNumber int) {
 	var count int
-	tableObj, err := sharedDB.GetTableObj(tableName)
+	manager := sharedDB.BufferPoolManager.DiskManager
+	tableObj, err := storage.GetTableObj(tableName, manager)
 	if err != nil {
 		t.Fatalf("couldn't get table object for table %s, error: %s", tableName, err)
 	}
@@ -426,7 +487,7 @@ func selectStart(t *testing.T) *storage.RowV2 {
 		t.Fatalf("incorrect number of rows returned")
 	}
 
-	tableInfo := sharedDB.StorageManager.PageCatalog.Tables[tableName]
+	tableInfo := sharedDB.BufferPoolManager.DiskManager.PageCatalog.Tables[tableName]
 	if len(rows[4].Values) != len(tableInfo.Schema) {
 		t.Fatalf("wrong number of columns returned")
 	}
@@ -537,7 +598,7 @@ func findByPrimary(t *testing.T) {
 		t.Fatal("wrong user")
 	}
 
-	tableInfo := sharedDB.StorageManager.PageCatalog.Tables[tableName]
+	tableInfo := sharedDB.BufferPoolManager.DiskManager.PageCatalog.Tables[tableName]
 	if len(rows[0].Values) != len(tableInfo.Schema) {
 		t.Fatalf("wrong number of columns returned")
 	}
@@ -582,7 +643,9 @@ func checkOrder(t *testing.T, identity string, actual, expected int) {
 
 func getRows(t *testing.T) []*storage.RowV2 {
 	var rows []*storage.RowV2
-	tableObj, err := sharedDB.GetTableObj(tableName)
+
+	manager := sharedDB.BufferPoolManager.DiskManager
+	tableObj, err := storage.GetTableObj(tableName, manager)
 	if err != nil {
 		t.Fatalf("couldn't get table object for table %s, error: %s", tableName, err)
 	}

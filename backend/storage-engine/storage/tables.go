@@ -1,5 +1,5 @@
 package storage
-//[x]
+
 import (
 	"fmt"
 	"io"
@@ -345,4 +345,19 @@ func GetTablePages(dataFile *os.File, offset *Offset) ([]*PageV2, error) {
 
 	log.Println("Index Scan")
 	return []*PageV2{page}, nil
+}
+
+func GetTableObj(tableName string, manager *DiskManagerV2) (*TableObj, error) {
+	var tableObj *TableObj
+	var err error
+
+	tableObj, found := manager.TableObjs[TableName(tableName)]
+	if !found {
+		tableObj, err = manager.InMemoryTableSetUp(tableName)
+		if err != nil {
+			return nil, fmt.Errorf("GetTable: %w", err)
+		}
+	}
+
+	return tableObj, err
 }

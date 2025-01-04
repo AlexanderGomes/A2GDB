@@ -19,8 +19,9 @@ func (qe *QueryEngine) handleUpdate(plan map[string]interface{}) {
 	modifyValue := plan["modify_value"].(string)
 
 	tableName := plan["table"].(string)
+	manager := qe.BufferPoolManager.DiskManager
 
-	tableObj, err := qe.GetTableObj(tableName)
+	tableObj, err := storage.GetTableObj(tableName, manager)
 	if err != nil {
 		log.Panicf("couldn't get table object for table %s, error: %s", tableName, err)
 	}
@@ -34,7 +35,13 @@ func (qe *QueryEngine) handleUpdate(plan map[string]interface{}) {
 
 	freeSpaceMapping, nonAddedRows := processPagesForUpdate(tablePages, modifyColumn, modifyValue, filterColumn, filterValue, tableObj)
 
-	cleanOrgnize(freeSpaceMapping, tableObj)            // deletes old
+	var rowIds []uint64
+	rowIds = append(rowIds, 0) // delete from bp
+	for _, row := range nonAddedRows {
+		rowIds = append(rowIds, row.Id)
+	}
+
+	cleanOrgnize(freeSpaceMapping, rowIds, tableObj)    // deletes old
 	handleLikeInsert(nonAddedRows, tableObj, tableName) // inserts new
 
 	logger.Log.Info("Update Completed")
@@ -42,9 +49,11 @@ func (qe *QueryEngine) handleUpdate(plan map[string]interface{}) {
 
 func (qe *QueryEngine) handleDelete(plan map[string]interface{}) {
 	logger.Log.Info("Delete Started")
-	tableName := plan["table"].(string)
 
-	tableObj, err := qe.GetTableObj(tableName)
+	tableName := plan["table"].(string)
+	manager := qe.BufferPoolManager.DiskManager
+
+	tableObj, err := storage.GetTableObj(tableName, manager)
 	if err != nil {
 		log.Panicf("couldn't get table object for table %s, error: %s", tableName, err)
 	}
@@ -58,9 +67,9 @@ func (qe *QueryEngine) handleDelete(plan map[string]interface{}) {
 	deleteVal := strings.ReplaceAll(plan["value"].(string), "'", "")
 
 	logger.Log.WithFields(logrus.Fields{"deleteKey": deleteKey, "deleteVal": deleteVal, "tableName": tableName}).Info("processPagesForDeletion inputs")
-	freeSpaceMapping := processPagesForDeletion(tablePages, deleteKey, deleteVal, tableObj)
+	freeSpaceMapping, rowsID := processPagesForDeletion(tablePages, deleteKey, deleteVal, tableObj)
 
-	cleanOrgnize(freeSpaceMapping, tableObj)
+	cleanOrgnize(freeSpaceMapping, rowsID, tableObj)
 	logger.Log.Info("Delete Completed")
 }
 
@@ -81,7 +90,7 @@ func (qe *QueryEngine) handleCreate(plan map[string]interface{}) {
 		}
 	}
 
-	err := qe.StorageManager.CreateTable(storage.TableName(tableName), tableInfo)
+	err := qe.BufferPoolManager.DiskManager.CreateTable(storage.TableName(tableName), tableInfo)
 	if err != nil {
 		log.Fatal("Error Creating Table: ", err)
 	}
@@ -90,7 +99,7 @@ func (qe *QueryEngine) handleCreate(plan map[string]interface{}) {
 func (qe *QueryEngine) handleInsert(plan map[string]interface{}) {
 	logger.Log.Info("Insertion Started")
 
-	manager := qe.StorageManager
+	manager := qe.BufferPoolManager.DiskManager
 	catalog := manager.PageCatalog
 
 	selectedCols := plan["selectedCols"].([]interface{})
@@ -103,7 +112,7 @@ func (qe *QueryEngine) handleInsert(plan map[string]interface{}) {
 
 	bytesNeeded, rowsID, encodedRows := prepareRows(plan, selectedCols, tableName, primary)
 
-	tableobj, err := qe.GetTableObj(tableName)
+	tableobj, err := storage.GetTableObj(tableName, manager)
 	if err != nil {
 		log.Fatalf("GetTable failed for: %s, error: %s", tableName, err)
 	}
@@ -115,7 +124,7 @@ func (qe *QueryEngine) handleInsert(plan map[string]interface{}) {
 		"bytesNeeded":  bytesNeeded,
 	}).Info("findAndUpdate Inputs Set")
 
-	err = findAndUpdate(tableobj, bytesNeeded, tableName, encodedRows, rowsID)
+	err = findAndUpdate(qe.BufferPoolManager, tableobj, bytesNeeded, tableName, encodedRows, rowsID)
 	if err != nil {
 		log.Fatalf("findAndUpdate Failed: %s", err)
 	}

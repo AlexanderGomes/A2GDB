@@ -24,7 +24,7 @@ const (
 	NEXT_LEVEL = 400
 )
 
-func cleanOrgnize(newSpace []*storage.FreeSpace, tableObj *storage.TableObj) {
+func cleanOrgnize(newSpace []*storage.FreeSpace, rowsId []uint64, tableObj *storage.TableObj) {
 	dirPage := tableObj.DirectoryPage.Value
 	logger.Log.WithField("tableObj", tableObj.Memory).Info("Before memory separation")
 
@@ -34,7 +34,7 @@ func cleanOrgnize(newSpace []*storage.FreeSpace, tableObj *storage.TableObj) {
 			log.Fatalf("failed rearrage page %+v, error: %s", space, err)
 		}
 
-		err = updatePageInfo(nil, newPage, tableObj)
+		err = storage.UpdatePageInfo(rowsId, newPage, tableObj)
 		if err != nil {
 			log.Fatalf("failed updaing page, error: %s", err)
 		}
@@ -162,6 +162,7 @@ func getAvailablePage(tableObj *storage.TableObj, memoryNedded uint16) *storage.
 
 	tableObj.Memory[memTag] = memSlice
 
+	//##TODO POINT check if its on BP otherwise go to disk
 	pageInfo := tableObj.DirectoryPage.Value[spaceInfo.PageID]
 	pageBytes, err := storage.ReadPageAtOffset(tableObj.DataFile, pageInfo.Offset)
 	if err != nil {
@@ -204,4 +205,3 @@ func getTag(pageMem uint16) uint16 {
 		return 0
 	}
 }
-

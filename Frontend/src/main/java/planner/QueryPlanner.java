@@ -269,7 +269,6 @@ public class QueryPlanner {
 
     List<String> columnNames = root.getRowType().getFieldNames();
     jWriter.item("selected_columns", columnNames);
-
     jWriter.done(root);
 
     String initialJsonString = jWriter.asString();

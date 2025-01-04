@@ -11,22 +11,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func (qe *QueryEngine) GetTableObj(tableName string) (*storage.TableObj, error) {
-	var tableObj *storage.TableObj
-	var err error
-	manager := qe.StorageManager
-
-	tableObj, found := manager.TableObjs[storage.TableName(tableName)]
-	if !found {
-		tableObj, err = manager.InMemoryTableSetUp(tableName)
-		if err != nil {
-			return nil, fmt.Errorf("GetTable: %w", err)
-		}
-	}
-
-	return tableObj, err
-}
-
 func prepareRows(plan map[string]interface{}, selectedCols []interface{}, tableName, primary string) (uint16, []uint64, [][]byte) {
 	var bytesNeeded uint16
 	rowsID := []uint64{}
@@ -62,7 +46,7 @@ func prepareRows(plan map[string]interface{}, selectedCols []interface{}, tableN
 	return bytesNeeded, rowsID, encodedRows
 }
 
-func findAndUpdate(tableObj *storage.TableObj, bytesNeeded uint16, tableName string, encodedRows [][]byte, rowsID []uint64) error {
+func findAndUpdate(bufferM *storage.BufferPoolManager, tableObj *storage.TableObj, bytesNeeded uint16, tableName string, encodedRows [][]byte, rowsID []uint64) error {
 	page := getAvailablePage(tableObj, bytesNeeded) // new page could've been created
 
 	for _, encodedRow := range encodedRows {
@@ -73,7 +57,7 @@ func findAndUpdate(tableObj *storage.TableObj, bytesNeeded uint16, tableName str
 	}
 
 	logger.Log.Info("saving page to disk (created / existing)")
-	err := updatePageInfo(rowsID, page, tableObj) // make sure to save possible new page (this is updating even already existing pages)
+	err := storage.UpdatePageInfo(rowsID, page, tableObj) // make sure to save possible new page (this is updating even already existing pages)
 	if err != nil {
 		return fmt.Errorf("tnternal update failed: %v", page)
 	}
@@ -83,6 +67,7 @@ func findAndUpdate(tableObj *storage.TableObj, bytesNeeded uint16, tableName str
 
 	logger.Log.WithFields(logrus.Fields{"newSpace": newSpace}).Info("memSeparationSingle input")
 	memSeparationSingle(&newSpace, tableObj) // safe to do memory separation
+
 	return nil
 }
 
@@ -119,83 +104,10 @@ func checkPresenceGetPrimary(selectedCols []interface{}, tableName string, catal
 	return primary, nil
 }
 
-func updatePageInfo(rowsID []uint64, pageFound *storage.PageV2, tableObj *storage.TableObj) error {
-	pageID := storage.PageID(pageFound.Header.ID)
-	dirPage := tableObj.DirectoryPage
-	pageInfObj, found := dirPage.Value[pageID]
-
-	if !found {
-		offset, err := storage.WritePageEOFV2(pageFound, tableObj.DataFile)
-		if err != nil {
-			return fmt.Errorf("write page EOF error: %w", err)
-		}
-
-		pageInfObj = &storage.PageInfo{
-			Offset:       offset,
-			PointerArray: pageFound.PointerArray,
-		}
-
-		dirPage.Value[pageID] = pageInfObj
-	} else {
-		pageInfObj.PointerArray = append(pageInfObj.PointerArray, pageFound.PointerArray...)
-		if err := storage.WritePageBackV2(pageFound, pageInfObj.Offset, tableObj.DataFile); err != nil {
-			return fmt.Errorf("write page back error: %w", err)
-		}
-	}
-
-	if err := storage.UpdateDirectoryPageDisk(dirPage, tableObj.DirFile); err != nil {
-		return fmt.Errorf("update directory page error: %w", err)
-	}
-
-	if err := storage.UpdateBp(rowsID, *tableObj, *pageInfObj); err != nil {
-		return fmt.Errorf("update B+ tree error: %w", err)
-	}
-
-	return nil
-}
-
-func (qe *QueryEngine) getAllRows(tableName string) []*storage.RowV2 {
-	var rows []*storage.RowV2
-
-	tableObj, err := qe.GetTableObj(tableName)
-	if err != nil {
-		log.Fatalf("GetTable failed for: %s, error: %s", tableName, err)
-	}
-
-	directoryMap := tableObj.DirectoryPage.Value
-	pages, err := storage.GetTablePages(tableObj.DataFile, nil)
-	if err != nil {
-		log.Fatalf("GetTablePages failed for: %s, error: %s", tableName, err)
-	}
-
-	for _, page := range pages {
-		pageId := storage.PageID(page.Header.ID)
-		pageObj, ok := directoryMap[pageId]
-
-		if !ok {
-			log.Fatalf("PageObj not found for page: %v", page.Header.ID)
-		}
-
-		for _, location := range pageObj.PointerArray {
-			if location.Free {
-				continue
-			}
-
-			rowBytes := page.Data[location.Offset : location.Offset+location.Length]
-			row, err := storage.DecodeRow(rowBytes)
-			if err != nil {
-				log.Fatalf("DecodeRow error: %s", err)
-			}
-
-			rows = append(rows, row)
-		}
-	}
-
-	return rows
-}
-
-func processPagesForDeletion(pages []*storage.PageV2, deleteKey, deleteVal string, tableObj *storage.TableObj) []*storage.FreeSpace {
+func processPagesForDeletion(pages []*storage.PageV2, deleteKey, deleteVal string, tableObj *storage.TableObj) ([]*storage.FreeSpace, []uint64) {
 	var freeSpaceMapping []*storage.FreeSpace
+	var rowsID []uint64
+	rowsID = append(rowsID, 0)
 
 	for _, page := range pages {
 		var freeSpacePage *storage.FreeSpace
@@ -224,6 +136,7 @@ func processPagesForDeletion(pages []*storage.PageV2, deleteKey, deleteVal strin
 
 				freeSpacePage.FreeMemory += location.Length
 				location.Free = true
+				rowsID = append(rowsID, row.ID)
 			}
 		}
 
@@ -234,12 +147,17 @@ func processPagesForDeletion(pages []*storage.PageV2, deleteKey, deleteVal strin
 		logger.Log.WithFields(logrus.Fields{"Memlevel": pageObj.Level, "exactFreeMem": pageObj.ExactFreeMem, "offset": pageObj.Offset}).Info("After Modification (PageObj)")
 	}
 
-	return freeSpaceMapping
+	return freeSpaceMapping, rowsID
 }
 
-func processPagesForUpdate(pages []*storage.PageV2, updateKey, updateVal, filterKey, filterVal string, tableObj *storage.TableObj) ([]*storage.FreeSpace, [][]byte) {
+type NonAddedRow struct {
+	Id    uint64
+	Bytes []byte
+}
+
+func processPagesForUpdate(pages []*storage.PageV2, updateKey, updateVal, filterKey, filterVal string, tableObj *storage.TableObj) ([]*storage.FreeSpace, []*NonAddedRow) {
 	var freeSpaceMapping []*storage.FreeSpace
-	var nonAddedRows [][]byte
+	var nonAddedRows []*NonAddedRow
 
 	for _, page := range pages {
 		var freeSpacePage *storage.FreeSpace
@@ -274,8 +192,12 @@ func processPagesForUpdate(pages []*storage.PageV2, updateKey, updateVal, filter
 
 				location.Free = true
 				freeSpacePage.FreeMemory = location.Length
+				nonAddedRow := NonAddedRow{
+					Bytes: rowBytes,
+					Id:    row.ID,
+				}
 
-				nonAddedRows = append(nonAddedRows, rowBytes)
+				nonAddedRows = append(nonAddedRows, &nonAddedRow)
 			}
 		}
 
@@ -290,7 +212,7 @@ func processPagesForUpdate(pages []*storage.PageV2, updateKey, updateVal, filter
 	return freeSpaceMapping, nonAddedRows
 }
 
-func handleLikeInsert(rows [][]byte, tableObj *storage.TableObj, tableName string) {
+func handleLikeInsert(rows []*NonAddedRow, tableObj *storage.TableObj, tableName string) {
 	logger.Log.Info("handleLikeInsert(update) Started")
 
 	batchSize := 5
@@ -305,11 +227,16 @@ func handleLikeInsert(rows [][]byte, tableObj *storage.TableObj, tableName strin
 		logger.Log.Infof("processing row batches from %d to %d", i, end-1)
 		batch := rows[i:end]
 		bytesNeeded := 0
+
+		var encodedBytes [][]byte
+		var rowIds []uint64
 		for _, row := range batch {
-			bytesNeeded += len(row)
+			bytesNeeded += len(row.Bytes)
+			encodedBytes = append(encodedBytes, row.Bytes)
+			rowIds = append(rowIds, row.Id)
 		}
 
-		findAndUpdate(tableObj, uint16(bytesNeeded), tableName, batch, nil)
+		findAndUpdate(nil, tableObj, uint16(bytesNeeded), tableName, encodedBytes, rowIds)
 	}
 
 	logger.Log.Info("handleLikeInsert(update) Completed")

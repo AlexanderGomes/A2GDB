@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"io"
+	"log"
 	"math/big"
 	"os"
 )
@@ -33,7 +34,7 @@ type PageHeader struct {
 
 type PageV2 struct {
 	Header       PageHeader
-	TABLE        string
+	TABLE        TableName
 	PointerArray []TupleLocation
 	Data         []byte
 	IsPinned     bool
@@ -224,4 +225,79 @@ func RearrangePAGE(page *PageV2, tableObj *TableObj) (*PageV2, error) {
 	pageObj.PointerArray = newPage.PointerArray
 
 	return newPage, nil
+}
+
+func UpdatePageInfo(rowsID []uint64, pageFound *PageV2, tableObj *TableObj) error {
+	pageID := PageID(pageFound.Header.ID)
+	dirPage := tableObj.DirectoryPage
+	pageInfObj, found := dirPage.Value[pageID]
+
+	if !found {
+		offset, err := WritePageEOFV2(pageFound, tableObj.DataFile)
+		if err != nil {
+			return fmt.Errorf("write page EOF error: %w", err)
+		}
+
+		pageInfObj = &PageInfo{
+			Offset:       offset,
+			PointerArray: pageFound.PointerArray,
+		}
+
+		dirPage.Value[pageID] = pageInfObj
+	} else {
+		pageInfObj.PointerArray = append(pageInfObj.PointerArray, pageFound.PointerArray...)
+		if err := WritePageBackV2(pageFound, pageInfObj.Offset, tableObj.DataFile); err != nil {
+			return fmt.Errorf("write page back error: %w", err)
+		}
+	}
+
+	if err := UpdateDirectoryPageDisk(dirPage, tableObj.DirFile); err != nil {
+		return fmt.Errorf("update directory page error: %w", err)
+	}
+
+	if err := UpdateBp(rowsID, *tableObj, *pageInfObj); err != nil {
+		return fmt.Errorf("update B+ tree error: %w", err)
+	}
+
+	return nil
+}
+
+func GetAllRows(tableName string, manager *DiskManagerV2) []*RowV2 {
+	var rows []*RowV2
+
+	tableObj, err := GetTableObj(tableName, manager)
+	if err != nil {
+		log.Fatalf("GetTable failed for: %s, error: %s", tableName, err)
+	}
+
+	directoryMap := tableObj.DirectoryPage.Value
+	pages, err := GetTablePages(tableObj.DataFile, nil)
+	if err != nil {
+		log.Fatalf("GetTablePages failed for: %s, error: %s", tableName, err)
+	}
+
+	for _, page := range pages {
+		pageId := PageID(page.Header.ID)
+		pageObj, ok := directoryMap[pageId]
+
+		if !ok {
+			log.Fatalf("PageObj not found for page: %v", page.Header.ID)
+		}
+
+		for _, location := range pageObj.PointerArray {
+			if location.Free {
+				continue
+			}
+
+			rowBytes := page.Data[location.Offset : location.Offset+location.Length]
+			row, err := DecodeRow(rowBytes)
+			if err != nil {
+				log.Fatalf("DecodeRow error: %s", err)
+			}
+
+			rows = append(rows, row)
+		}
+	}
+
+	return rows
 }

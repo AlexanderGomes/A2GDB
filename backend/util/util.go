@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net"
 )
 
@@ -30,7 +29,6 @@ func SendSql(sql string) (interface{}, error) {
 		n, err := conn.Read(buffer)
 		if err != nil {
 			if err == io.EOF {
-				log.Println("Full Message Read")
 				break
 			}
 			return nil, fmt.Errorf("error reading response: %s", err)
