@@ -59,7 +59,7 @@ type PageInfo struct {
 	ExactFreeMem uint16
 }
 
-func CreatePageV2() *PageV2 {
+func CreatePageV2(tableName string) *PageV2 {
 	return &PageV2{
 		Header: PageHeader{
 			ID:        GenerateRandomID(),
@@ -67,6 +67,7 @@ func CreatePageV2() *PageV2 {
 			UpperPtr:  uint16(PageDataSize),
 			NumTuples: 0,
 		},
+		TABLE:        TableName(tableName),
 		PointerArray: []TupleLocation{},
 		Data:         make([]byte, PageDataSize),
 	}
@@ -203,7 +204,7 @@ func GenerateRandomIDRow() int64 {
 }
 
 func RearrangePAGE(page *PageV2, tableObj *TableObj) (*PageV2, error) {
-	newPage := CreatePageV2()
+	newPage := CreatePageV2("")
 	newPage.Header.ID = page.Header.ID
 
 	pageObj, ok := tableObj.DirectoryPage.Value[PageID(page.Header.ID)]
@@ -251,6 +252,8 @@ func UpdatePageInfo(rowsID []uint64, pageFound *PageV2, tableObj *TableObj) erro
 		}
 	}
 
+	pageFound.PointerArray = []TupleLocation{} // in memory should be clear
+
 	if err := UpdateDirectoryPageDisk(dirPage, tableObj.DirFile); err != nil {
 		return fmt.Errorf("update directory page error: %w", err)
 	}
@@ -271,7 +274,7 @@ func GetAllRows(tableName string, manager *DiskManagerV2) []*RowV2 {
 	}
 
 	directoryMap := tableObj.DirectoryPage.Value
-	pages, err := GetTablePages(tableObj.DataFile, nil)
+	pages, err := GetTablePagesFromDisk(tableObj.DataFile, nil, nil)
 	if err != nil {
 		log.Fatalf("GetTablePages failed for: %s, error: %s", tableName, err)
 	}

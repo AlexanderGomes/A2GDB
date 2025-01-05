@@ -101,7 +101,7 @@ func checkBp(t *testing.T) {
 		t.Fatalf("couldn't get table object for table %s, error: %s", tableName, err)
 	}
 
-	tablePages, err := storage.GetTablePages(tableObj.DataFile, nil)
+	tablePages, err := storage.GetTablePagesFromDisk(tableObj.DataFile, nil, nil)
 	if err != nil {
 		t.Fatalf("couldn't get table pages for table %s, error: %s", tableName, err)
 	}
@@ -140,7 +140,7 @@ func TestDelete(t *testing.T) {
 		t.Fatalf("couldn't get table object for table %s, error: %s", tableName, err)
 	}
 
-	tablePages, err := storage.GetTablePages(tableObj.DataFile, nil)
+	tablePages, err := storage.GetTablePagesFromDisk(tableObj.DataFile, nil, nil)
 	if err != nil {
 		t.Fatalf("couldn't get table pages for table %s, error: %s", tableName, err)
 	}
@@ -410,11 +410,12 @@ func checkTupleNumber(t *testing.T, expectedNumber int) {
 		t.Fatalf("couldn't get table object for table %s, error: %s", tableName, err)
 	}
 
-	tablePages, err := storage.GetTablePages(tableObj.DataFile, nil)
+	tablePages, err := storage.GetTablePagesFromDisk(tableObj.DataFile, nil, nil)
 	if err != nil {
 		t.Fatalf("couldn't get table pages for table %s, error: %s", tableName, err)
 	}
 
+	var innerCount int
 	for _, page := range tablePages {
 		pageObj := tableObj.DirectoryPage.Value[storage.PageID(page.Header.ID)]
 		for i := range pageObj.PointerArray {
@@ -426,6 +427,7 @@ func checkTupleNumber(t *testing.T, expectedNumber int) {
 				t.Fatalf("couldn't decode row, location: %+v, error: %s", location, err)
 			}
 
+			innerCount++
 			if row.Values[checkKey] == checkVal {
 				count++
 			}
@@ -650,7 +652,7 @@ func getRows(t *testing.T) []*storage.RowV2 {
 		t.Fatalf("couldn't get table object for table %s, error: %s", tableName, err)
 	}
 
-	tablePages, err := storage.GetTablePages(tableObj.DataFile, nil)
+	tablePages, err := storage.GetTablePagesFromDisk(tableObj.DataFile, nil, nil)
 	if err != nil {
 		t.Fatalf("couldn't get table pages for table %s, error: %s", tableName, err)
 	}

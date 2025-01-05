@@ -45,7 +45,6 @@ func UpdateBp(rows []uint64, tableObj TableObj, pageInfObj PageInfo) error {
 			}
 
 			logger.Log.WithField("item", item).Info("Deleting From Bptree")
-
 			tableObj.BpTree.Delete(item)
 		}
 
@@ -57,7 +56,7 @@ func UpdateBp(rows []uint64, tableObj TableObj, pageInfObj PageInfo) error {
 				Value: pageInfObj.Offset,
 			}
 
-			logger.Log.WithField("item", item).Info("Deleting From Bptree")
+			logger.Log.WithField("item", item).Info("Inserting Into Bptree")
 			items = append(items, item)
 			tableObj.BpTree.ReplaceOrInsert(item)
 		}

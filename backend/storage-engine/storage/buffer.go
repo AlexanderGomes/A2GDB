@@ -7,8 +7,6 @@ import (
 )
 
 const (
-	FetchPage   = "FETCH PAGE"
-	InsertData  = "INSERT DATA"
 	MaxPoolSize = 4000
 )
 
@@ -16,12 +14,38 @@ type FrameID int
 type BufferPoolManager struct {
 	Pages       [MaxPoolSize]*PageV2
 	freeList    []FrameID
-	pageTable   map[PageID]FrameID
+	PageTable   map[PageID]FrameID
 	Replacer    *LRUKReplacer
 	DiskManager *DiskManagerV2
 }
 
-func (bpm *BufferPoolManager) InsertPage(page *PageV2) error {
+func (bpm *BufferPoolManager) FullBufferScan() []*PageV2 {
+	var pages []*PageV2
+	for _, page := range bpm.Pages {
+		if page == nil {
+			continue
+		}
+
+		err := bpm.Pin(PageID(page.Header.ID))
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		pages = append(pages, page)
+	}
+
+	return pages
+}
+
+func (bpm *BufferPoolManager) ReplacePage(page *PageV2) {
+	if frameID, ok := bpm.PageTable[PageID(page.Header.ID)]; ok {
+		bpm.Pages[frameID] = page
+	}
+}
+
+func (bpm *BufferPoolManager) InsertPage(page *PageV2) {
+	logger.Log.Info("Into BPM, pageID: ", page.Header.ID)
+
 	if len(bpm.freeList) == 0 {
 		bpm.Evict()
 	}
@@ -30,13 +54,7 @@ func (bpm *BufferPoolManager) InsertPage(page *PageV2) error {
 	bpm.freeList = bpm.freeList[1:]
 
 	bpm.Pages[frameID] = page
-	bpm.pageTable[PageID(page.Header.ID)] = frameID
-
-	return nil
-}
-
-func (bpm *BufferPoolManager) FlushAll() {
-
+	bpm.PageTable[PageID(page.Header.ID)] = frameID
 }
 
 func (bpm *BufferPoolManager) Evict() error {
@@ -61,8 +79,8 @@ func (bpm *BufferPoolManager) Evict() error {
 }
 
 func (bpm *BufferPoolManager) DeletePage(pageID PageID) (FrameID, error) {
-	if frameID, ok := bpm.pageTable[pageID]; ok {
-		delete(bpm.pageTable, pageID)
+	if frameID, ok := bpm.PageTable[pageID]; ok {
+		delete(bpm.PageTable, pageID)
 		bpm.Pages[frameID] = nil
 		bpm.freeList = append(bpm.freeList, frameID)
 		return frameID, nil
@@ -71,18 +89,28 @@ func (bpm *BufferPoolManager) DeletePage(pageID PageID) (FrameID, error) {
 	return 0, errors.New("page not found")
 }
 
-func (bpm *BufferPoolManager) FetchPage(pageID PageID) (*PageV2, error) {
-	var pagePtr *PageV2
+func (bpm *BufferPoolManager) FetchPage(pageID PageID, tableObj *TableObj) (*PageV2, error) {
+	logger.Log.Info("Fetching from BPM, pageId: ", pageID)
 
-	if frameID, ok := bpm.pageTable[pageID]; ok {
+	var pagePtr *PageV2
+	if frameID, ok := bpm.PageTable[pageID]; ok {
 		pagePtr = bpm.Pages[frameID]
 		if pagePtr.IsPinned {
 			return nil, errors.New("page is pinned, cannot access")
 		}
 	} else {
+		pageInfo := tableObj.DirectoryPage.Value[pageID]
+		pageBytes, err := ReadPageAtOffset(tableObj.DataFile, pageInfo.Offset)
+		if err != nil {
+			log.Panicf("reading page at offset %s failed", err)
+		}
 
-		// TODO # what if page not in memory
+		pagePtr, err = DecodePageV2(pageBytes)
+		if err != nil {
+			log.Panicf("decoding page from offset %s failed", err)
+		}
 
+		bpm.InsertPage(pagePtr)
 	}
 
 	bpm.Pin(PageID(pagePtr.Header.ID))
@@ -90,10 +118,11 @@ func (bpm *BufferPoolManager) FetchPage(pageID PageID) (*PageV2, error) {
 }
 
 func (bpm *BufferPoolManager) Unpin(pageID PageID, isDirty bool) error {
-	if FrameID, ok := bpm.pageTable[pageID]; ok {
+	if FrameID, ok := bpm.PageTable[pageID]; ok {
 		page := bpm.Pages[FrameID]
 		page.IsDirty = isDirty
 		page.IsPinned = false
+		logger.Log.Info("Unpinned pageId: ", pageID)
 		return nil
 	}
 
@@ -101,11 +130,12 @@ func (bpm *BufferPoolManager) Unpin(pageID PageID, isDirty bool) error {
 }
 
 func (bpm *BufferPoolManager) Pin(pageID PageID) error {
-	if FrameID, ok := bpm.pageTable[pageID]; ok {
+	if FrameID, ok := bpm.PageTable[pageID]; ok {
 		page := bpm.Pages[FrameID]
 		page.IsPinned = true
 		bpm.Replacer.RecordAccess(FrameID)
 
+		logger.Log.Info("Pinned PageId: ", pageID)
 		return nil
 	}
 

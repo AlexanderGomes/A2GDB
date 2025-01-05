@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"a2gdb/logger"
 	"fmt"
 	"io"
 	"log"
@@ -166,7 +167,9 @@ func (dm *DiskManagerV2) CreateTable(name TableName, info TableInfo) error {
 	return nil
 }
 
-func FullTableScan(file *os.File) ([]*PageV2, error) {
+// space for optimization // could decode just the header
+func FullTableScan(file *os.File, pageTable map[PageID]FrameID) ([]*PageV2, error) {
+	logger.Log.Info("FullTableScanNormalFiles")
 	var offset int64
 	pageSlice := []*PageV2{}
 
@@ -183,6 +186,13 @@ func FullTableScan(file *os.File) ([]*PageV2, error) {
 			return []*PageV2{}, fmt.Errorf("FullTableScan: %w", err)
 		}
 
+		_, ok := pageTable[PageID(page.Header.ID)]
+		if ok {
+			logger.Log.Info("Skipped Page: ", page.Header.ID)
+			offset += PageSizeV2
+			continue
+		}
+
 		pageSlice = append(pageSlice, page)
 		offset += PageSizeV2
 	}
@@ -197,8 +207,8 @@ type Chunk struct {
 	Size      int64
 }
 
-func FullTableScanBigFiles(file *os.File) ([]*PageV2, error) {
-	log.Println("FullTableScanBigFiles")
+func FullTableScanBigFiles(file *os.File, pageTable map[PageID]FrameID) ([]*PageV2, error) {
+	logger.Log.Info("FullTableScanBigFiles")
 
 	chunks := FileCreateChunks(file, PERCENTAGE)
 	byteChan := make(chan []byte, BUFFER_SIZE)
@@ -234,7 +244,11 @@ func FullTableScanBigFiles(file *os.File) ([]*PageV2, error) {
 
 	var pages []*PageV2
 	for page := range pageChan {
-		pages = append(pages, page)
+		_, ok := pageTable[PageID(page.Header.ID)]
+		if !ok {
+			pages = append(pages, page)
+		}
+		logger.Log.Info("Skipped Page: ", page.Header.ID)
 	}
 
 	return pages, nil
@@ -322,15 +336,15 @@ func DecoderWorker(byteChan chan []byte, pageChan chan *PageV2) {
 	}
 }
 
-func GetTablePages(dataFile *os.File, offset *Offset) ([]*PageV2, error) {
+func GetTablePagesFromDisk(dataFile *os.File, offset *Offset, pageMemTable map[PageID]FrameID) ([]*PageV2, error) {
 	stat, _ := dataFile.Stat()
 	size := stat.Size()
 
 	if offset == nil {
 		if size >= MAX_FILE_SIZE {
-			return FullTableScanBigFiles(dataFile)
+			return FullTableScanBigFiles(dataFile, pageMemTable)
 		}
-		return FullTableScan(dataFile)
+		return FullTableScan(dataFile, pageMemTable)
 	}
 
 	bytes, err := ReadPageAtOffset(dataFile, *offset)

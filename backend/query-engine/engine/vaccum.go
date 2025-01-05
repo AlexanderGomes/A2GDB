@@ -24,7 +24,7 @@ const (
 	NEXT_LEVEL = 400
 )
 
-func cleanOrgnize(newSpace []*storage.FreeSpace, rowsId []uint64, tableObj *storage.TableObj) {
+func cleanOrgnize(newSpace []*storage.FreeSpace, rowsId []uint64, tableObj *storage.TableObj, bpm *storage.BufferPoolManager) {
 	dirPage := tableObj.DirectoryPage.Value
 	logger.Log.WithField("tableObj", tableObj.Memory).Info("Before memory separation")
 
@@ -39,7 +39,7 @@ func cleanOrgnize(newSpace []*storage.FreeSpace, rowsId []uint64, tableObj *stor
 			log.Fatalf("failed updaing page, error: %s", err)
 		}
 
-		totalSpace := newPage.Header.UpperPtr - newPage.Header.LowerPtr
+		totalSpace := newPage.Header.UpperPtr - newPage.Header.LowerPtr // just rearranged the page, so this makes sense
 		logger.Log.WithFields(logrus.Fields{"totalSpace": totalSpace, "LowerPtr": newPage.Header.LowerPtr, "UpperPtr": newPage.Header.UpperPtr}).Info("Cleaned Page")
 		space.TempPagePtr = nil
 		memTag := getTag(space.FreeMemory)
@@ -51,13 +51,18 @@ func cleanOrgnize(newSpace []*storage.FreeSpace, rowsId []uint64, tableObj *stor
 				return space.PageID != item.PageID
 			})
 		}
-
 		if memTag == 0 {
 			memTag = EMPTY_PAGE
 		}
 
 		pageInfo.Level = memTag
 		tableObj.Memory[memTag] = append(tableObj.Memory[memTag], space)
+
+		bpm.ReplacePage(newPage) // new page was rearranged, need to update buffer pool
+		notInmemory := bpm.Unpin(storage.PageID(newPage.Header.ID), false)
+		if notInmemory != nil {
+			bpm.InsertPage(newPage)
+		}
 	}
 
 	logger.Log.WithField("tableObj", tableObj.Memory).Info("After memory separation")
@@ -143,40 +148,36 @@ func searchPage(tableObj *storage.TableObj, memoryNedded, level uint16) ([]*stor
 	return memSlice, spaceInfo, memTag, deleteIndex
 }
 
-func getAvailablePage(tableObj *storage.TableObj, memoryNedded uint16) *storage.PageV2 {
+func getAvailablePage(bufferM *storage.BufferPoolManager, tableObj *storage.TableObj, memoryNedded uint16, tableName string) *storage.PageV2 {
 	var memSlice []*storage.FreeSpace
 	var memTag uint16
-	var availablePage *storage.PageV2
 	var spaceInfo *storage.FreeSpace
 	var deleteIndex int
 
 	memSlice, spaceInfo, memTag, deleteIndex = searchPage(tableObj, memoryNedded, memoryNedded)
 	if memTag == 0 && spaceInfo == nil {
 		logger.Log.Info("Created new page")
-		return storage.CreatePageV2()
+
+		page := storage.CreatePageV2(tableName)
+
+		bufferM.InsertPage(page)
+		bufferM.Pin(storage.PageID(page.Header.ID))
+
+		return page
 	}
 
+	// deleting page found
 	memSlice = lo.Filter(memSlice, func(item *storage.FreeSpace, i int) bool {
 		return i != deleteIndex
 	})
-
 	tableObj.Memory[memTag] = memSlice
 
-	//##TODO POINT check if its on BP otherwise go to disk
-	pageInfo := tableObj.DirectoryPage.Value[spaceInfo.PageID]
-	pageBytes, err := storage.ReadPageAtOffset(tableObj.DataFile, pageInfo.Offset)
+	page, err := bufferM.FetchPage(spaceInfo.PageID, tableObj)
 	if err != nil {
-		log.Panicf("reading page at offset %s failed", err)
+		log.Fatal(err)
 	}
 
-	availablePage, err = storage.DecodePageV2(pageBytes)
-	if err != nil {
-		log.Panicf("decoding page from offset %s failed", err)
-	}
-
-	logger.Log.WithFields(logrus.Fields{"pageInfObj": pageInfo, "availablePage": availablePage.Header, "memoryLevel": memTag}).Info("Found Page")
-
-	return availablePage
+	return page
 }
 
 func getTag(pageMem uint16) uint16 {

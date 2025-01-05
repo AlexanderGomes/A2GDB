@@ -14,7 +14,7 @@ func main() {
 		log.Fatal("DB init failed: ", err)
 	}
 
-	selects(engine)
+	insertMany(engine)
 }
 
 func selects(engine *engine.QueryEngine) {
@@ -28,7 +28,7 @@ func selects(engine *engine.QueryEngine) {
 }
 
 func insertMany(engine *engine.QueryEngine) {
-	for range 1000 {
+	for range 100 {
 		sql1 := "INSERT INTO `User` (Username, Age, City) VALUES ('JaneSmith', 25, 'Los Angeles')\n"
 
 		encodedPlan1, err := util.SendSql(sql1)

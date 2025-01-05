@@ -47,9 +47,20 @@ func prepareRows(plan map[string]interface{}, selectedCols []interface{}, tableN
 }
 
 func findAndUpdate(bufferM *storage.BufferPoolManager, tableObj *storage.TableObj, bytesNeeded uint16, tableName string, encodedRows [][]byte, rowsID []uint64) error {
-	page := getAvailablePage(tableObj, bytesNeeded) // new page could've been created
+	page := getAvailablePage(bufferM, tableObj, bytesNeeded, tableName) // new page could've been created
+
+	newSpace := storage.FreeSpace{
+		PageID:     storage.PageID(page.Header.ID),
+		FreeMemory: page.Header.UpperPtr - page.Header.LowerPtr, //assuming new page
+	}
+
+	pageInfoObj, ok := tableObj.DirectoryPage.Value[storage.PageID(page.Header.ID)]
+	if ok {
+		newSpace.FreeMemory = pageInfoObj.ExactFreeMem
+	}
 
 	for _, encodedRow := range encodedRows {
+		newSpace.FreeMemory -= uint16(len(encodedRow))
 		err := page.AddTuple(encodedRow)
 		if err != nil {
 			return fmt.Errorf("failed adding row %s, for table: %s, rrror: %s", encodedRow, tableName, err)
@@ -62,11 +73,14 @@ func findAndUpdate(bufferM *storage.BufferPoolManager, tableObj *storage.TableOb
 		return fmt.Errorf("tnternal update failed: %v", page)
 	}
 
-	availableSpace := page.Header.UpperPtr - page.Header.LowerPtr
-	newSpace := storage.FreeSpace{PageID: storage.PageID(page.Header.ID), FreeMemory: availableSpace}
-
 	logger.Log.WithFields(logrus.Fields{"newSpace": newSpace}).Info("memSeparationSingle input")
 	memSeparationSingle(&newSpace, tableObj) // safe to do memory separation
+
+	// not dirty, updated disk image before releasing
+	err = bufferM.Unpin(storage.PageID(page.Header.ID), false)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	return nil
 }
@@ -191,7 +205,8 @@ func processPagesForUpdate(pages []*storage.PageV2, updateKey, updateVal, filter
 				}
 
 				location.Free = true
-				freeSpacePage.FreeMemory = location.Length
+				freeSpacePage.FreeMemory += location.Length
+
 				nonAddedRow := NonAddedRow{
 					Bytes: rowBytes,
 					Id:    row.ID,
@@ -212,7 +227,7 @@ func processPagesForUpdate(pages []*storage.PageV2, updateKey, updateVal, filter
 	return freeSpaceMapping, nonAddedRows
 }
 
-func handleLikeInsert(rows []*NonAddedRow, tableObj *storage.TableObj, tableName string) {
+func handleLikeInsert(rows []*NonAddedRow, tableObj *storage.TableObj, tableName string, bpm *storage.BufferPoolManager) {
 	logger.Log.Info("handleLikeInsert(update) Started")
 
 	batchSize := 5
@@ -236,7 +251,7 @@ func handleLikeInsert(rows []*NonAddedRow, tableObj *storage.TableObj, tableName
 			rowIds = append(rowIds, row.Id)
 		}
 
-		findAndUpdate(nil, tableObj, uint16(bytesNeeded), tableName, encodedBytes, rowIds)
+		findAndUpdate(bpm, tableObj, uint16(bytesNeeded), tableName, encodedBytes, rowIds)
 	}
 
 	logger.Log.Info("handleLikeInsert(update) Completed")
