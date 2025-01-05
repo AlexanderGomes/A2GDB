@@ -48,6 +48,7 @@ func prepareRows(plan map[string]interface{}, selectedCols []interface{}, tableN
 
 func findAndUpdate(bufferM *storage.BufferPoolManager, tableObj *storage.TableObj, bytesNeeded uint16, tableName string, encodedRows [][]byte, rowsID []uint64) error {
 	page := getAvailablePage(bufferM, tableObj, bytesNeeded, tableName) // new page could've been created
+	page.TABLE = storage.TableName(tableObj.TableName)
 
 	newSpace := storage.FreeSpace{
 		PageID:     storage.PageID(page.Header.ID),

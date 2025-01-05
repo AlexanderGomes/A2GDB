@@ -28,6 +28,7 @@ type TableObj struct {
 	BpFile        *os.File
 	DataFile      *os.File
 	MemFile       *os.File
+	TableName     string
 }
 
 type FreeSpace struct {
@@ -50,6 +51,7 @@ func (dm *DiskManagerV2) InMemoryTableSetUp(tableName string) (*TableObj, error)
 		DirFile:       dirFilePtr,
 		BpFile:        bptreeFilePtr,
 		MemFile:       memFilePtr,
+		TableName:     tableName,
 	}
 
 	dm.TableObjs[TableName(tableName)] = tableObj

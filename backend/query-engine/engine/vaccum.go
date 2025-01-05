@@ -29,7 +29,7 @@ func cleanOrgnize(newSpace []*storage.FreeSpace, rowsId []uint64, tableObj *stor
 	logger.Log.WithField("tableObj", tableObj.Memory).Info("Before memory separation")
 
 	for _, space := range newSpace {
-		newPage, err := storage.RearrangePAGE(space.TempPagePtr, tableObj)
+		newPage, err := storage.RearrangePAGE(space.TempPagePtr, tableObj, tableObj.TableName)
 		if err != nil {
 			log.Fatalf("failed rearrage page %+v, error: %s", space, err)
 		}
@@ -59,10 +59,7 @@ func cleanOrgnize(newSpace []*storage.FreeSpace, rowsId []uint64, tableObj *stor
 		tableObj.Memory[memTag] = append(tableObj.Memory[memTag], space)
 
 		bpm.ReplacePage(newPage) // new page was rearranged, need to update buffer pool
-		notInmemory := bpm.Unpin(storage.PageID(newPage.Header.ID), false)
-		if notInmemory != nil {
-			bpm.InsertPage(newPage)
-		}
+		bpm.Unpin(storage.PageID(newPage.Header.ID), false)
 	}
 
 	logger.Log.WithField("tableObj", tableObj.Memory).Info("After memory separation")

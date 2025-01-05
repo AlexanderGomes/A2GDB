@@ -203,8 +203,8 @@ func GenerateRandomIDRow() int64 {
 	return randomNum.Int64()
 }
 
-func RearrangePAGE(page *PageV2, tableObj *TableObj) (*PageV2, error) {
-	newPage := CreatePageV2("")
+func RearrangePAGE(page *PageV2, tableObj *TableObj, tableName string) (*PageV2, error) {
+	newPage := CreatePageV2(tableName)
 	newPage.Header.ID = page.Header.ID
 
 	pageObj, ok := tableObj.DirectoryPage.Value[PageID(page.Header.ID)]

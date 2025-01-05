@@ -7,13 +7,13 @@ import (
 )
 
 const (
-	MaxPoolSize = 4000
+	MaxPoolSize = 10
 )
 
 type FrameID int
 type BufferPoolManager struct {
 	Pages       [MaxPoolSize]*PageV2
-	freeList    []FrameID
+	freeList    *[]FrameID
 	PageTable   map[PageID]FrameID
 	Replacer    *LRUKReplacer
 	DiskManager *DiskManagerV2
@@ -46,12 +46,14 @@ func (bpm *BufferPoolManager) ReplacePage(page *PageV2) {
 func (bpm *BufferPoolManager) InsertPage(page *PageV2) {
 	logger.Log.Info("Into BPM, pageID: ", page.Header.ID)
 
-	if len(bpm.freeList) == 0 {
+	if len(*bpm.freeList) == 0 {
 		bpm.Evict()
 	}
 
-	frameID := bpm.freeList[0]
-	bpm.freeList = bpm.freeList[1:]
+	logger.Log.Info("free list size: ", len(*bpm.freeList))
+
+	frameID := (*bpm.freeList)[0]
+	*bpm.freeList = (*bpm.freeList)[1:]
 
 	bpm.Pages[frameID] = page
 	bpm.PageTable[PageID(page.Header.ID)] = frameID
@@ -72,33 +74,38 @@ func (bpm *BufferPoolManager) Evict() error {
 		log.Fatal(err)
 	}
 
-	bpm.DeletePage(PageID(page.Header.ID))
+	err = bpm.DeletePage(PageID(page.Header.ID))
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	logger.Log.WithField("pageId", page.Header.ID).Info("PAGE EVICTED")
 	return nil
 }
 
-func (bpm *BufferPoolManager) DeletePage(pageID PageID) (FrameID, error) {
+func (bpm *BufferPoolManager) DeletePage(pageID PageID) error {
 	if frameID, ok := bpm.PageTable[pageID]; ok {
 		delete(bpm.PageTable, pageID)
 		bpm.Pages[frameID] = nil
-		bpm.freeList = append(bpm.freeList, frameID)
-		return frameID, nil
+		*bpm.freeList = append(*bpm.freeList, frameID)
+		logger.Log.WithField("freeList", bpm.freeList).Info("Frame Re-Added")
+		return nil
 	}
 
-	return 0, errors.New("page not found")
+	return errors.New("page not found")
 }
 
 func (bpm *BufferPoolManager) FetchPage(pageID PageID, tableObj *TableObj) (*PageV2, error) {
-	logger.Log.Info("Fetching from BPM, pageId: ", pageID)
 
 	var pagePtr *PageV2
 	if frameID, ok := bpm.PageTable[pageID]; ok {
+		logger.Log.Info("Fetching from BPM, pageId: ", pageID)
 		pagePtr = bpm.Pages[frameID]
 		if pagePtr.IsPinned {
 			return nil, errors.New("page is pinned, cannot access")
 		}
 	} else {
+		logger.Log.Info("Fetching from Disk, pageId: ", pageID)
 		pageInfo := tableObj.DirectoryPage.Value[pageID]
 		pageBytes, err := ReadPageAtOffset(tableObj.DataFile, pageInfo.Offset)
 		if err != nil {
@@ -157,5 +164,5 @@ func NewBufferPoolManager(k int, fileName string) (*BufferPoolManager, error) {
 		return nil, err
 	}
 
-	return &BufferPoolManager{pages, freeList, pageTable, replacer, diskManager}, nil
+	return &BufferPoolManager{pages, &freeList, pageTable, replacer, diskManager}, nil
 }
