@@ -16,8 +16,8 @@ import (
 
 var sharedDB *engine.QueryEngine
 
-const REMOVE_A2G = true
-const REMOVE_LOGS = true
+const REMOVE_A2G = false
+const REMOVE_LOGS = false
 
 func TestMain(m *testing.M) {
 	exitCode := m.Run()

@@ -10,7 +10,6 @@ type QueryEngine struct {
 	BufferPoolManager *storage.BufferPoolManager
 }
 
-// should return the result
 func (qe *QueryEngine) EngineEntry(queryPlan interface{}) ([]*storage.RowV2, map[string]int, *Result) {
 	var rows []*storage.RowV2
 	var groupByMap map[string]int
