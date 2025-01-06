@@ -11,7 +11,7 @@ type DiskManagerV2 struct {
 	DBdirectory string
 	PageCatalog *Catalog
 	FileCatalog *os.File
-	TableObjs   map[TableName]*TableObj
+	TableObjs   map[string]*TableObj
 }
 
 func NewDiskManagerV2(dbDirectory string) (*DiskManagerV2, error) {
@@ -53,7 +53,7 @@ func CreatDefaultManager(dbDirectory string) (DiskManagerV2, error) {
 		return DiskManagerV2{}, fmt.Errorf("CreatDefaultManager (create catalog file error): %w", err)
 	}
 
-	catalog := Catalog{Tables: make(map[TableName]*TableInfo)}
+	catalog := Catalog{Tables: make(map[string]*TableInfo)}
 	encodedCatalog, err := SerializeCatalog(&catalog)
 	if err != nil {
 		return DiskManagerV2{}, fmt.Errorf("CreatDefaultManager: %w", err)
@@ -68,7 +68,7 @@ func CreatDefaultManager(dbDirectory string) (DiskManagerV2, error) {
 		DBdirectory: dbDirectory,
 		PageCatalog: &catalog,
 		FileCatalog: catalogFilePtr,
-		TableObjs:   make(map[TableName]*TableObj),
+		TableObjs:   make(map[string]*TableObj),
 	}
 
 	return dm, nil
@@ -96,14 +96,14 @@ func ReadExistingManager(dbDirectory string) (DiskManagerV2, error) {
 		DBdirectory: dbDirectory,
 		PageCatalog: catalog,
 		FileCatalog: file,
-		TableObjs:   make(map[TableName]*TableObj),
+		TableObjs:   make(map[string]*TableObj),
 	}
 
 	return dm, nil
 }
 
 func (dm *DiskManagerV2) WriteToDisk(page *PageV2) error {
-	tableInfo := dm.TableObjs[TableName(page.TABLE)]
+	tableInfo := dm.TableObjs[page.TABLE]
 	pageObj, found := tableInfo.DirectoryPage.Value[PageID(page.Header.ID)]
 
 	if !found {
@@ -136,12 +136,12 @@ func (dm *DiskManagerV2) WriteToDisk(page *PageV2) error {
 func UpdateDirectoryPageDisk(page *DirectoryPageV2, dirFile *os.File) error {
 	pageBytes, err := EncodeDirectory(page)
 	if err != nil {
-		return fmt.Errorf("UpdateDirectoryPageDisk: %w", err)
+		return fmt.Errorf("EncodeDirectory failed: %w", err)
 	}
 
 	err = WriteNonPageFile(dirFile, pageBytes)
 	if err != nil {
-		return fmt.Errorf("UpdateDirectoryPageDisk (Writing to Dir File): %w", err)
+		return fmt.Errorf("WriteNonPageFile: %w", err)
 	}
 
 	return nil

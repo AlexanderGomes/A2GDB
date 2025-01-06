@@ -16,8 +16,8 @@ import (
 
 var sharedDB *engine.QueryEngine
 
-const REMOVE_A2G = false
-const REMOVE_LOGS = false
+const REMOVE_A2G = true
+const REMOVE_LOGS = true
 
 func TestMain(m *testing.M) {
 	exitCode := m.Run()
@@ -169,7 +169,10 @@ func TestDelete(t *testing.T) {
 }
 
 func TestCheckBpAfterDelete(t *testing.T) {
-	rows := storage.GetAllRows(tableName, sharedDB.BufferPoolManager.DiskManager)
+	rows, err := storage.GetAllRows(tableName, sharedDB.BufferPoolManager.DiskManager)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(rows) != 0 {
 		t.Fatal("not all rows were deleted data file")
 	}
@@ -242,7 +245,7 @@ func TestOrderBy(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		rows, _ := sharedDB.EngineEntry(encodedPlan1)
+		rows, _, _ := sharedDB.EngineEntry(encodedPlan1)
 		for _, row := range rows {
 			if len(row.Values) != expectedColumns.Size() {
 				t.Fatalf("incorrect number of columns returned")
@@ -294,7 +297,7 @@ func TestGroupBy(t *testing.T) {
 		}
 
 		expectedCity := "Los Angeles"
-		_, groupMap := sharedDB.EngineEntry(encodedPlan1)
+		_, groupMap, _ := sharedDB.EngineEntry(encodedPlan1)
 		for k, v := range groupMap {
 			if k != expectedCity {
 				t.Fatalf("expected city: %s, received city: %s", expectedCity, k)
@@ -459,7 +462,7 @@ func selectFilter(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rows, _ := sharedDB.EngineEntry(encodedPlan1)
+	rows, _, _ := sharedDB.EngineEntry(encodedPlan1)
 	if len(rows) != expectedStressNumber {
 		t.Fatalf("incorrect number of rows returned")
 	}
@@ -471,7 +474,7 @@ func selectFilter(t *testing.T) {
 
 		for key := range row.Values {
 			if !expectedColumns.Has(key) {
-				log.Fatal("incorrect columns present")
+				t.Fatal("incorrect columns present")
 			}
 		}
 	}
@@ -484,7 +487,7 @@ func selectStart(t *testing.T) *storage.RowV2 {
 		t.Fatal(err)
 	}
 
-	rows, _ := sharedDB.EngineEntry(encodedPlan1)
+	rows, _, _ := sharedDB.EngineEntry(encodedPlan1)
 	if len(rows) != expectedStressNumber {
 		t.Fatalf("incorrect number of rows returned")
 	}
@@ -510,7 +513,7 @@ func selectWhere(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		rows, _ := sharedDB.EngineEntry(encodedPlan1)
+		rows, _, _ := sharedDB.EngineEntry(encodedPlan1)
 		for _, row := range rows {
 			if len(row.Values) != expectedColumns.Size() {
 				t.Fatalf("incorrect number of columns returned")
@@ -557,7 +560,7 @@ func selectWhereAnd(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rows, _ := sharedDB.EngineEntry(encodedPlan1)
+	rows, _, _ := sharedDB.EngineEntry(encodedPlan1)
 
 	for _, row := range rows {
 		if len(row.Values) != expectedColumns.Size() {
@@ -590,7 +593,7 @@ func findByPrimary(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rows, _ := sharedDB.EngineEntry(encodedPlan1)
+	rows, _, _ := sharedDB.EngineEntry(encodedPlan1)
 	user := rows[0]
 	if len(rows) != 1 {
 		t.Fatalf("Returned %d users instead of one", len(rows))

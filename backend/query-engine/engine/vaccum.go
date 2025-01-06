@@ -3,7 +3,7 @@ package engine
 import (
 	"a2gdb/logger"
 	"a2gdb/storage-engine/storage"
-	"log"
+	"fmt"
 
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -24,19 +24,21 @@ const (
 	NEXT_LEVEL = 400
 )
 
-func cleanOrgnize(newSpace []*storage.FreeSpace, rowsId []uint64, tableObj *storage.TableObj, bpm *storage.BufferPoolManager) {
+func cleanOrgnize(newSpace []*storage.FreeSpace, rowsId []uint64, tableObj *storage.TableObj, bpm *storage.BufferPoolManager) error {
 	dirPage := tableObj.DirectoryPage.Value
+
+	logger.Log.Info("cleanOrgnize (start)")
 	logger.Log.WithField("tableObj", tableObj.Memory).Info("Before memory separation")
 
 	for _, space := range newSpace {
 		newPage, err := storage.RearrangePAGE(space.TempPagePtr, tableObj, tableObj.TableName)
 		if err != nil {
-			log.Fatalf("failed rearrage page %+v, error: %s", space, err)
+			return fmt.Errorf("RearrangePAGE failed: %w", err)
 		}
 
 		err = storage.UpdatePageInfo(rowsId, newPage, tableObj)
 		if err != nil {
-			log.Fatalf("failed updaing page, error: %s", err)
+			return fmt.Errorf("updatePageInfo failed: %w", err)
 		}
 
 		totalSpace := newPage.Header.UpperPtr - newPage.Header.LowerPtr // just rearranged the page, so this makes sense
@@ -58,16 +60,30 @@ func cleanOrgnize(newSpace []*storage.FreeSpace, rowsId []uint64, tableObj *stor
 		pageInfo.Level = memTag
 		tableObj.Memory[memTag] = append(tableObj.Memory[memTag], space)
 
-		bpm.ReplacePage(newPage) // new page was rearranged, need to update buffer pool
-		bpm.Unpin(storage.PageID(newPage.Header.ID), false)
+		err = bpm.ReplacePage(newPage) // new page was rearranged, need to update buffer pool
+		if err != nil {
+			return fmt.Errorf("ReplacePage failed: %w", err)
+		}
+
+		err = bpm.Unpin(storage.PageID(newPage.Header.ID), false)
+		if err != nil {
+			return fmt.Errorf("unpin failed: %w", err)
+		}
 	}
 
 	logger.Log.WithField("tableObj", tableObj.Memory).Info("After memory separation")
-	saveMemMapping(tableObj)
+	logger.Log.Info("cleanOrgnize (end)")
+
+	err := saveMemMapping(tableObj)
+	if err != nil {
+		return fmt.Errorf("saveMemMapping failed: %w", err)
+	}
+
+	return nil
 }
 
 // ###[x] last two fields of pageObj aren't being saved on the updatePageInfo function but it gets add and saved here.
-func memSeparationSingle(newSpace *storage.FreeSpace, tableObj *storage.TableObj) {
+func memSeparationSingle(newSpace *storage.FreeSpace, tableObj *storage.TableObj) error {
 	memTag := getTag(newSpace.FreeMemory)
 	dirPage := tableObj.DirectoryPage.Value
 	pageInfo := dirPage[newSpace.PageID]
@@ -80,28 +96,34 @@ func memSeparationSingle(newSpace *storage.FreeSpace, tableObj *storage.TableObj
 
 	pageInfo.Level = memTag
 	pageInfo.ExactFreeMem = newSpace.FreeMemory
-	saveMemMapping(tableObj)
-
-	logger.Log.WithFields(logrus.Fields{"memTag": memTag, "updated_pageObj": pageInfo}).Info("memory separation done")
-
-	err := storage.UpdateDirectoryPageDisk(tableObj.DirectoryPage, tableObj.DirFile)
+	err := saveMemMapping(tableObj)
 	if err != nil {
-		log.Printf("failed saving directory page to disk while inserting")
+		return fmt.Errorf("saveMemMapping failed: %w", err)
+	}
+
+	logger.Log.WithFields(logrus.Fields{"MemTag": memTag, "ExactFreeMem": pageInfo.ExactFreeMem, "memLevel": pageInfo.Level, "offset": pageInfo.Offset}).Info("memory separation single done")
+
+	err = storage.UpdateDirectoryPageDisk(tableObj.DirectoryPage, tableObj.DirFile)
+	if err != nil {
+		return fmt.Errorf("UpdateDirectoryPageDisk failed: %w", err)
 	}
 
 	logger.Log.Info("Insertion Completed")
+	return nil
 }
 
-func saveMemMapping(tableObj *storage.TableObj) {
+func saveMemMapping(tableObj *storage.TableObj) error {
 	bytes, err := storage.EncodeMemObj(tableObj.Memory)
 	if err != nil {
-		log.Fatalf("encoding mem obj failed: %s", err)
+		return fmt.Errorf("EncodeMemObj failed: %w", err)
 	}
 
 	err = storage.WriteNonPageFile(tableObj.MemFile, bytes)
 	if err != nil {
-		log.Fatalf("writing mem obj failed: %s", err)
+		return fmt.Errorf("WriteNonPageFile failed: %w", err)
 	}
+
+	return nil
 }
 
 func searchPage(tableObj *storage.TableObj, memoryNedded, level uint16) ([]*storage.FreeSpace, *storage.FreeSpace, uint16, int) {
@@ -145,7 +167,7 @@ func searchPage(tableObj *storage.TableObj, memoryNedded, level uint16) ([]*stor
 	return memSlice, spaceInfo, memTag, deleteIndex
 }
 
-func getAvailablePage(bufferM *storage.BufferPoolManager, tableObj *storage.TableObj, memoryNedded uint16, tableName string) *storage.PageV2 {
+func getAvailablePage(bufferM *storage.BufferPoolManager, tableObj *storage.TableObj, memoryNedded uint16, tableName string) (*storage.PageV2, error) {
 	var memSlice []*storage.FreeSpace
 	var memTag uint16
 	var spaceInfo *storage.FreeSpace
@@ -157,10 +179,17 @@ func getAvailablePage(bufferM *storage.BufferPoolManager, tableObj *storage.Tabl
 
 		page := storage.CreatePageV2(tableName)
 
-		bufferM.InsertPage(page)
-		bufferM.Pin(storage.PageID(page.Header.ID))
+		err := bufferM.InsertPage(page)
+		if err != nil {
+			return nil, fmt.Errorf("InsertPage failed: %w", err)
+		}
 
-		return page
+		err = bufferM.Pin(storage.PageID(page.Header.ID))
+		if err != nil {
+			return nil, fmt.Errorf("pin failed: %w", err)
+		}
+
+		return page, nil
 	}
 
 	// deleting page found
@@ -171,10 +200,10 @@ func getAvailablePage(bufferM *storage.BufferPoolManager, tableObj *storage.Tabl
 
 	page, err := bufferM.FetchPage(spaceInfo.PageID, tableObj)
 	if err != nil {
-		log.Fatal(err)
+		return nil, fmt.Errorf("FetchPage failed: %w", err)
 	}
 
-	return page
+	return page, nil
 }
 
 func getTag(pageMem uint16) uint16 {

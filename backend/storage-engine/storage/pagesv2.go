@@ -3,9 +3,9 @@ package storage
 import (
 	"bytes"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"io"
-	"log"
 	"math/big"
 	"os"
 )
@@ -34,7 +34,7 @@ type PageHeader struct {
 
 type PageV2 struct {
 	Header       PageHeader
-	TABLE        TableName
+	TABLE        string
 	PointerArray []TupleLocation
 	Data         []byte
 	IsPinned     bool
@@ -67,7 +67,7 @@ func CreatePageV2(tableName string) *PageV2 {
 			UpperPtr:  uint16(PageDataSize),
 			NumTuples: 0,
 		},
-		TABLE:        TableName(tableName),
+		TABLE:        tableName,
 		PointerArray: []TupleLocation{},
 		Data:         make([]byte, PageDataSize),
 	}
@@ -99,12 +99,12 @@ func (p *PageV2) AddTuple(data []byte) error {
 func WritePageBackV2(page *PageV2, offset Offset, tableDataFile *os.File) error {
 	pageBytes, err := EncodePageV2(page)
 	if err != nil {
-		return fmt.Errorf("WritePageBack: %w", err)
+		return fmt.Errorf("EncodePageV2 failed: %w", err)
 	}
 
 	_, err = tableDataFile.WriteAt(pageBytes, int64(offset))
 	if err != nil {
-		return fmt.Errorf("WritePageBack (failed writing page to disk): %w", err)
+		return fmt.Errorf("dataFile.WriteAt failed: %w", err)
 	}
 
 	return nil
@@ -113,18 +113,18 @@ func WritePageBackV2(page *PageV2, offset Offset, tableDataFile *os.File) error 
 func WritePageEOFV2(page *PageV2, dataFile *os.File) (Offset, error) {
 	pageBytes, err := EncodePageV2(page)
 	if err != nil {
-		return 0, fmt.Errorf("WritePageEOF: %w", err)
+		return 0, fmt.Errorf("EncodePageV2 failed: %w", err)
 	}
 
 	fileInfo, err := dataFile.Stat()
 	if err != nil {
-		return 0, fmt.Errorf("WritePageEOF (getting file info): %w", err)
+		return 0, fmt.Errorf("dataFile.Stat(failed): %w", err)
 	}
 
 	offset := fileInfo.Size()
 	_, err = dataFile.WriteAt(pageBytes, offset)
 	if err != nil {
-		return 0, fmt.Errorf("WritePageEOF (writing file to disk): %w", err)
+		return 0, fmt.Errorf("dataFile.WriteAt(failed): %w", err)
 	}
 
 	return Offset(offset), nil
@@ -143,7 +143,7 @@ func ReadNonPageFile(file *os.File) ([]byte, error) {
 			if err == io.EOF {
 				break
 			}
-			return nil, fmt.Errorf("ReadNonPageFile: error reading file: %w", err)
+			return nil, fmt.Errorf("reading from file (failed): %w", err)
 		}
 	}
 
@@ -152,16 +152,16 @@ func ReadNonPageFile(file *os.File) ([]byte, error) {
 
 func WriteNonPageFile(file *os.File, data []byte) error {
 	if file == nil {
-		return fmt.Errorf("WriteNonPageFile (file pointer is nil)")
+		return fmt.Errorf("nil file pointer")
 	}
 
 	if err := file.Truncate(0); err != nil {
-		return fmt.Errorf("WriteNonPageFile (error truncating file): %w", err)
+		return fmt.Errorf("truncating file failed: %w", err)
 	}
 
 	_, err := file.WriteAt(data, 0)
 	if err != nil {
-		return fmt.Errorf("WriteNonPageFile (error writing to file): %w", err)
+		return fmt.Errorf("writing to file (failed): %w", err)
 	}
 
 	return nil
@@ -171,7 +171,7 @@ func ReadPageAtOffset(file *os.File, offset Offset) ([]byte, error) {
 	pageData := make([]byte, PageSizeV2)
 	_, err := file.ReadAt(pageData, int64(offset))
 	if err != nil {
-		return nil, fmt.Errorf("failed to read page data: %w", err)
+		return nil, fmt.Errorf("reading from file (failed): %w", err)
 	}
 
 	return pageData, nil
@@ -179,12 +179,14 @@ func ReadPageAtOffset(file *os.File, offset Offset) ([]byte, error) {
 
 func (dm *DiskManagerV2) UpdateCatalog() error {
 	bytes, err := SerializeCatalog(dm.PageCatalog)
-
 	if err != nil {
-		return fmt.Errorf("UpdateCatalog: %w", err)
+		return fmt.Errorf("SerializeCatalog failed: %w", err)
 	}
 
-	dm.FileCatalog.WriteAt(bytes, 0)
+	_, err = dm.FileCatalog.WriteAt(bytes, 0)
+	if err != nil {
+		return fmt.Errorf("writing to file (failed): %w", err)
+	}
 
 	return nil
 }
@@ -209,7 +211,7 @@ func RearrangePAGE(page *PageV2, tableObj *TableObj, tableName string) (*PageV2,
 
 	pageObj, ok := tableObj.DirectoryPage.Value[PageID(page.Header.ID)]
 	if !ok {
-		return nil, fmt.Errorf("RearrangePAGE: pageObj not found")
+		return nil, fmt.Errorf("pageObj not found")
 	}
 
 	for _, location := range pageObj.PointerArray {
@@ -218,7 +220,7 @@ func RearrangePAGE(page *PageV2, tableObj *TableObj, tableName string) (*PageV2,
 
 			err := newPage.AddTuple(rowBytes)
 			if err != nil {
-				return nil, fmt.Errorf("RearrangePAGE: %w", err)
+				return nil, fmt.Errorf("AddTuple failed: %w", err)
 			}
 		}
 	}
@@ -236,7 +238,7 @@ func UpdatePageInfo(rowsID []uint64, pageFound *PageV2, tableObj *TableObj) erro
 	if !found {
 		offset, err := WritePageEOFV2(pageFound, tableObj.DataFile)
 		if err != nil {
-			return fmt.Errorf("write page EOF error: %w", err)
+			return fmt.Errorf("WritePageEOFV2 failed: %w", err)
 		}
 
 		pageInfObj = &PageInfo{
@@ -248,43 +250,42 @@ func UpdatePageInfo(rowsID []uint64, pageFound *PageV2, tableObj *TableObj) erro
 	} else {
 		pageInfObj.PointerArray = append(pageInfObj.PointerArray, pageFound.PointerArray...)
 		if err := WritePageBackV2(pageFound, pageInfObj.Offset, tableObj.DataFile); err != nil {
-			return fmt.Errorf("write page back error: %w", err)
+			return fmt.Errorf("WritePageBackV2 failed: %w", err)
 		}
 	}
 
 	pageFound.PointerArray = []TupleLocation{} // in memory should be clear
 
 	if err := UpdateDirectoryPageDisk(dirPage, tableObj.DirFile); err != nil {
-		return fmt.Errorf("update directory page error: %w", err)
+		return fmt.Errorf("UpdateDirectoryPageDisk failed: %w", err)
 	}
 
 	if err := UpdateBp(rowsID, *tableObj, *pageInfObj); err != nil {
-		return fmt.Errorf("update B+ tree error: %w", err)
+		return fmt.Errorf("UpdateBp failed: %w", err)
 	}
 
 	return nil
 }
 
-func GetAllRows(tableName string, manager *DiskManagerV2) []*RowV2 {
+func GetAllRows(tableName string, manager *DiskManagerV2) ([]*RowV2, error) {
 	var rows []*RowV2
 
 	tableObj, err := GetTableObj(tableName, manager)
 	if err != nil {
-		log.Fatalf("GetTable failed for: %s, error: %s", tableName, err)
+		return nil, fmt.Errorf("GetTableObj failed: %w", err)
 	}
 
 	directoryMap := tableObj.DirectoryPage.Value
 	pages, err := GetTablePagesFromDisk(tableObj.DataFile, nil, nil)
 	if err != nil {
-		log.Fatalf("GetTablePages failed for: %s, error: %s", tableName, err)
+		return nil, fmt.Errorf("GetTablePagesFromDisk failed: %w", err)
 	}
 
 	for _, page := range pages {
 		pageId := PageID(page.Header.ID)
 		pageObj, ok := directoryMap[pageId]
-
 		if !ok {
-			log.Fatalf("PageObj not found for page: %v", page.Header.ID)
+			return nil, errors.New("pageObj not found")
 		}
 
 		for _, location := range pageObj.PointerArray {
@@ -295,12 +296,12 @@ func GetAllRows(tableName string, manager *DiskManagerV2) []*RowV2 {
 			rowBytes := page.Data[location.Offset : location.Offset+location.Length]
 			row, err := DecodeRow(rowBytes)
 			if err != nil {
-				log.Fatalf("DecodeRow error: %s", err)
+				return nil, fmt.Errorf("DecodeRow failed: %w", err)
 			}
 
 			rows = append(rows, row)
 		}
 	}
 
-	return rows
+	return rows, nil
 }

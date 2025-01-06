@@ -4,7 +4,6 @@ import (
 	"a2gdb/cmd"
 	"a2gdb/query-engine/engine"
 	"a2gdb/util"
-	"fmt"
 	"log"
 )
 
@@ -14,17 +13,22 @@ func main() {
 		log.Fatal("DB init failed: ", err)
 	}
 
-	insertMany(engine)
+	selects(engine)
 }
 
 func selects(engine *engine.QueryEngine) {
-	sql1 := "SELECT * FROM `User` WHERE UserId = CAST('10084632547061476038' AS DECIMAL(20,0))\n"
+	sql1 := "SELECT * FROM `User`\n"
 	encodedPlan1, err := util.SendSql(sql1)
 	if err != nil {
 		log.Fatal(err)
 	}
-	// engine.EngineEntry(encodedPlan1)
-	fmt.Println(encodedPlan1)
+
+	_, _, result := engine.EngineEntry(encodedPlan1)
+	if result.Error != nil {
+		log.Println(result.Error)
+	}
+
+	log.Println(result.Rows)
 }
 
 func insertMany(engine *engine.QueryEngine) {
@@ -35,7 +39,12 @@ func insertMany(engine *engine.QueryEngine) {
 		if err != nil {
 			log.Fatal(err)
 		}
-		engine.EngineEntry(encodedPlan1)
+		_, _, result := engine.EngineEntry(encodedPlan1)
+		if result.Error != nil {
+			log.Println(result.Error)
+		}
+
+		log.Println(result.Msg)
 	}
 }
 
@@ -46,5 +55,12 @@ func createTable(engine *engine.QueryEngine) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	engine.EngineEntry(encodedPlan1)
+	_, _, result := engine.EngineEntry(encodedPlan1)
+
+	if result.Error != nil {
+		log.Println("couldn't create page, error: ", result.Error)
+		return
+	}
+
+	log.Println(result.Msg)
 }

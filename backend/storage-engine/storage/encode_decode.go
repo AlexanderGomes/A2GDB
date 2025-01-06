@@ -3,6 +3,7 @@ package storage
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 )
@@ -115,36 +116,36 @@ func DecodePageInfo(data []byte) (*PageInfo, error) {
 	var pageInfo PageInfo
 
 	if err := binary.Read(buf, binary.LittleEndian, &pageInfo.Offset); err != nil {
-		return nil, fmt.Errorf("error reading Offset: %w", err)
+		return nil, err
 	}
 
 	if err := binary.Read(buf, binary.LittleEndian, &pageInfo.Level); err != nil {
-		return nil, fmt.Errorf("error reading Index: %w", err)
+		return nil, err
 	}
 
 	if err := binary.Read(buf, binary.LittleEndian, &pageInfo.ExactFreeMem); err != nil {
-		return nil, fmt.Errorf("error reading Index: %w", err)
+		return nil, err
 	}
 
 	var numTuples uint32
 	if err := binary.Read(buf, binary.LittleEndian, &numTuples); err != nil {
-		return nil, fmt.Errorf("error reading number of tuples: %w", err)
+		return nil, err
 	}
 
 	pageInfo.PointerArray = make([]TupleLocation, numTuples)
 	for i := uint32(0); i < numTuples; i++ {
 		var tuple TupleLocation
 		if err := binary.Read(buf, binary.LittleEndian, &tuple.Offset); err != nil {
-			return nil, fmt.Errorf("error reading TupleLocation.Offset: %w", err)
+			return nil, err
 		}
 
 		if err := binary.Read(buf, binary.LittleEndian, &tuple.Length); err != nil {
-			return nil, fmt.Errorf("error reading TupleLocation.Length: %w", err)
+			return nil, err
 		}
 
 		freeByte, err := buf.ReadByte()
 		if err != nil {
-			return nil, fmt.Errorf("error reading TupleLocation.Free: %w", err)
+			return nil, err
 		}
 
 		tuple.Free = freeByte == 1
@@ -203,7 +204,7 @@ func DecodeDirectory(data []byte) (*DirectoryPageV2, error) {
 
 	var numEntries uint32
 	if err := binary.Read(buf, binary.LittleEndian, &numEntries); err != nil {
-		return nil, fmt.Errorf("error reading number of entries: %w", err)
+		return nil, err
 	}
 
 	dir.Value = make(map[PageID]*PageInfo, numEntries)
@@ -211,22 +212,22 @@ func DecodeDirectory(data []byte) (*DirectoryPageV2, error) {
 	for i := uint32(0); i < numEntries; i++ {
 		var id PageID
 		if err := binary.Read(buf, binary.LittleEndian, &id); err != nil {
-			return nil, fmt.Errorf("error reading PageID: %w", err)
+			return nil, err
 		}
 
 		var length uint32
 		if err := binary.Read(buf, binary.LittleEndian, &length); err != nil {
-			return nil, fmt.Errorf("error reading length of PageInfo: %w", err)
+			return nil, err
 		}
 
 		encodedPageInfo := make([]byte, length)
 		if _, err := io.ReadFull(buf, encodedPageInfo); err != nil {
-			return nil, fmt.Errorf("error reading encoded PageInfo data: %w", err)
+			return nil, err
 		}
 
 		pageInfo, err := DecodePageInfo(encodedPageInfo)
 		if err != nil {
-			return nil, fmt.Errorf("error decoding PageInfo: %w", err)
+			return nil, err
 		}
 
 		dir.Value[id] = pageInfo
@@ -341,11 +342,11 @@ func DecodeRow(data []byte) (*RowV2, error) {
 	var row RowV2
 
 	if err := binary.Read(buf, binary.LittleEndian, &row.ID); err != nil {
-		return nil, fmt.Errorf("error reading Row ID: %w", err)
+		return nil, err
 	}
 	var numValues uint32
 	if err := binary.Read(buf, binary.LittleEndian, &numValues); err != nil {
-		return nil, fmt.Errorf("error reading number of values: %w", err)
+		return nil, err
 	}
 
 	row.Values = make(map[string]string, numValues)
@@ -353,23 +354,23 @@ func DecodeRow(data []byte) (*RowV2, error) {
 	for i := uint32(0); i < numValues; i++ {
 		var keyLength uint32
 		if err := binary.Read(buf, binary.LittleEndian, &keyLength); err != nil {
-			return nil, fmt.Errorf("error reading key length: %w", err)
+			return nil, err
 		}
 
 		keyBytes := make([]byte, keyLength)
 		if _, err := io.ReadFull(buf, keyBytes); err != nil {
-			return nil, fmt.Errorf("error reading key: %w", err)
+			return nil, err
 		}
 		key := string(keyBytes)
 
 		var valueLength uint32
 		if err := binary.Read(buf, binary.LittleEndian, &valueLength); err != nil {
-			return nil, fmt.Errorf("error reading value length: %w", err)
+			return nil, err
 		}
 
 		valueBytes := make([]byte, valueLength)
 		if _, err := io.ReadFull(buf, valueBytes); err != nil {
-			return nil, fmt.Errorf("error reading value: %w", err)
+			return nil, err
 		}
 		value := string(valueBytes)
 
@@ -381,7 +382,7 @@ func DecodeRow(data []byte) (*RowV2, error) {
 
 func ResetBytesToEmpty(page *PageV2, offset uint16, length uint16) error {
 	if offset+length > uint16(len(page.Data)) {
-		return fmt.Errorf("offset and length exceed page data bounds")
+		return errors.New("offset and length exceed page data bounds")
 	}
 
 	for i := uint16(0); i < length; i++ {
@@ -447,7 +448,7 @@ func DeserializeCatalog(data []byte) (*Catalog, error) {
 	buf.Write(data)
 
 	var catalog Catalog
-	catalog.Tables = make(map[TableName]*TableInfo)
+	catalog.Tables = make(map[string]*TableInfo)
 
 	var numTables uint32
 	if err := binary.Read(&buf, binary.LittleEndian, &numTables); err != nil {
@@ -459,6 +460,7 @@ func DeserializeCatalog(data []byte) (*Catalog, error) {
 		if err := binary.Read(&buf, binary.LittleEndian, &nameLen); err != nil {
 			return nil, err
 		}
+
 		tableName := make([]byte, nameLen)
 		if _, err := buf.Read(tableName); err != nil {
 			return nil, err
@@ -505,7 +507,7 @@ func DeserializeCatalog(data []byte) (*Catalog, error) {
 			return nil, err
 		}
 
-		catalog.Tables[TableName(tableName)] = &tableInfo
+		catalog.Tables[string(tableName)] = &tableInfo
 	}
 
 	return &catalog, nil
@@ -515,13 +517,13 @@ func EncodeItems(items []Item) ([]byte, error) {
 	buf := new(bytes.Buffer)
 
 	if err := binary.Write(buf, binary.LittleEndian, int32(len(items))); err != nil {
-		return nil, fmt.Errorf("EncodeItem: %w", err)
+		return nil, err
 	}
 
 	for _, item := range items {
 		encodedItem, err := EncodeItem(item)
 		if err != nil {
-			return nil, fmt.Errorf("EncodeItem: %w", err)
+			return nil, fmt.Errorf("EncodeItem failed: %w", err)
 		}
 		buf.Write(encodedItem)
 	}
@@ -559,7 +561,7 @@ func DecodeItems(data []byte) ([]Item, error) {
 		}
 		item, err := DecodeItem(itemData)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("DecodeItem failed: %w", err)
 		}
 		items = append(items, item)
 	}

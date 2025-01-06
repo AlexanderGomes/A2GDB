@@ -111,12 +111,22 @@ public class QueryPlanner {
 
     } catch (Exception e) {
       planner.close();
-      System.err.println("Couldn't Create Query Plan: " + e.getMessage());
-      e.printStackTrace();
+      jsonPlan = handleExepction(e);
     }
 
     planner.close();
     return jsonPlan;
+  }
+
+  private String handleExepction(Exception e) {
+    JSONObject errorResponse = new JSONObject();
+
+    errorResponse.put("status", "error");
+    errorResponse.put("message", e.getMessage());
+    errorResponse.put("errorType", e.getClass().getSimpleName());
+
+
+    return errorResponse.toString();
   }
 
   private String handleUpdate(SqlNode node) {
@@ -383,7 +393,8 @@ public class QueryPlanner {
 
         for (Pair<String, String> pair : columnsInfo) {
           builder.add(pair.left,
-              // #### changing the type from VARCHAR to ANY causes a different query plan which breaks your backend
+              // #### changing the type from VARCHAR to ANY causes a different query plan
+              // which breaks your backend
               typeFactory.createTypeWithNullability(typeFactory.createSqlType(SqlTypeName.VARCHAR), true));
         }
 

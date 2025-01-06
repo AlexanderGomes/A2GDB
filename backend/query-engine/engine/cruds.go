@@ -3,14 +3,23 @@ package engine
 import (
 	"a2gdb/logger"
 	"a2gdb/storage-engine/storage"
-	"log"
+	"fmt"
 	"strings"
 
 	"github.com/sirupsen/logrus"
 )
 
-func (qe *QueryEngine) handleUpdate(plan map[string]interface{}) {
+type Result struct {
+	Error   error
+	Msg     string
+	Rows    []*storage.RowV2
+	groupBy map[string]int
+}
+
+func (qe *QueryEngine) handleUpdate(plan map[string]interface{}) Result {
 	logger.Log.Info("Update Started")
+
+	var result Result
 
 	filterColumn := plan["filter_column"].(string)
 	filterValue := strings.ReplaceAll(plan["filter_value"].(string), "'", "")
@@ -23,22 +32,26 @@ func (qe *QueryEngine) handleUpdate(plan map[string]interface{}) {
 
 	tableObj, err := storage.GetTableObj(tableName, manager)
 	if err != nil {
-		log.Panicf("couldn't get table object for table %s, error: %s", tableName, err)
+		result.Error = fmt.Errorf("GetTableObj failed: %w", err)
+		result.Msg = "failed"
+		return result
 	}
 
-	bufferPages := qe.BufferPoolManager.FullBufferScan()
-	tablePages, err := storage.GetTablePagesFromDisk(tableObj.DataFile, nil, qe.BufferPoolManager.PageTable)
+	pages, err := qe.BufferPoolManager.FullTableScan(tableObj.DataFile, qe.BufferPoolManager.PageTable)
 	if err != nil {
-		log.Panicf("couldn't get table pages for table %s, error: %s", tableName, err)
+		result.Error = fmt.Errorf("FullTableScan failed: %w", err)
+		result.Msg = "failed"
+		return result
 	}
-
-	var mergedPages []*storage.PageV2
-	mergedPages = append(mergedPages, tablePages...)
-	mergedPages = append(mergedPages, bufferPages...)
 
 	logger.Log.WithFields(logrus.Fields{"filterColumn": filterColumn, "filterValue": filterValue, "modifyColumn": modifyColumn, "modifyValue": modifyValue, "tableName": tableName}).Info("processPagesForUpdate inputs")
 
-	freeSpaceMapping, nonAddedRows := processPagesForUpdate(mergedPages, modifyColumn, modifyValue, filterColumn, filterValue, tableObj)
+	freeSpaceMapping, nonAddedRows, err := processPagesForUpdate(pages, modifyColumn, modifyValue, filterColumn, filterValue, tableObj)
+	if err != nil {
+		result.Error = fmt.Errorf("processPagesForUpdate failed: %w", err)
+		result.Msg = "failed"
+		return result
+	}
 
 	var rowIds []uint64
 	rowIds = append(rowIds, 0) // delete from bp
@@ -46,13 +59,28 @@ func (qe *QueryEngine) handleUpdate(plan map[string]interface{}) {
 		rowIds = append(rowIds, row.Id)
 	}
 
-	cleanOrgnize(freeSpaceMapping, rowIds, tableObj, qe.BufferPoolManager)    // deletes old
-	handleLikeInsert(nonAddedRows, tableObj, tableName, qe.BufferPoolManager) // inserts new
+	err = cleanOrgnize(freeSpaceMapping, rowIds, tableObj, qe.BufferPoolManager) // deletes old
+	if err != nil {
+		result.Error = fmt.Errorf("cleanOrgnize failed: %w", err)
+		result.Msg = "failed"
+		return result
+	}
+
+	err = handleLikeInsert(nonAddedRows, tableObj, tableName, qe.BufferPoolManager) // inserts new
+	if err != nil {
+		result.Error = fmt.Errorf("handleLikeInsert failed: %w", err)
+		result.Msg = "failed"
+		return result
+	}
 
 	logger.Log.Info("Update Completed")
+	result.Msg = "Success"
+	return result
 }
 
-func (qe *QueryEngine) handleDelete(plan map[string]interface{}) {
+func (qe *QueryEngine) handleDelete(plan map[string]interface{}) Result {
+	var result Result
+
 	logger.Log.Info("Delete Started")
 
 	tableName := plan["table"].(string)
@@ -63,28 +91,41 @@ func (qe *QueryEngine) handleDelete(plan map[string]interface{}) {
 
 	tableObj, err := storage.GetTableObj(tableName, manager)
 	if err != nil {
-		log.Panicf("couldn't get table object for table %s, error: %s", tableName, err)
+		result.Error = fmt.Errorf("GetTableObj failed: %w", err)
+		result.Msg = "failed"
+		return result
 	}
 
-	var mergedPages []*storage.PageV2
-
-	bufferPages := qe.BufferPoolManager.FullBufferScan()
-	tablePages, err := storage.GetTablePagesFromDisk(tableObj.DataFile, nil, qe.BufferPoolManager.PageTable)
+	pages, err := qe.BufferPoolManager.FullTableScan(tableObj.DataFile, qe.BufferPoolManager.PageTable)
 	if err != nil {
-		log.Panicf("couldn't get table pages for table %s, error: %s", tableName, err)
+		result.Error = fmt.Errorf("FullTableScan failed: %w", err)
+		result.Msg = "failed"
+		return result
 	}
-
-	mergedPages = append(mergedPages, tablePages...)
-	mergedPages = append(mergedPages, bufferPages...)
 
 	logger.Log.WithFields(logrus.Fields{"deleteKey": deleteKey, "deleteVal": deleteVal, "tableName": tableName}).Info("processPagesForDeletion inputs")
-	freeSpaceMapping, rowsID := processPagesForDeletion(mergedPages, deleteKey, deleteVal, tableObj)
+	freeSpaceMapping, rowsID, err := processPagesForDeletion(pages, deleteKey, deleteVal, tableObj)
+	if err != nil {
+		result.Error = fmt.Errorf("processPagesForDeletion failed: %w", err)
+		result.Msg = "failed"
+		return result
+	}
 
-	cleanOrgnize(freeSpaceMapping, rowsID, tableObj, qe.BufferPoolManager)
+	err = cleanOrgnize(freeSpaceMapping, rowsID, tableObj, qe.BufferPoolManager)
+	if err != nil {
+		result.Error = fmt.Errorf("cleanOrgnize failed: %w", err)
+		result.Msg = "failed"
+		return result
+	}
+
 	logger.Log.Info("Delete Completed")
+	result.Msg = "Success"
+	return result
 }
 
-func (qe *QueryEngine) handleCreate(plan map[string]interface{}) {
+func (qe *QueryEngine) handleCreate(plan map[string]interface{}) Result {
+	var result Result
+
 	tableName := plan["table"].(string)
 	columnsInfo := plan["columns"].([]interface{})
 
@@ -101,14 +142,23 @@ func (qe *QueryEngine) handleCreate(plan map[string]interface{}) {
 		}
 	}
 
-	err := qe.BufferPoolManager.DiskManager.CreateTable(storage.TableName(tableName), tableInfo)
+	err := qe.BufferPoolManager.DiskManager.CreateTable(tableName, tableInfo)
 	if err != nil {
-		log.Fatal("Error Creating Table: ", err)
+		result.Error = fmt.Errorf("CreateTable failed: %w", err)
+		result.Msg = "failed"
+
+		return result
 	}
+
+	result.Msg = "Table Created"
+
+	return result
 }
 
-func (qe *QueryEngine) handleInsert(plan map[string]interface{}) {
+func (qe *QueryEngine) handleInsert(plan map[string]interface{}) Result {
 	logger.Log.Info("Insertion Started")
+
+	var result Result
 
 	manager := qe.BufferPoolManager.DiskManager
 	catalog := manager.PageCatalog
@@ -118,14 +168,23 @@ func (qe *QueryEngine) handleInsert(plan map[string]interface{}) {
 
 	primary, err := checkPresenceGetPrimary(selectedCols, tableName, catalog)
 	if err != nil {
-		log.Fatalf("checkPresence failed: %s", err)
+		result.Error = err
+		result.Msg = "failed"
+		return result
 	}
 
-	bytesNeeded, rowsID, encodedRows := prepareRows(plan, selectedCols, tableName, primary)
+	bytesNeeded, rowsID, encodedRows, err := prepareRows(plan, selectedCols, primary)
+	if err != nil {
+		result.Error = fmt.Errorf("preparing rows failed: %w", err)
+		result.Msg = "failed"
+		return result
+	}
 
 	tableobj, err := storage.GetTableObj(tableName, manager)
 	if err != nil {
-		log.Fatalf("GetTable failed for: %s, error: %s", tableName, err)
+		result.Error = fmt.Errorf("GetTable failed for: %s, error: %s", tableName, err)
+		result.Msg = "failed"
+		return result
 	}
 
 	logger.Log.WithFields(logrus.Fields{
@@ -137,6 +196,12 @@ func (qe *QueryEngine) handleInsert(plan map[string]interface{}) {
 
 	err = findAndUpdate(qe.BufferPoolManager, tableobj, bytesNeeded, tableName, encodedRows, rowsID)
 	if err != nil {
-		log.Fatalf("findAndUpdate Failed: %s", err)
+		result.Error = fmt.Errorf("findAndUpdate Failed: %s", err)
+		result.Msg = "failed"
+		return result
 	}
+
+	result.Msg = "Tuples Inserted"
+
+	return result
 }

@@ -6,9 +6,8 @@ import (
 	"runtime/metrics"
 )
 
-type TableName string
 type Catalog struct {
-	Tables map[TableName]*TableInfo
+	Tables map[string]*TableInfo
 }
 
 type Column string

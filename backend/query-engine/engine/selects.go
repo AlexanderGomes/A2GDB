@@ -1,17 +1,19 @@
 package engine
 
-
 import (
 	"a2gdb/storage-engine/storage"
-	"github.com/scylladb/go-set/strset"
+	"errors"
+	"fmt"
 	"log"
 	"math"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/scylladb/go-set/strset"
 )
 
-func groupBy(innerMap map[string]interface{}, colName string, rows *[]*storage.RowV2, selectedCols []interface{}) map[string]int {
+func groupBy(innerMap map[string]interface{}, colName string, rows *[]*storage.RowV2, selectedCols []interface{}) (map[string]int, error) {
 	var resMap map[string]int
 	groupMap := map[string][]*storage.RowV2{}
 
@@ -35,25 +37,30 @@ func groupBy(innerMap map[string]interface{}, colName string, rows *[]*storage.R
 		argName = selectedCols[argCode].(string)
 	}
 
+	var err error
 	switch functionName {
 	case "COUNT":
 		resMap = uniqueCount(groupMap)
 	case "MAX":
-		resMap = maxCount(groupMap, argName)
+		resMap, err = maxCount(groupMap, argName)
 	case "MIN":
-		resMap = minCount(groupMap, argName)
+		resMap, err = minCount(groupMap, argName)
 	case "AVG":
-		resMap = avgCount(groupMap, colName)
+		resMap, err = avgCount(groupMap, colName)
 	case "SUM":
-		resMap = sumCount(groupMap, colName)
+		resMap, err = sumCount(groupMap, colName)
 	default:
-		log.Fatalf("Unsupported type: %s", functionName)
+		err = fmt.Errorf("unsupported type: %s", functionName)
 	}
 
-	return resMap
+	if err != nil {
+		return nil, fmt.Errorf("sql function failed: %w", err)
+	}
+
+	return resMap, nil
 }
 
-func sumCount(groupMap map[string][]*storage.RowV2, colName string) map[string]int {
+func sumCount(groupMap map[string][]*storage.RowV2, colName string) (map[string]int, error) {
 	sumMap := map[string]int{}
 
 	for k, v := range groupMap {
@@ -62,7 +69,7 @@ func sumCount(groupMap map[string][]*storage.RowV2, colName string) map[string]i
 			userValStr := row.Values[colName]
 			userValInt, err := strconv.Atoi(userValStr)
 			if err != nil {
-				log.Fatalf("Error converting string to int: %s", err)
+				return nil, fmt.Errorf("(sumCount) - Parsing str => int failed: %w", err)
 			}
 
 			sum += userValInt
@@ -71,10 +78,10 @@ func sumCount(groupMap map[string][]*storage.RowV2, colName string) map[string]i
 		sumMap[k] = sum
 	}
 
-	return sumMap
+	return sumMap, nil
 }
 
-func avgCount(groupMap map[string][]*storage.RowV2, colName string) map[string]int {
+func avgCount(groupMap map[string][]*storage.RowV2, colName string) (map[string]int, error) {
 	avgMap := map[string]int{}
 
 	for k, v := range groupMap {
@@ -83,7 +90,7 @@ func avgCount(groupMap map[string][]*storage.RowV2, colName string) map[string]i
 			userValStr := row.Values[colName]
 			userValInt, err := strconv.Atoi(userValStr)
 			if err != nil {
-				log.Fatalf("Error converting string to int: %s", err)
+				return nil, fmt.Errorf("(avgCount) - Parsing str => int failed: %w", err)
 			}
 
 			sum += userValInt
@@ -92,11 +99,11 @@ func avgCount(groupMap map[string][]*storage.RowV2, colName string) map[string]i
 		avgMap[k] = sum / len(v)
 	}
 
-	return avgMap
+	return avgMap, nil
 }
 
-func minCount(groupMap map[string][]*storage.RowV2, field string) map[string]int {
-	maxtMap := map[string]int{}
+func minCount(groupMap map[string][]*storage.RowV2, field string) (map[string]int, error) {
+	minMap := map[string]int{}
 
 	for k, v := range groupMap {
 		minAge := math.MaxInt64
@@ -104,19 +111,19 @@ func minCount(groupMap map[string][]*storage.RowV2, field string) map[string]int
 			userValStr := row.Values[field]
 			userValInt, err := strconv.Atoi(userValStr)
 			if err != nil {
-				log.Fatalf("Error converting string to int: %s", err)
+				return nil, fmt.Errorf("(minCount) - Parsing str => int failed: %w", err)
 			}
 			if userValInt < minAge {
 				minAge = userValInt
 			}
 		}
-		maxtMap[k] = minAge
+		minMap[k] = minAge
 	}
 
-	return maxtMap
+	return minMap, nil
 }
 
-func maxCount(groupMap map[string][]*storage.RowV2, field string) map[string]int {
+func maxCount(groupMap map[string][]*storage.RowV2, field string) (map[string]int, error) {
 	minMap := map[string]int{}
 
 	for k, v := range groupMap {
@@ -125,7 +132,7 @@ func maxCount(groupMap map[string][]*storage.RowV2, field string) map[string]int
 			ageStr := row.Values[field]
 			ageInt, err := strconv.Atoi(ageStr)
 			if err != nil {
-				log.Fatalf("Error converting string to int: %s", err)
+				return nil, fmt.Errorf("(maxCount) - Parsing str => int failed: %w", err)
 			}
 
 			if ageInt > maxAge {
@@ -135,7 +142,7 @@ func maxCount(groupMap map[string][]*storage.RowV2, field string) map[string]int
 		minMap[k] = maxAge
 	}
 
-	return minMap
+	return minMap, nil
 }
 
 func uniqueCount(groupMap map[string][]*storage.RowV2) map[string]int {
@@ -179,24 +186,34 @@ func sortAscDesc(innerMap map[string]interface{}, rows *[]*storage.RowV2) {
 
 	if limitPassed {
 		*rows = (*rows)[:limit]
-		return
 	}
 }
 
-func filterByColumn(innerMap, refList map[string]interface{}, rows *[]*storage.RowV2) {
+func filterByColumn(innerMap, refList map[string]interface{}, rows *[]*storage.RowV2) error {
 	conditionObj := innerMap["condition"].(map[string]interface{})
 	operation := conditionObj["op"].(map[string]interface{})
 
 	switch kind := operation["kind"]; kind {
 	case "GREATER_THAN", "LESS_THAN":
-		intComparison(conditionObj["operands"], refList, rows, kind.(string))
+		err := intComparison(conditionObj["operands"], refList, rows, kind.(string))
+		if err != nil {
+			return fmt.Errorf("intComparison failed: %w", err)
+		}
 	case "EQUALS":
-		equals(conditionObj["operands"], refList, rows, kind.(string))
+		err := equals(conditionObj["operands"], refList, rows, kind.(string))
+		if err != nil {
+			return fmt.Errorf("equals failed: %w", err)
+		}
 	case "AND":
-		rangeComparison(conditionObj["operands"], refList, rows, kind.(string))
+		err := rangeComparison(conditionObj["operands"], refList, rows, kind.(string))
+		if err != nil {
+			return fmt.Errorf("rangeComparison failed: %w", err)
+		}
 	default:
-		log.Fatalf("kind %s not supported", kind)
+		return fmt.Errorf("kind %s not supported", kind)
 	}
+
+	return nil
 }
 
 type LargeComparisons struct {
@@ -220,7 +237,7 @@ func compare(a, b int64, operator string, largeComp *LargeComparisons) bool {
 	}
 }
 
-func rangeComparison(conditionObj interface{}, reflist map[string]interface{}, rows *[]*storage.RowV2, kind string) {
+func rangeComparison(conditionObj interface{}, reflist map[string]interface{}, rows *[]*storage.RowV2, kind string) error {
 	maps := conditionObj.([]interface{})
 
 	leftObjOp := maps[0].(map[string]interface{})
@@ -243,12 +260,12 @@ func rangeComparison(conditionObj interface{}, reflist map[string]interface{}, r
 	for _, row := range *rows {
 		userValStr, ok := row.Values[columnName]
 		if !ok {
-			log.Fatalf("field: %s not present in row: %d", columnName, row.ID)
+			return errors.New("row value not present")
 		}
 
 		userValInt, err := strconv.Atoi(userValStr)
 		if err != nil {
-			log.Fatalf("Error converting string to int: %s", err)
+			return fmt.Errorf("parsing int failed: %w", err)
 		}
 
 		largeComp := LargeComparisons{
@@ -264,9 +281,10 @@ func rangeComparison(conditionObj interface{}, reflist map[string]interface{}, r
 	}
 
 	*rows = filteredRows
+	return nil
 }
 
-func equals(conditionObj interface{}, reflist map[string]interface{}, rows *[]*storage.RowV2, kind string) {
+func equals(conditionObj interface{}, reflist map[string]interface{}, rows *[]*storage.RowV2, kind string) error {
 	maps := conditionObj.([]interface{})
 
 	typeObj := maps[1].(map[string]interface{})
@@ -275,16 +293,26 @@ func equals(conditionObj interface{}, reflist map[string]interface{}, rows *[]*s
 
 	switch typeName {
 	case "INTEGER", "BIGINT":
-		intComparison(conditionObj, reflist, rows, kind)
+		err := intComparison(conditionObj, reflist, rows, kind)
+		if err != nil {
+			return fmt.Errorf("intComparison failed: %w", err)
+		}
 	case "VARCHAR":
-		charComparison(maps, reflist, rows)
+		err := charComparison(maps, reflist, rows)
+		if err != nil {
+			return fmt.Errorf("charComparison failed: %w", err)
+		}
 	case "DECIMAL":
-		decimalComparison(maps, reflist, rows)
+		err := decimalComparison(maps, reflist, rows)
+		if err != nil {
+			return fmt.Errorf("decimalComparison failed: %w", err)
+		}
 	}
 
+	return nil
 }
 
-func decimalComparison(maps []interface{}, reflist map[string]interface{}, rows *[]*storage.RowV2) {
+func decimalComparison(maps []interface{}, reflist map[string]interface{}, rows *[]*storage.RowV2) error {
 	var filteredRows []*storage.RowV2
 
 	colNameObj := maps[0].(map[string]interface{})
@@ -304,7 +332,7 @@ func decimalComparison(maps []interface{}, reflist map[string]interface{}, rows 
 	for _, row := range *rows {
 		fieldVal, ok := row.Values[colName]
 		if !ok {
-			log.Fatalf("field: %s not present in row: %d", colName, row.ID)
+			return errors.New("row value not present")
 		}
 
 		if fieldVal == operandVal {
@@ -313,9 +341,10 @@ func decimalComparison(maps []interface{}, reflist map[string]interface{}, rows 
 	}
 
 	*rows = filteredRows
+	return nil
 }
 
-func charComparison(maps []interface{}, reflist map[string]interface{}, rows *[]*storage.RowV2) {
+func charComparison(maps []interface{}, reflist map[string]interface{}, rows *[]*storage.RowV2) error {
 	var filteredRows []*storage.RowV2
 
 	colNameMap := maps[0].(map[string]interface{})
@@ -328,7 +357,7 @@ func charComparison(maps []interface{}, reflist map[string]interface{}, rows *[]
 	for _, row := range *rows {
 		fieldVal, ok := row.Values[colName]
 		if !ok {
-			log.Fatalf("field: %s not present in row: %d", colName, row.ID)
+			return errors.New("row value not present")
 		}
 
 		if fieldVal == colComparisonVal {
@@ -338,9 +367,11 @@ func charComparison(maps []interface{}, reflist map[string]interface{}, rows *[]
 	}
 
 	*rows = filteredRows
+
+	return nil
 }
 
-func intComparison(conditionObj interface{}, reflist map[string]interface{}, rows *[]*storage.RowV2, kind string) {
+func intComparison(conditionObj interface{}, reflist map[string]interface{}, rows *[]*storage.RowV2, kind string) error {
 	var filteredRows []*storage.RowV2
 	maps := conditionObj.([]interface{})
 
@@ -357,12 +388,12 @@ func intComparison(conditionObj interface{}, reflist map[string]interface{}, row
 	for _, row := range *rows {
 		fieldVal, ok := row.Values[colName]
 		if !ok {
-			log.Fatalf("field: %s not present in row: %d", colName, row.ID)
+			return errors.New("row Value not present")
 		}
 
 		parsedUserVal, err := strconv.ParseInt(fieldVal, 10, 64)
 		if err != nil {
-			log.Fatalf("failed parsing %s, for row: %d", fieldVal, row.ID)
+			return fmt.Errorf("parsing Int Failed: %w", err)
 		}
 
 		matchCondition := compare(parsedUserVal, comparisonVal, kind, nil)
@@ -372,6 +403,7 @@ func intComparison(conditionObj interface{}, reflist map[string]interface{}, row
 	}
 
 	*rows = filteredRows
+	return nil
 }
 
 func columnSelect(nodeMap, refList map[string]interface{}, rows []*storage.RowV2) ([]interface{}, string) {
