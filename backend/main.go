@@ -4,16 +4,22 @@ import (
 	"a2gdb/cmd"
 	"a2gdb/query-engine/engine"
 	"a2gdb/util"
+
 	"log"
 )
 
 func main() {
+	p := util.Profiler{}
 	engine, err := cmd.InitDatabase(2, "A2G_DB")
 	if err != nil {
 		log.Fatal("DB init failed: ", err)
 	}
-
+	
+	p.Start("cpu.prof")
+	createTable(engine)
+	insertMany(engine)
 	selects(engine)
+	p.Stop()
 }
 
 func selects(engine *engine.QueryEngine) {
@@ -32,7 +38,7 @@ func selects(engine *engine.QueryEngine) {
 }
 
 func insertMany(engine *engine.QueryEngine) {
-	for range 100 {
+	for range 1000 {
 		sql1 := "INSERT INTO `User` (Username, Age, City) VALUES ('JaneSmith', 25, 'Los Angeles')\n"
 
 		encodedPlan1, err := util.SendSql(sql1)

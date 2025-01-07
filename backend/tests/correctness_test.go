@@ -16,17 +16,22 @@ import (
 
 var sharedDB *engine.QueryEngine
 
-const REMOVE_A2G = false
-const REMOVE_LOGS = false
+const REMOVE_DB = true
+const REMOVE_LOGS = true
 
 func TestMain(m *testing.M) {
 	exitCode := m.Run()
+	dbs := []string{
+		"A2G_DB", "delete", "insert", "update", "wheres", "wheresRange", "wheresSorting", "wheresSortingLimit",
+	}
 
 	fmt.Println("Tearing down resources...")
-	if REMOVE_A2G {
-		err := os.RemoveAll("./A2G_DB")
-		if err != nil {
-			fmt.Printf("Error removing folder: %v\n", err)
+	if REMOVE_DB {
+		for _, db := range dbs {
+			err := os.RemoveAll("./" + db)
+			if err != nil {
+				fmt.Printf("Error removing folder: %v\n", err)
+			}
 		}
 	}
 

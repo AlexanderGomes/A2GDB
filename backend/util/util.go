@@ -4,7 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net"
+	"os"
+	"runtime/pprof"
+	"time"
 )
 
 const (
@@ -44,4 +48,54 @@ func SendSql(sql string) (interface{}, error) {
 	}
 
 	return jsonPlan, nil
+}
+
+type Profiler struct {
+	cpuFile   *os.File
+	startTime time.Time
+}
+
+func (p *Profiler) Start(cpuFile string) {
+	var err error
+
+	p.cpuFile, err = os.Create(cpuFile)
+	if err != nil {
+		log.Fatalf("could not create CPU profile: %v", err)
+	}
+
+	pprof.StartCPUProfile(p.cpuFile)
+
+	p.startTime = time.Now()
+}
+
+func (p *Profiler) Stop() {
+	pprof.StopCPUProfile()
+	if p.cpuFile != nil {
+		p.cpuFile.Close()
+	}
+
+	p.writeProfile("heap", "mem.prof")
+	p.writeProfile("goroutine", "goroutine.prof")
+	p.writeProfile("mutex", "mutex.prof")
+	p.writeProfile("block", "block.prof")
+
+	log.Printf("Profiling completed in %v\n", time.Since(p.startTime))
+}
+
+func (p *Profiler) writeProfile(profileName, fileName string) {
+	profile := pprof.Lookup(profileName)
+	if profile == nil {
+		log.Printf("Profile %s not available.\n", profileName)
+		return
+	}
+
+	file, err := os.Create(fileName)
+	if err != nil {
+		log.Fatalf("could not create %s profile: %v", profileName, err)
+	}
+	defer file.Close()
+
+	if err := profile.WriteTo(file, 0); err != nil {
+		log.Fatalf("could not write %s profile: %v", profileName, err)
+	}
 }

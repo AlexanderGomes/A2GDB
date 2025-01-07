@@ -3,6 +3,7 @@ tests/Testing_DB
 performance/bin
 Frontend/target
 .vscode
-*.md
 *.json
+*.md
+*.prof
 frontend/src/main/java/resources

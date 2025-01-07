@@ -162,7 +162,6 @@ func sortAscDesc(innerMap map[string]interface{}, rows *[]*storage.RowV2) {
 	limitPassed := true
 	limit, err := strconv.Atoi(innerMap["limit"].(string))
 	if err != nil {
-		log.Println("No limit passed")
 		limitPassed = false
 	}
 
