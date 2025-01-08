@@ -9,17 +9,14 @@ import (
 )
 
 func main() {
-	p := util.Profiler{}
 	engine, err := cmd.InitDatabase(2, "A2G_DB")
 	if err != nil {
 		log.Fatal("DB init failed: ", err)
 	}
-	
-	p.Start("cpu.prof")
+
 	createTable(engine)
 	insertMany(engine)
 	selects(engine)
-	p.Stop()
 }
 
 func selects(engine *engine.QueryEngine) {

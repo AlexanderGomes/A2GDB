@@ -47,12 +47,14 @@ func cleanOrgnize(newSpace []*storage.FreeSpace, rowsId []uint64, tableObj *stor
 		memTag := getTag(space.FreeMemory)
 		pageInfo := dirPage[space.PageID]
 
+		// performance considerations
 		if pageInfo.Level != 0 {
 			rankSlice := tableObj.Memory[pageInfo.Level]
 			tableObj.Memory[pageInfo.Level] = lo.Filter(rankSlice, func(item *storage.FreeSpace, i int) bool {
 				return space.PageID != item.PageID
 			})
 		}
+		
 		if memTag == 0 {
 			memTag = EMPTY_PAGE
 		}

@@ -125,7 +125,6 @@ public class QueryPlanner {
     errorResponse.put("message", e.getMessage());
     errorResponse.put("errorType", e.getClass().getSimpleName());
 
-
     return errorResponse.toString();
   }
 

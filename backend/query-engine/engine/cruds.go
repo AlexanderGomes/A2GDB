@@ -173,16 +173,16 @@ func (qe *QueryEngine) handleInsert(plan map[string]interface{}) Result {
 		return result
 	}
 
-	bytesNeeded, rowsID, encodedRows, err := prepareRows(plan, selectedCols, primary)
+	tableobj, err := storage.GetTableObj(tableName, manager)
 	if err != nil {
-		result.Error = fmt.Errorf("preparing rows failed: %w", err)
+		result.Error = fmt.Errorf("GetTable failed for: %s, error: %s", tableName, err)
 		result.Msg = "failed"
 		return result
 	}
 
-	tableobj, err := storage.GetTableObj(tableName, manager)
+	bytesNeeded, rowsID, encodedRows, err := prepareRows(plan, selectedCols, primary)
 	if err != nil {
-		result.Error = fmt.Errorf("GetTable failed for: %s, error: %s", tableName, err)
+		result.Error = fmt.Errorf("preparing rows failed: %w", err)
 		result.Msg = "failed"
 		return result
 	}

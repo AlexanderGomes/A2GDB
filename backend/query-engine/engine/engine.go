@@ -3,7 +3,6 @@ package engine
 import (
 	"a2gdb/storage-engine/storage"
 	"fmt"
-	"log"
 )
 
 type QueryEngine struct {
@@ -35,7 +34,8 @@ func (qe *QueryEngine) EngineEntry(queryPlan interface{}) ([]*storage.RowV2, map
 	case "UPDATE":
 		result = qe.handleUpdate(plan)
 	default:
-		log.Panicf("Unsupported Type: %s", operation)
+		result.Error = fmt.Errorf("unsupported type: %s", operation)
+		result.Msg = "failed"
 	}
 
 	return rows, groupByMap, &result
