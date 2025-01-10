@@ -276,7 +276,7 @@ func GetAllRows(tableName string, manager *DiskManagerV2) ([]*RowV2, error) {
 	}
 
 	directoryMap := tableObj.DirectoryPage.Value
-	pages, err := GetTablePagesFromDisk(tableObj.DataFile, nil, nil)
+	pages, err := GetTablePagesFromDiskTest(tableObj.DataFile)
 	if err != nil {
 		return nil, fmt.Errorf("GetTablePagesFromDisk failed: %w", err)
 	}

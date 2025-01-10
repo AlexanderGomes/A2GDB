@@ -2,9 +2,11 @@ package storage
 
 import (
 	"a2gdb/logger"
+	"context"
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 
 	"github.com/sirupsen/logrus"
 )
@@ -20,31 +22,44 @@ type BufferPoolManager struct {
 	PageTable   map[PageID]FrameID
 	Replacer    *LRUKReplacer
 	DiskManager *DiskManagerV2
+	Mu          sync.Mutex
 }
 
-func (bpm *BufferPoolManager) FullTableScan(dataFile *os.File, pageTable map[PageID]FrameID) ([]*PageV2, error) {
-	var mergedPages []*PageV2
+func (bpm *BufferPoolManager) FullTableScan(ctx context.Context, pc chan *PageV2, dataFile *os.File, pageTable map[PageID]FrameID) error {
+	var wg sync.WaitGroup
+	errChan := make(chan error, 2)
 
-	bufferPages, err := bpm.FullBufferScan()
-	if err != nil {
-		return nil, fmt.Errorf("FullBufferScan failed: %w", err)
+	defer close(pc)
+	defer close(errChan)
+
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		if err := bpm.FullBufferScan(pc); err != nil {
+			errChan <- fmt.Errorf("FullBufferScan Failed: %w", err)
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		if err := GetTablePagesFromDisk(pc, dataFile, pageTable, bpm); err != nil {
+			errChan <- fmt.Errorf("GetTablePagesFromDisk Failed: %w", err)
+		}
+	}()
+
+	wg.Wait()
+
+	select {
+	case err := <-errChan:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return nil
 	}
-
-	diskPages, err := GetTablePagesFromDisk(dataFile, nil, pageTable)
-	if err != nil {
-		return nil, err
-	}
-
-	logger.Log.WithFields(logrus.Fields{"bufferPages": len(bufferPages), "diskPages": len(diskPages)}).Info("Scanning Disk && Buffer Pool")
-
-	mergedPages = append(mergedPages, diskPages...)
-	mergedPages = append(mergedPages, bufferPages...)
-
-	return mergedPages, nil
 }
 
-func (bpm *BufferPoolManager) FullBufferScan() ([]*PageV2, error) {
-	var pages []*PageV2
+func (bpm *BufferPoolManager) FullBufferScan(pc chan *PageV2) error {
 	for _, page := range bpm.Pages {
 		if page == nil {
 			continue
@@ -52,13 +67,14 @@ func (bpm *BufferPoolManager) FullBufferScan() ([]*PageV2, error) {
 
 		err := bpm.Pin(PageID(page.Header.ID))
 		if err != nil {
-			return nil, fmt.Errorf("Pin Failed: %w", err)
+			return fmt.Errorf("Pin Failed: %w", err)
 		}
 
-		pages = append(pages, page)
+		logger.Log.WithField("pageID", page.Header.ID).Info("Page From Bpm")
+		pc <- page
 	}
 
-	return pages, nil
+	return nil
 }
 
 // ## when rearranging a new page is being created, so this is necessary
@@ -201,5 +217,5 @@ func NewBufferPoolManager(k int, fileName string) (*BufferPoolManager, error) {
 		return nil, err
 	}
 
-	return &BufferPoolManager{pages, &freeList, pageTable, replacer, diskManager}, nil
+	return &BufferPoolManager{pages, &freeList, pageTable, replacer, diskManager, sync.Mutex{}}, nil
 }

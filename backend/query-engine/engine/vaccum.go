@@ -3,6 +3,7 @@ package engine
 import (
 	"a2gdb/logger"
 	"a2gdb/storage-engine/storage"
+	"context"
 	"fmt"
 
 	"github.com/samber/lo"
@@ -24,13 +25,19 @@ const (
 	NEXT_LEVEL = 400
 )
 
-func cleanOrgnize(newSpace []*storage.FreeSpace, rowsId []uint64, tableObj *storage.TableObj, bpm *storage.BufferPoolManager) error {
+func cleanOrgnize(ctx context.Context, updateInfoChan chan ModifiedInfo, insertChan chan *NonAddedRows, tableObj *storage.TableObj, bpm *storage.BufferPoolManager) error {
+	defer close(insertChan)
+
 	dirPage := tableObj.DirectoryPage.Value
 
 	logger.Log.Info("cleanOrgnize (start)")
 	logger.Log.WithField("tableObj", tableObj.Memory).Info("Before memory separation")
 
-	for _, space := range newSpace {
+	for updateInfo := range updateInfoChan {
+		space := updateInfo.FreeSpaceMapping
+		rowsId := updateInfo.RowIds
+
+		bpm.Mu.Lock()
 		newPage, err := storage.RearrangePAGE(space.TempPagePtr, tableObj, tableObj.TableName)
 		if err != nil {
 			return fmt.Errorf("RearrangePAGE failed: %w", err)
@@ -42,7 +49,9 @@ func cleanOrgnize(newSpace []*storage.FreeSpace, rowsId []uint64, tableObj *stor
 		}
 
 		totalSpace := newPage.Header.UpperPtr - newPage.Header.LowerPtr // just rearranged the page, so this makes sense
+
 		logger.Log.WithFields(logrus.Fields{"totalSpace": totalSpace, "LowerPtr": newPage.Header.LowerPtr, "UpperPtr": newPage.Header.UpperPtr}).Info("Cleaned Page")
+
 		space.TempPagePtr = nil
 		memTag := getTag(space.FreeMemory)
 		pageInfo := dirPage[space.PageID]
@@ -54,12 +63,14 @@ func cleanOrgnize(newSpace []*storage.FreeSpace, rowsId []uint64, tableObj *stor
 				return space.PageID != item.PageID
 			})
 		}
-		
+
 		if memTag == 0 {
 			memTag = EMPTY_PAGE
 		}
 
 		pageInfo.Level = memTag
+		pageInfo.ExactFreeMem = space.FreeMemory
+
 		tableObj.Memory[memTag] = append(tableObj.Memory[memTag], space)
 
 		err = bpm.ReplacePage(newPage) // new page was rearranged, need to update buffer pool
@@ -71,15 +82,24 @@ func cleanOrgnize(newSpace []*storage.FreeSpace, rowsId []uint64, tableObj *stor
 		if err != nil {
 			return fmt.Errorf("unpin failed: %w", err)
 		}
+
+		logger.Log.WithField("tableObj", tableObj.Memory).Info("After memory separation")
+		err = saveMemMapping(tableObj)
+		if err != nil {
+			return fmt.Errorf("saveMemMapping failed: %w", err)
+		}
+		bpm.Mu.Unlock()
+		insertChan <- updateInfo.NonAddedRow
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			continue
+		}
 	}
 
-	logger.Log.WithField("tableObj", tableObj.Memory).Info("After memory separation")
 	logger.Log.Info("cleanOrgnize (end)")
-
-	err := saveMemMapping(tableObj)
-	if err != nil {
-		return fmt.Errorf("saveMemMapping failed: %w", err)
-	}
 
 	return nil
 }

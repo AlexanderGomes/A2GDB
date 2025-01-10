@@ -3,8 +3,8 @@ package engine
 import (
 	"a2gdb/logger"
 	"a2gdb/storage-engine/storage"
+	"context"
 	"fmt"
-	"log"
 	"strconv"
 	"strings"
 
@@ -172,19 +172,26 @@ func processPagesForDeletion(pages []*storage.PageV2, deleteKey, deleteVal strin
 	return freeSpaceMapping, rowsID, nil
 }
 
-type NonAddedRow struct {
-	Id    uint64
-	Bytes []byte
+type NonAddedRows struct {
+	BytesNeeded uint16
+	RowsId      []uint64
+	Rows        [][]byte
 }
 
-func processPagesForUpdate(pages []*storage.PageV2, updateKey, updateVal, filterKey, filterVal string, tableObj *storage.TableObj) ([]*storage.FreeSpace, []*NonAddedRow, error) {
+type ModifiedInfo struct {
+	FreeSpaceMapping *storage.FreeSpace
+	NonAddedRow      *NonAddedRows
+	RowIds           []uint64
+}
+
+func processPagesForUpdate(ctx context.Context, pageChan chan *storage.PageV2, updateInfoChan chan ModifiedInfo, updateKey, updateVal, filterKey, filterVal string, tableObj *storage.TableObj) error {
 	logger.Log.Info("processPagesForUpdate (start)")
+	defer close(updateInfoChan)
 
-	var freeSpaceMapping []*storage.FreeSpace
-	var nonAddedRows []*NonAddedRow
-
-	for _, page := range pages {
+	for page := range pageChan {
 		var freeSpacePage *storage.FreeSpace
+		var updateInfo ModifiedInfo
+		var nonAddedRows NonAddedRows
 
 		pageId := storage.PageID(page.Header.ID)
 		pageObj := tableObj.DirectoryPage.Value[pageId]
@@ -200,7 +207,7 @@ func processPagesForUpdate(pages []*storage.PageV2, updateKey, updateVal, filter
 			rowBytes := page.Data[location.Offset : location.Offset+location.Length]
 			row, err := storage.DecodeRow(rowBytes)
 			if err != nil {
-				log.Panicf("couldn't decode row, location: %+v, error: %s", location, err)
+				return fmt.Errorf("couldn't decode row, location: %+v, error: %s", location, err)
 			}
 
 			if row.Values[filterKey] == filterVal {
@@ -211,63 +218,97 @@ func processPagesForUpdate(pages []*storage.PageV2, updateKey, updateVal, filter
 				row.Values[updateKey] = updateVal
 				rowBytes, err := storage.EncodeRow(row)
 				if err != nil {
-					return nil, nil, fmt.Errorf("EncodeRow failed: %w", err)
+					return fmt.Errorf("EncodeRow failed: %w", err)
 				}
 
 				location.Free = true
 				freeSpacePage.FreeMemory += location.Length
+				nonAddedRows.BytesNeeded += uint16(len(rowBytes)) //x
 
-				nonAddedRow := NonAddedRow{
-					Bytes: rowBytes,
-					Id:    row.ID,
-				}
-
-				nonAddedRows = append(nonAddedRows, &nonAddedRow)
+				nonAddedRows.Rows = append(nonAddedRows.Rows, rowBytes)
+				updateInfo.RowIds = append(updateInfo.RowIds, row.ID)
 			}
 		}
 
 		if freeSpacePage != nil {
-			freeSpaceMapping = append(freeSpaceMapping, freeSpacePage)
-			pageObj.ExactFreeMem = freeSpacePage.FreeMemory
+			nonAddedRows.RowsId = updateInfo.RowIds
+			updateInfo.FreeSpaceMapping = freeSpacePage
+			updateInfo.NonAddedRow = &nonAddedRows
+
+			logger.Log.WithField("updateInfo", updateInfo).Info("Page processed")
+			updateInfoChan <- updateInfo
 		}
 
 		logger.Log.WithFields(logrus.Fields{"Memlevel": pageObj.Level, "exactFreeMem": pageObj.ExactFreeMem, "offset": pageObj.Offset}).Info("After Modification (PageObj)")
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			continue
+		}
 	}
 
 	logger.Log.Info("processPagesForUpdate (end)")
-	return freeSpaceMapping, nonAddedRows, nil
+	return nil
 }
 
-func handleLikeInsert(rows []*NonAddedRow, tableObj *storage.TableObj, tableName string, bpm *storage.BufferPoolManager) error {
+func handleLikeInsert(ctx context.Context, nonAddedRows chan *NonAddedRows, tableObj *storage.TableObj, tableName string, bpm *storage.BufferPoolManager) error {
 	logger.Log.Info("handleLikeInsert(update) Started")
 
-	batchSize := 5
-	totalRows := len(rows)
+	for nonAddedRow := range nonAddedRows {
+		bpm.Mu.Lock()
+		if nonAddedRow.BytesNeeded >= EMPTY_PAGE {
+			chunkedRows := ChunkRows(nonAddedRow)
 
-	for i := 0; i < totalRows; i += batchSize {
-		end := i + batchSize
-		if end > totalRows {
-			end = totalRows
+			for _, chunkedRow := range chunkedRows {
+				err := findAndUpdate(bpm, tableObj, chunkedRow.BytesNeeded, tableName, chunkedRow.Rows, chunkedRow.RowsId)
+				if err != nil {
+					return fmt.Errorf("findAndUpdate failed: %w", err)
+				}
+			}
+			bpm.Mu.Unlock()
+			continue
 		}
 
-		logger.Log.Infof("processing row batches from %d to %d", i, end-1)
-		batch := rows[i:end]
-		bytesNeeded := 0
-
-		var encodedBytes [][]byte
-		var rowIds []uint64
-		for _, row := range batch {
-			bytesNeeded += len(row.Bytes)
-			encodedBytes = append(encodedBytes, row.Bytes)
-			rowIds = append(rowIds, row.Id)
-		}
-
-		err := findAndUpdate(bpm, tableObj, uint16(bytesNeeded), tableName, encodedBytes, rowIds)
+		err := findAndUpdate(bpm, tableObj, nonAddedRow.BytesNeeded, tableName, nonAddedRow.Rows, nonAddedRow.RowsId)
 		if err != nil {
 			return fmt.Errorf("findAndUpdate failed: %w", err)
+		}
+		bpm.Mu.Unlock()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			continue
 		}
 	}
 
 	logger.Log.Info("handleLikeInsert(update) Completed")
 	return nil
+}
+
+func ChunkRows(nonAddedRows *NonAddedRows) []*NonAddedRows {
+	const maxBytesPerChunk = 2096
+	var chunkedRows []*NonAddedRows
+
+	currentChunk := &NonAddedRows{}
+	for i, row := range nonAddedRows.Rows {
+		rowSize := uint16(len(row))
+
+		if currentChunk.BytesNeeded+rowSize >= maxBytesPerChunk {
+			chunkedRows = append(chunkedRows, currentChunk)
+			currentChunk = &NonAddedRows{}
+		}
+
+		currentChunk.BytesNeeded += rowSize
+		currentChunk.Rows = append(currentChunk.Rows, row)
+		currentChunk.RowsId = append(currentChunk.RowsId, nonAddedRows.RowsId[i])
+	}
+
+	if len(currentChunk.Rows) > 0 {
+		chunkedRows = append(chunkedRows, currentChunk)
+	}
+
+	return chunkedRows
 }

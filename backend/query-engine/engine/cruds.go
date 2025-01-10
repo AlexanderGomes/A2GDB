@@ -3,8 +3,10 @@ package engine
 import (
 	"a2gdb/logger"
 	"a2gdb/storage-engine/storage"
+	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/sirupsen/logrus"
 )
@@ -37,86 +39,98 @@ func (qe *QueryEngine) handleUpdate(plan map[string]interface{}) Result {
 		return result
 	}
 
-	pages, err := qe.BufferPoolManager.FullTableScan(tableObj.DataFile, qe.BufferPoolManager.PageTable)
-	if err != nil {
-		result.Error = fmt.Errorf("FullTableScan failed: %w", err)
-		result.Msg = "failed"
-		return result
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var wg sync.WaitGroup
+	errChan := make(chan error, 4)
+	pageChan := make(chan *storage.PageV2)
+	updateInfoChan := make(chan ModifiedInfo)
+	insertChan := make(chan *NonAddedRows)
+
+	tasks := []func() error{
+		func() error {
+			return qe.BufferPoolManager.FullTableScan(ctx, pageChan, tableObj.DataFile, qe.BufferPoolManager.PageTable)
+		},
+		func() error {
+			return processPagesForUpdate(ctx, pageChan, updateInfoChan, modifyColumn, modifyValue, filterColumn, filterValue, tableObj)
+		},
+		func() error {
+			return cleanOrgnize(ctx, updateInfoChan, insertChan, tableObj, qe.BufferPoolManager)
+		},
+		func() error {
+			return handleLikeInsert(ctx, insertChan, tableObj, tableName, qe.BufferPoolManager) //x
+		},
 	}
 
-	logger.Log.WithFields(logrus.Fields{"filterColumn": filterColumn, "filterValue": filterValue, "modifyColumn": modifyColumn, "modifyValue": modifyValue, "tableName": tableName}).Info("processPagesForUpdate inputs")
-
-	freeSpaceMapping, nonAddedRows, err := processPagesForUpdate(pages, modifyColumn, modifyValue, filterColumn, filterValue, tableObj)
-	if err != nil {
-		result.Error = fmt.Errorf("processPagesForUpdate failed: %w", err)
-		result.Msg = "failed"
-		return result
+	for _, task := range tasks {
+		wg.Add(1)
+		go func(task func() error) {
+			defer wg.Done()
+			if err := task(); err != nil {
+				errChan <- err
+				cancel()
+			}
+		}(task)
 	}
 
-	var rowIds []uint64
-	rowIds = append(rowIds, 0) // delete from bp
-	for _, row := range nonAddedRows {
-		rowIds = append(rowIds, row.Id)
+	go func() {
+		wg.Wait()
+		close(errChan)
+	}()
+
+	for err := range errChan {
+		if err != nil {
+			result.Error = fmt.Errorf("error occurred during update: %w", err)
+			result.Msg = "failed"
+			return result
+		}
 	}
 
-	err = cleanOrgnize(freeSpaceMapping, rowIds, tableObj, qe.BufferPoolManager) // deletes old
-	if err != nil {
-		result.Error = fmt.Errorf("cleanOrgnize failed: %w", err)
-		result.Msg = "failed"
-		return result
-	}
-
-	err = handleLikeInsert(nonAddedRows, tableObj, tableName, qe.BufferPoolManager) // inserts new
-	if err != nil {
-		result.Error = fmt.Errorf("handleLikeInsert failed: %w", err)
-		result.Msg = "failed"
-		return result
-	}
-
-	logger.Log.Info("Update Completed")
-	result.Msg = "Success"
+	result.Msg = "success"
 	return result
 }
 
 func (qe *QueryEngine) handleDelete(plan map[string]interface{}) Result {
 	var result Result
 
-	logger.Log.Info("Delete Started")
+	// logger.Log.Info("Delete Started")
 
-	tableName := plan["table"].(string)
-	deleteKey := plan["column"].(string)
-	deleteVal := strings.ReplaceAll(plan["value"].(string), "'", "")
+	// tableName := plan["table"].(string)
+	// deleteKey := plan["column"].(string)
+	// deleteVal := strings.ReplaceAll(plan["value"].(string), "'", "")
 
-	manager := qe.BufferPoolManager.DiskManager
+	// manager := qe.BufferPoolManager.DiskManager
 
-	tableObj, err := storage.GetTableObj(tableName, manager)
-	if err != nil {
-		result.Error = fmt.Errorf("GetTableObj failed: %w", err)
-		result.Msg = "failed"
-		return result
-	}
+	// tableObj, err := storage.GetTableObj(tableName, manager)
+	// if err != nil {
+	// 	result.Error = fmt.Errorf("GetTableObj failed: %w", err)
+	// 	result.Msg = "failed"
+	// 	return result
+	// }
 
-	pages, err := qe.BufferPoolManager.FullTableScan(tableObj.DataFile, qe.BufferPoolManager.PageTable)
-	if err != nil {
-		result.Error = fmt.Errorf("FullTableScan failed: %w", err)
-		result.Msg = "failed"
-		return result
-	}
+	// pageChan := make(chan *storage.PageV2)
+	// pages, err := qe.BufferPoolManager.FullTableScan(pageChan, tableObj.DataFile, qe.BufferPoolManager.PageTable)
+	// if err != nil {
+	// 	result.Error = fmt.Errorf("FullTableScan failed: %w", err)
+	// 	result.Msg = "failed"
+	// 	return result
+	// }
 
-	logger.Log.WithFields(logrus.Fields{"deleteKey": deleteKey, "deleteVal": deleteVal, "tableName": tableName}).Info("processPagesForDeletion inputs")
-	freeSpaceMapping, rowsID, err := processPagesForDeletion(pages, deleteKey, deleteVal, tableObj)
-	if err != nil {
-		result.Error = fmt.Errorf("processPagesForDeletion failed: %w", err)
-		result.Msg = "failed"
-		return result
-	}
+	// logger.Log.WithFields(logrus.Fields{"deleteKey": deleteKey, "deleteVal": deleteVal, "tableName": tableName}).Info("processPagesForDeletion inputs")
+	// freeSpaceMapping, rowsID, err := processPagesForDeletion(pages, deleteKey, deleteVal, tableObj)
+	// if err != nil {
+	// 	result.Error = fmt.Errorf("processPagesForDeletion failed: %w", err)
+	// 	result.Msg = "failed"
+	// 	return result
+	// }
 
-	err = cleanOrgnize(freeSpaceMapping, rowsID, tableObj, qe.BufferPoolManager)
-	if err != nil {
-		result.Error = fmt.Errorf("cleanOrgnize failed: %w", err)
-		result.Msg = "failed"
-		return result
-	}
+	// err = cleanOrgnize(freeSpaceMapping, rowsID, tableObj, qe.BufferPoolManager)
+	// if err != nil {
+	// 	result.Error = fmt.Errorf("cleanOrgnize failed: %w", err)
+	// 	result.Msg = "failed"
+	// 	return result
+	// }
 
 	logger.Log.Info("Delete Completed")
 	result.Msg = "Success"

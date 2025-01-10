@@ -14,13 +14,11 @@ func main() {
 		log.Fatal("DB init failed: ", err)
 	}
 
-	createTable(engine)
-	insertMany(engine)
 	selects(engine)
 }
 
 func selects(engine *engine.QueryEngine) {
-	sql1 := "SELECT * FROM `User`\n"
+	sql1 := "UPDATE `User` SET Age = 121276 WHERE Username = 'JaneSmith'\n"
 	encodedPlan1, err := util.SendSql(sql1)
 	if err != nil {
 		log.Fatal(err)

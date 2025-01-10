@@ -4,7 +4,6 @@ import (
 	"a2gdb/logger"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -185,12 +184,10 @@ func (dm *DiskManagerV2) CreateTable(tableName string, info TableInfo) error {
 }
 
 // space for optimization // could decode just the header
-func FullTableScan(file *os.File, pageTable map[PageID]FrameID) ([]*PageV2, error) {
+func FullTableScan(pc chan *PageV2, file *os.File, pageTable map[PageID]FrameID, bpm *BufferPoolManager) error {
 	logger.Log.Info("FullTableScanNormalFiles")
 
 	var offset int64
-	pageSlice := []*PageV2{}
-
 	for {
 		buffer := make([]byte, PageSizeV2)
 		_, err := file.ReadAt(buffer, int64(offset))
@@ -200,12 +197,12 @@ func FullTableScan(file *os.File, pageTable map[PageID]FrameID) ([]*PageV2, erro
 				break
 			}
 
-			return nil, fmt.Errorf("reading at %d failed", offset)
+			return fmt.Errorf("reading at %d failed", offset)
 		}
 
 		page, err := DecodePageV2(buffer)
 		if err != nil {
-			return []*PageV2{}, fmt.Errorf("DecodePageV2 failed: %w", err)
+			return fmt.Errorf("DecodePageV2 failed: %w", err)
 		}
 
 		_, ok := pageTable[PageID(page.Header.ID)]
@@ -215,11 +212,16 @@ func FullTableScan(file *os.File, pageTable map[PageID]FrameID) ([]*PageV2, erro
 			continue
 		}
 
-		pageSlice = append(pageSlice, page)
+		pc <- page
+		err = bpm.InsertPage(page)
+		if err != nil {
+			return fmt.Errorf("insert into bpm failed: %w", err)
+		}
+		logger.Log.WithField("PageId", page.Header.ID).Info("Page from disk")
 		offset += PageSizeV2
 	}
 
-	return pageSlice, nil
+	return nil
 }
 
 type Chunk struct {
@@ -360,29 +362,14 @@ func DecoderWorker(byteChan chan []byte, pageChan chan *PageV2) error {
 	return nil
 }
 
-func GetTablePagesFromDisk(dataFile *os.File, offset *Offset, pageMemTable map[PageID]FrameID) ([]*PageV2, error) {
+func GetTablePagesFromDisk(pc chan *PageV2, dataFile *os.File, pageMemTable map[PageID]FrameID, bpm *BufferPoolManager) error {
 	stat, _ := dataFile.Stat()
 	size := stat.Size()
 
-	if offset == nil {
-		if size >= MAX_FILE_SIZE {
-			return FullTableScanBigFiles(dataFile, pageMemTable)
-		}
-		return FullTableScan(dataFile, pageMemTable)
+	if size >= MAX_FILE_SIZE {
+		// return FullTableScanBigFiles(dataFile, pageMemTable)
 	}
-
-	bytes, err := ReadPageAtOffset(dataFile, *offset)
-	if err != nil {
-		return nil, fmt.Errorf("ReadPageAtOffset failed: %w", err)
-	}
-
-	page, err := DecodePageV2(bytes)
-	if err != nil {
-		return nil, fmt.Errorf("DecodePageV2 failed: %w", err)
-	}
-
-	log.Println("Index Scan Completed")
-	return []*PageV2{page}, nil
+	return FullTableScan(pc, dataFile, pageMemTable, bpm)
 }
 
 func GetTableObj(tableName string, manager *DiskManagerV2) (*TableObj, error) {
