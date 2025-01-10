@@ -59,7 +59,7 @@ func (qe *QueryEngine) handleUpdate(plan map[string]interface{}) Result {
 			return cleanOrgnize(ctx, updateInfoChan, insertChan, tableObj, qe.BufferPoolManager)
 		},
 		func() error {
-			return handleLikeInsert(ctx, insertChan, tableObj, tableName, qe.BufferPoolManager) //x
+			return handleLikeInsert(ctx, insertChan, tableObj, tableName, qe.BufferPoolManager)
 		},
 	}
 

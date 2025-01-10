@@ -107,6 +107,7 @@ func (bpm *BufferPoolManager) InsertPage(page *PageV2) error {
 	return nil
 }
 
+// stop evicting pinned pages
 func (bpm *BufferPoolManager) Evict() error {
 	frameID, err := bpm.Replacer.Evict()
 	if err != nil {
@@ -114,6 +115,19 @@ func (bpm *BufferPoolManager) Evict() error {
 	}
 
 	page := bpm.Pages[frameID]
+
+	for page.IsPinned {
+		bpm.Replacer.RecordAccess(frameID, 1000)
+
+		frameID, err = bpm.Replacer.Evict()
+		if err != nil {
+			return fmt.Errorf("Replacer.Evict failed: %w", err)
+		}
+
+		page = bpm.Pages[frameID]
+	}
+
+	logger.Log.WithField("pageId", page.Header.ID).Info("Found Non Pinned Page")
 
 	//## disk
 	tableObj := bpm.DiskManager.TableObjs[page.TABLE]
@@ -193,7 +207,7 @@ func (bpm *BufferPoolManager) Pin(pageID PageID) error {
 	if FrameID, ok := bpm.PageTable[pageID]; ok {
 		page := bpm.Pages[FrameID]
 		page.IsPinned = true
-		bpm.Replacer.RecordAccess(FrameID)
+		bpm.Replacer.RecordAccess(FrameID, 0)
 
 		logger.Log.Info("Pinned PageId: ", pageID)
 		return nil

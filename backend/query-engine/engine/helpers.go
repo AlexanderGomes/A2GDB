@@ -87,7 +87,7 @@ func findAndUpdate(bufferM *storage.BufferPoolManager, tableObj *storage.TableOb
 	// not dirty, updated disk image before releasing
 	err = bufferM.Unpin(storage.PageID(page.Header.ID), false)
 	if err != nil {
-		return fmt.Errorf("unpin failed: %v", page)
+		return fmt.Errorf("unpin failed: %v", err)
 	}
 
 	return nil
@@ -223,7 +223,7 @@ func processPagesForUpdate(ctx context.Context, pageChan chan *storage.PageV2, u
 
 				location.Free = true
 				freeSpacePage.FreeMemory += location.Length
-				nonAddedRows.BytesNeeded += uint16(len(rowBytes)) //x
+				nonAddedRows.BytesNeeded += uint16(len(rowBytes))
 
 				nonAddedRows.Rows = append(nonAddedRows.Rows, rowBytes)
 				updateInfo.RowIds = append(updateInfo.RowIds, row.ID)
@@ -257,7 +257,6 @@ func handleLikeInsert(ctx context.Context, nonAddedRows chan *NonAddedRows, tabl
 	logger.Log.Info("handleLikeInsert(update) Started")
 
 	for nonAddedRow := range nonAddedRows {
-		bpm.Mu.Lock()
 		if nonAddedRow.BytesNeeded >= EMPTY_PAGE {
 			chunkedRows := ChunkRows(nonAddedRow)
 
@@ -267,7 +266,6 @@ func handleLikeInsert(ctx context.Context, nonAddedRows chan *NonAddedRows, tabl
 					return fmt.Errorf("findAndUpdate failed: %w", err)
 				}
 			}
-			bpm.Mu.Unlock()
 			continue
 		}
 
@@ -275,7 +273,7 @@ func handleLikeInsert(ctx context.Context, nonAddedRows chan *NonAddedRows, tabl
 		if err != nil {
 			return fmt.Errorf("findAndUpdate failed: %w", err)
 		}
-		bpm.Mu.Unlock()
+
 		select {
 		case <-ctx.Done():
 			return ctx.Err()

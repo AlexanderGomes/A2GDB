@@ -37,7 +37,6 @@ func cleanOrgnize(ctx context.Context, updateInfoChan chan ModifiedInfo, insertC
 		space := updateInfo.FreeSpaceMapping
 		rowsId := updateInfo.RowIds
 
-		bpm.Mu.Lock()
 		newPage, err := storage.RearrangePAGE(space.TempPagePtr, tableObj, tableObj.TableName)
 		if err != nil {
 			return fmt.Errorf("RearrangePAGE failed: %w", err)
@@ -88,7 +87,7 @@ func cleanOrgnize(ctx context.Context, updateInfoChan chan ModifiedInfo, insertC
 		if err != nil {
 			return fmt.Errorf("saveMemMapping failed: %w", err)
 		}
-		bpm.Mu.Unlock()
+
 		insertChan <- updateInfo.NonAddedRow
 
 		select {

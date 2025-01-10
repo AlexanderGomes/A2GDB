@@ -19,7 +19,7 @@ type AccessEntry struct {
 	Frequency   int
 }
 
-func (r *LRUKReplacer) RecordAccess(frameID FrameID) {
+func (r *LRUKReplacer) RecordAccess(frameID FrameID, avoidInfinitLoop int) {
 	accessTime := time.Now()
 
 	if elem, ok := r.frameToElem[frameID]; ok {
@@ -33,7 +33,7 @@ func (r *LRUKReplacer) RecordAccess(frameID FrameID) {
 		accessEntry := &AccessEntry{
 			FrameID:     frameID,
 			AccessTimes: []time.Time{accessTime},
-			Frequency:   1,
+			Frequency:   1 + avoidInfinitLoop,
 		}
 		elem := r.accessHistory.PushFront(accessEntry)
 		r.frameToElem[frameID] = elem
