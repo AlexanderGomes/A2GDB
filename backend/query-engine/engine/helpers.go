@@ -84,12 +84,6 @@ func findAndUpdate(bufferM *storage.BufferPoolManager, tableObj *storage.TableOb
 		return fmt.Errorf("memSeparationSingle failed: %v", page)
 	}
 
-	// not dirty, updated disk image before releasing
-	err = bufferM.Unpin(storage.PageID(page.Header.ID), false)
-	if err != nil {
-		return fmt.Errorf("unpin failed: %v", err)
-	}
-
 	return nil
 }
 

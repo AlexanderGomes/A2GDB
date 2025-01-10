@@ -213,15 +213,6 @@ func FullTableScan(pc chan *PageV2, file *os.File, pageTable map[PageID]FrameID,
 		}
 
 		pc <- page
-		err = bpm.InsertPage(page)
-		if err != nil {
-			return fmt.Errorf("insert into bpm failed: %w", err)
-		}
-
-		err = bpm.Pin(PageID(page.Header.ID))
-		if err != nil {
-			return fmt.Errorf("disk scan failed: %w", err)
-		}
 
 		logger.Log.WithField("PageId", page.Header.ID).Info("Page from disk")
 		offset += PageSizeV2

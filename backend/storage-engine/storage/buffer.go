@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	MaxPoolSize = 100
+	MaxPoolSize = 27
 )
 
 type FrameID int
@@ -22,7 +22,6 @@ type BufferPoolManager struct {
 	PageTable   map[PageID]FrameID
 	Replacer    *LRUKReplacer
 	DiskManager *DiskManagerV2
-	Mu          sync.Mutex
 }
 
 func (bpm *BufferPoolManager) FullTableScan(ctx context.Context, pc chan *PageV2, dataFile *os.File, pageTable map[PageID]FrameID) error {
@@ -88,6 +87,10 @@ func (bpm *BufferPoolManager) ReplacePage(page *PageV2) error {
 }
 
 func (bpm *BufferPoolManager) InsertPage(page *PageV2) error {
+	if _, ok := bpm.PageTable[PageID(page.Header.ID)]; ok {
+		return nil
+	}
+
 	logger.Log.Info("Insert Into BPM, pageID: ", page.Header.ID)
 
 	if len(*bpm.freeList) == 0 {
@@ -175,17 +178,6 @@ func (bpm *BufferPoolManager) FetchPage(pageID PageID, tableObj *TableObj) (*Pag
 		if err != nil {
 			return nil, fmt.Errorf("DecodePageV2 failed: %w", err)
 		}
-
-		err = bpm.InsertPage(pagePtr)
-		if err != nil {
-			return nil, fmt.Errorf("InsertPage failed: %w", err)
-		}
-		logger.Log.Info("Fetched from Disk, pageId: ", pageID)
-	}
-
-	err := bpm.Pin(PageID(pagePtr.Header.ID))
-	if err != nil {
-		return nil, fmt.Errorf("Pin failed: %w", err)
 	}
 
 	return pagePtr, nil
@@ -231,5 +223,5 @@ func NewBufferPoolManager(k int, fileName string) (*BufferPoolManager, error) {
 		return nil, err
 	}
 
-	return &BufferPoolManager{pages, &freeList, pageTable, replacer, diskManager, sync.Mutex{}}, nil
+	return &BufferPoolManager{pages, &freeList, pageTable, replacer, diskManager}, nil
 }

@@ -74,12 +74,7 @@ func cleanOrgnize(ctx context.Context, updateInfoChan chan ModifiedInfo, insertC
 
 		err = bpm.ReplacePage(newPage) // new page was rearranged, need to update buffer pool
 		if err != nil {
-			return fmt.Errorf("ReplacePage failed: %w", err)
-		}
-
-		err = bpm.Unpin(storage.PageID(newPage.Header.ID), false)
-		if err != nil {
-			return fmt.Errorf("unpin failed: %w", err)
+			logger.Log.WithField("RearrangePAGE: ", newPage.Header.ID).Info("Replace Failed, page not in memory (not necessarily an error)")
 		}
 
 		logger.Log.WithField("tableObj", tableObj.Memory).Info("After memory separation")
@@ -199,17 +194,6 @@ func getAvailablePage(bufferM *storage.BufferPoolManager, tableObj *storage.Tabl
 		logger.Log.Info("Created new page")
 
 		page := storage.CreatePageV2(tableName)
-
-		err := bufferM.InsertPage(page)
-		if err != nil {
-			return nil, fmt.Errorf("InsertPage failed: %w", err)
-		}
-
-		err = bufferM.Pin(storage.PageID(page.Header.ID))
-		if err != nil {
-			return nil, fmt.Errorf("pin failed: %w", err)
-		}
-
 		return page, nil
 	}
 

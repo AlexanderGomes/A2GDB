@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"errors"
 	"math"
+	"sync"
 	"time"
 )
 
@@ -11,6 +12,7 @@ type LRUKReplacer struct {
 	accessHistory *list.List
 	frameToElem   map[FrameID]*list.Element
 	k             int
+	mu            sync.Mutex
 }
 
 type AccessEntry struct {
@@ -22,6 +24,8 @@ type AccessEntry struct {
 func (r *LRUKReplacer) RecordAccess(frameID FrameID, avoidInfinitLoop int) {
 	accessTime := time.Now()
 
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if elem, ok := r.frameToElem[frameID]; ok {
 		entry := elem.Value.(*AccessEntry)
 
@@ -30,9 +34,10 @@ func (r *LRUKReplacer) RecordAccess(frameID FrameID, avoidInfinitLoop int) {
 
 		r.accessHistory.MoveToFront(elem)
 	} else {
+		newTime := accessTime.Add(time.Duration(avoidInfinitLoop) * time.Minute)
 		accessEntry := &AccessEntry{
 			FrameID:     frameID,
-			AccessTimes: []time.Time{accessTime},
+			AccessTimes: []time.Time{newTime},
 			Frequency:   1 + avoidInfinitLoop,
 		}
 		elem := r.accessHistory.PushFront(accessEntry)
@@ -58,7 +63,7 @@ func (r *LRUKReplacer) Evict() (FrameID, error) {
 		elem := r.frameToElem[frameID]
 		accessEntry := elem.Value.(*AccessEntry)
 
-		if (distance > maxDistance) || (distance == maxDistance && accessEntry.Frequency < minFrequency) {
+		if (accessEntry.Frequency < minFrequency) || (distance > maxDistance) {
 			maxDistance = distance
 			minFrequency = accessEntry.Frequency
 			evictedFrameID = frameID
@@ -96,5 +101,6 @@ func NewLRUKReplacer(k int) *LRUKReplacer {
 		accessHistory: list.New(),
 		frameToElem:   make(map[FrameID]*list.Element),
 		k:             k,
+		mu:            sync.Mutex{},
 	}
 }

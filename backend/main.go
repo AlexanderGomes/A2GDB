@@ -14,13 +14,11 @@ func main() {
 		log.Fatal("DB init failed: ", err)
 	}
 
-	createTable(engine)
-	insertMany(engine)
 	selects(engine)
 }
 
 func selects(engine *engine.QueryEngine) {
-	sql1 := "UPDATE `User` SET Age = 121777 WHERE Username = 'JaneSmith'\n"
+	sql1 := "UPDATE `User` SET Age = 121222c WHERE Username = 'JaneSmith'\n"
 	encodedPlan1, err := util.SendSql(sql1)
 	if err != nil {
 		log.Fatal(err)
@@ -35,7 +33,7 @@ func selects(engine *engine.QueryEngine) {
 }
 
 func insertMany(engine *engine.QueryEngine) {
-	for range 5000 {
+	for range 1000 {
 		sql1 := "INSERT INTO `User` (Username, Age, City) VALUES ('JaneSmith', 25, 'Los Angeles')\n"
 
 		encodedPlan1, err := util.SendSql(sql1)

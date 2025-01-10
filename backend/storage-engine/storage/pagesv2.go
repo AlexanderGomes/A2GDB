@@ -208,6 +208,7 @@ func GenerateRandomIDRow() int64 {
 func RearrangePAGE(page *PageV2, tableObj *TableObj, tableName string) (*PageV2, error) {
 	newPage := CreatePageV2(tableName)
 	newPage.Header.ID = page.Header.ID
+	newPage.IsPinned = page.IsPinned
 
 	pageObj, ok := tableObj.DirectoryPage.Value[PageID(page.Header.ID)]
 	if !ok {
