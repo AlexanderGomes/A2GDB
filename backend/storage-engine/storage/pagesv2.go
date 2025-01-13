@@ -8,6 +8,7 @@ import (
 	"io"
 	"math/big"
 	"os"
+	"sync"
 )
 
 const (
@@ -49,6 +50,7 @@ type TupleLocation struct {
 
 type DirectoryPageV2 struct {
 	Value map[PageID]*PageInfo
+	Mu    sync.RWMutex
 }
 
 type Offset uint64
@@ -231,7 +233,7 @@ func RearrangePAGE(page *PageV2, tableObj *TableObj, tableName string) (*PageV2,
 	return newPage, nil
 }
 
-func UpdatePageInfo(rowsID []uint64, pageFound *PageV2, tableObj *TableObj) error {
+func UpdatePageInfo(rowsID []uint64, pageFound *PageV2, tableObj *TableObj, tableStats *TableInfo) error {
 	pageID := PageID(pageFound.Header.ID)
 	dirPage := tableObj.DirectoryPage
 	pageInfObj, found := dirPage.Value[pageID]
@@ -248,6 +250,7 @@ func UpdatePageInfo(rowsID []uint64, pageFound *PageV2, tableObj *TableObj) erro
 		}
 
 		dirPage.Value[pageID] = pageInfObj
+		tableStats.NumOfPages++
 	} else {
 		pageInfObj.PointerArray = append(pageInfObj.PointerArray, pageFound.PointerArray...)
 		if err := WritePageBackV2(pageFound, pageInfObj.Offset, tableObj.DataFile); err != nil {
@@ -261,7 +264,7 @@ func UpdatePageInfo(rowsID []uint64, pageFound *PageV2, tableObj *TableObj) erro
 		return fmt.Errorf("UpdateDirectoryPageDisk failed: %w", err)
 	}
 
-	if err := UpdateBp(rowsID, *tableObj, *pageInfObj); err != nil {
+	if err := UpdateBp(rowsID, tableObj, *pageInfObj); err != nil { // race chain // cleanOrganize // handleLikeInsert
 		return fmt.Errorf("UpdateBp failed: %w", err)
 	}
 

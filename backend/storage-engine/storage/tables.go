@@ -129,7 +129,7 @@ func GetDirInfo(fileptr *os.File) (*DirectoryPageV2, error) {
 	}
 
 	if len(byts) == 0 {
-		return &DirectoryPageV2{make(map[PageID]*PageInfo)}, nil
+		return &DirectoryPageV2{Value: make(map[PageID]*PageInfo), Mu: sync.RWMutex{}}, nil
 	}
 
 	dirPage, err := DecodeDirectory(byts)
@@ -184,11 +184,19 @@ func (dm *DiskManagerV2) CreateTable(tableName string, info TableInfo) error {
 }
 
 // space for optimization // could decode just the header
-func FullTableScan(pc chan *PageV2, file *os.File, pageTable map[PageID]FrameID, bpm *BufferPoolManager) error {
+func FullTableScan(pc chan *PageV2, file *os.File, pageTable map[PageID]FrameID, tp uint64) error {
 	logger.Log.Info("FullTableScanNormalFiles")
 
 	var offset int64
+	var pageCount uint64
+
 	for {
+		fmt.Println("current page: ", pageCount)
+		if pageCount == tp {
+			fmt.Println("Limit", pageCount)
+			break
+		}
+
 		buffer := make([]byte, PageSizeV2)
 		_, err := file.ReadAt(buffer, int64(offset))
 		if err != nil && err == io.EOF {
@@ -216,6 +224,7 @@ func FullTableScan(pc chan *PageV2, file *os.File, pageTable map[PageID]FrameID,
 
 		logger.Log.WithField("PageId", page.Header.ID).Info("Page from disk")
 		offset += PageSizeV2
+		pageCount++
 	}
 
 	return nil
@@ -359,14 +368,14 @@ func DecoderWorker(byteChan chan []byte, pageChan chan *PageV2) error {
 	return nil
 }
 
-func GetTablePagesFromDisk(pc chan *PageV2, dataFile *os.File, pageMemTable map[PageID]FrameID, bpm *BufferPoolManager) error {
-	stat, _ := dataFile.Stat()
+func GetTablePagesFromDisk(pc chan *PageV2, tableObj *TableObj, pageMemTable map[PageID]FrameID, totalPages uint64) error {
+	stat, _ := tableObj.DataFile.Stat()
 	size := stat.Size()
 
 	if size >= MAX_FILE_SIZE {
 		// return FullTableScanBigFiles(dataFile, pageMemTable)
 	}
-	return FullTableScan(pc, dataFile, pageMemTable, bpm)
+	return FullTableScan(pc, tableObj.DataFile, pageMemTable, totalPages)
 }
 
 func GetTableObj(tableName string, manager *DiskManagerV2) (*TableObj, error) {

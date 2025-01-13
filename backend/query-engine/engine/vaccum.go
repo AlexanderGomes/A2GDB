@@ -25,10 +25,8 @@ const (
 	NEXT_LEVEL = 400
 )
 
-func cleanOrgnize(ctx context.Context, updateInfoChan chan ModifiedInfo, insertChan chan *NonAddedRows, tableObj *storage.TableObj, bpm *storage.BufferPoolManager) error {
+func cleanOrgnize(ctx context.Context, updateInfoChan chan ModifiedInfo, insertChan chan *NonAddedRows, tableObj *storage.TableObj, tableStats *storage.TableInfo) error {
 	defer close(insertChan)
-
-	dirPage := tableObj.DirectoryPage.Value
 
 	logger.Log.Info("cleanOrgnize (start)")
 	logger.Log.WithField("tableObj", tableObj.Memory).Info("Before memory separation")
@@ -42,7 +40,7 @@ func cleanOrgnize(ctx context.Context, updateInfoChan chan ModifiedInfo, insertC
 			return fmt.Errorf("RearrangePAGE failed: %w", err)
 		}
 
-		err = storage.UpdatePageInfo(rowsId, newPage, tableObj)
+		err = storage.UpdatePageInfo(rowsId, newPage, tableObj, tableStats) // race chain
 		if err != nil {
 			return fmt.Errorf("updatePageInfo failed: %w", err)
 		}
@@ -53,6 +51,8 @@ func cleanOrgnize(ctx context.Context, updateInfoChan chan ModifiedInfo, insertC
 
 		space.TempPagePtr = nil
 		memTag := getTag(space.FreeMemory)
+
+		dirPage := tableObj.DirectoryPage.Value
 		pageInfo := dirPage[space.PageID]
 
 		// performance considerations
@@ -71,13 +71,8 @@ func cleanOrgnize(ctx context.Context, updateInfoChan chan ModifiedInfo, insertC
 		pageInfo.ExactFreeMem = space.FreeMemory
 
 		tableObj.Memory[memTag] = append(tableObj.Memory[memTag], space)
-
-		err = bpm.ReplacePage(newPage) // new page was rearranged, need to update buffer pool
-		if err != nil {
-			logger.Log.WithField("RearrangePAGE: ", newPage.Header.ID).Info("Replace Failed, page not in memory (not necessarily an error)")
-		}
-
 		logger.Log.WithField("tableObj", tableObj.Memory).Info("After memory separation")
+
 		err = saveMemMapping(tableObj)
 		if err != nil {
 			return fmt.Errorf("saveMemMapping failed: %w", err)
@@ -101,6 +96,7 @@ func cleanOrgnize(ctx context.Context, updateInfoChan chan ModifiedInfo, insertC
 // ###[x] last two fields of pageObj aren't being saved on the updatePageInfo function but it gets add and saved here.
 func memSeparationSingle(newSpace *storage.FreeSpace, tableObj *storage.TableObj) error {
 	memTag := getTag(newSpace.FreeMemory)
+
 	dirPage := tableObj.DirectoryPage.Value
 	pageInfo := dirPage[newSpace.PageID]
 
@@ -112,12 +108,12 @@ func memSeparationSingle(newSpace *storage.FreeSpace, tableObj *storage.TableObj
 
 	pageInfo.Level = memTag
 	pageInfo.ExactFreeMem = newSpace.FreeMemory
+	logger.Log.WithFields(logrus.Fields{"MemTag": memTag, "ExactFreeMem": pageInfo.ExactFreeMem, "memLevel": pageInfo.Level, "offset": pageInfo.Offset}).Info("memory separation single done")
+
 	err := saveMemMapping(tableObj)
 	if err != nil {
 		return fmt.Errorf("saveMemMapping failed: %w", err)
 	}
-
-	logger.Log.WithFields(logrus.Fields{"MemTag": memTag, "ExactFreeMem": pageInfo.ExactFreeMem, "memLevel": pageInfo.Level, "offset": pageInfo.Offset}).Info("memory separation single done")
 
 	err = storage.UpdateDirectoryPageDisk(tableObj.DirectoryPage, tableObj.DirFile)
 	if err != nil {
@@ -207,6 +203,8 @@ func getAvailablePage(bufferM *storage.BufferPoolManager, tableObj *storage.Tabl
 	if err != nil {
 		return nil, fmt.Errorf("FetchPage failed: %w", err)
 	}
+
+	page.TABLE = tableObj.TableName
 
 	return page, nil
 }

@@ -39,6 +39,8 @@ func (qe *QueryEngine) handleUpdate(plan map[string]interface{}) Result {
 		return result
 	}
 
+	tableStats := manager.PageCatalog.Tables[tableName]
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -50,16 +52,16 @@ func (qe *QueryEngine) handleUpdate(plan map[string]interface{}) Result {
 
 	tasks := []func() error{
 		func() error {
-			return qe.BufferPoolManager.FullTableScan(ctx, pageChan, tableObj.DataFile, qe.BufferPoolManager.PageTable)
+			return qe.BufferPoolManager.FullTableScan(ctx, pageChan, tableObj, qe.BufferPoolManager.PageTable, tableStats.NumOfPages)
 		},
 		func() error {
 			return processPagesForUpdate(ctx, pageChan, updateInfoChan, modifyColumn, modifyValue, filterColumn, filterValue, tableObj)
 		},
 		func() error {
-			return cleanOrgnize(ctx, updateInfoChan, insertChan, tableObj, qe.BufferPoolManager)
+			return cleanOrgnize(ctx, updateInfoChan, insertChan, tableObj, tableStats) // race chain
 		},
 		func() error {
-			return handleLikeInsert(ctx, insertChan, tableObj, tableName, qe.BufferPoolManager)
+			return handleLikeInsert(ctx, insertChan, tableObj, tableName, qe.BufferPoolManager, tableStats) // race chain
 		},
 	}
 
@@ -180,6 +182,8 @@ func (qe *QueryEngine) handleInsert(plan map[string]interface{}) Result {
 	selectedCols := plan["selectedCols"].([]interface{})
 	tableName := plan["table"].(string)
 
+	tableStats := catalog.Tables[tableName]
+
 	primary, err := checkPresenceGetPrimary(selectedCols, tableName, catalog)
 	if err != nil {
 		result.Error = err
@@ -208,7 +212,7 @@ func (qe *QueryEngine) handleInsert(plan map[string]interface{}) Result {
 		"bytesNeeded":  bytesNeeded,
 	}).Info("findAndUpdate Inputs Set")
 
-	err = findAndUpdate(qe.BufferPoolManager, tableobj, bytesNeeded, tableName, encodedRows, rowsID)
+	err = findAndUpdate(qe.BufferPoolManager, tableobj, tableStats, bytesNeeded, tableName, encodedRows, rowsID)
 	if err != nil {
 		result.Error = fmt.Errorf("findAndUpdate Failed: %s", err)
 		result.Msg = "failed"

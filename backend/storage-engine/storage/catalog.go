@@ -13,7 +13,7 @@ type Catalog struct {
 type Column string
 type TableInfo struct {
 	Schema               map[string]ColumnType
-	NumOfPages           uint32
+	NumOfPages           uint64
 	UsedSpace            uint64 // bytes
 	FreeSpace            uint64 // bytes
 	TupleCountTotal      uint32

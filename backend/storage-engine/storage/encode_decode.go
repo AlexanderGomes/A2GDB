@@ -80,6 +80,9 @@ func DecodeMemObj(data []byte) (map[uint16][]*FreeSpace, error) {
 }
 
 func EncodeDirectory(dir *DirectoryPageV2) ([]byte, error) {
+	dir.Mu.RLock()
+	defer dir.Mu.RUnlock()
+
 	buf := bytes.NewBuffer(make([]byte, 0, 1024*20))
 
 	numEntries := uint32(len(dir.Value))
@@ -176,7 +179,7 @@ func EncodePageInfo(pageInfo *PageInfo) ([]byte, error) {
 		return nil, err
 	}
 
-	for _, tuple := range pageInfo.PointerArray {
+	for _, tuple := range pageInfo.PointerArray { // race
 		if err := binary.Write(&buf, binary.LittleEndian, tuple.Offset); err != nil {
 			return nil, err
 		}

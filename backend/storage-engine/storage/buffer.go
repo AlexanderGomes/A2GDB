@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"sync"
 
 	"github.com/sirupsen/logrus"
@@ -24,8 +23,10 @@ type BufferPoolManager struct {
 	DiskManager *DiskManagerV2
 }
 
-func (bpm *BufferPoolManager) FullTableScan(ctx context.Context, pc chan *PageV2, dataFile *os.File, pageTable map[PageID]FrameID) error {
+func (bpm *BufferPoolManager) FullTableScan(ctx context.Context, pc chan *PageV2, tableObj *TableObj, pageTable map[PageID]FrameID, staticNumPages uint64) error {
 	var wg sync.WaitGroup
+	fmt.Println("FullTableScan total pages: ", staticNumPages)
+
 	errChan := make(chan error, 2)
 
 	defer close(pc)
@@ -41,7 +42,7 @@ func (bpm *BufferPoolManager) FullTableScan(ctx context.Context, pc chan *PageV2
 
 	go func() {
 		defer wg.Done()
-		if err := GetTablePagesFromDisk(pc, dataFile, pageTable, bpm); err != nil {
+		if err := GetTablePagesFromDisk(pc, tableObj, pageTable, staticNumPages); err != nil {
 			errChan <- fmt.Errorf("GetTablePagesFromDisk Failed: %w", err)
 		}
 	}()
@@ -134,7 +135,9 @@ func (bpm *BufferPoolManager) Evict() error {
 
 	//## disk
 	tableObj := bpm.DiskManager.TableObjs[page.TABLE]
-	err = UpdatePageInfo(nil, page, tableObj)
+	tableStats := bpm.DiskManager.PageCatalog.Tables[tableObj.TableName]
+
+	err = UpdatePageInfo(nil, page, tableObj, tableStats)
 	if err != nil {
 		return fmt.Errorf("UpdatePageInfo failed: %w", err)
 	}

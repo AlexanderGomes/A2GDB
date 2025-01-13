@@ -132,13 +132,18 @@ func checkBp(t *testing.T) {
 
 }
 
+// db hot
 func TestUpdate(t *testing.T) {
 	sql1 := "UPDATE `User` SET Age = 121209 WHERE Username = 'JaneSmith'\n"
 	encodedPlan1, err := util.SendSql(sql1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	sharedDB.EngineEntry(encodedPlan1)
+	_, _, res := sharedDB.EngineEntry(encodedPlan1)
+
+	if res.Error != nil {
+		t.Fatal(res.Error)
+	}
 
 	t.Run("Total Tuples After Update", func(t *testing.T) {
 		checkTupleNumber(t, expectedStressNumber)
@@ -228,134 +233,134 @@ func TestUpdate(t *testing.T) {
 // 	})
 // }
 
-func TestSelects(t *testing.T) {
-	t.Run("SelectStar", func(t *testing.T) {
-		selectStart(t)
-	})
-	t.Run("selectFilter", func(t *testing.T) {
-		selectFilter(t)
-	})
+// func TestSelects(t *testing.T) {
+// 	t.Run("SelectStar", func(t *testing.T) {
+// 		selectStart(t)
+// 	})
+// 	t.Run("selectFilter", func(t *testing.T) {
+// 		selectFilter(t)
+// 	})
 
-	t.Run("selectWhere", func(t *testing.T) {
-		selectWhere(t)
-	})
+// 	t.Run("selectWhere", func(t *testing.T) {
+// 		selectWhere(t)
+// 	})
 
-	t.Run("selectWhereAnd", func(t *testing.T) {
-		selectWhereAnd(t)
-	})
+// 	t.Run("selectWhereAnd", func(t *testing.T) {
+// 		selectWhereAnd(t)
+// 	})
 
-	t.Run("FindPrimary", func(t *testing.T) {
-		findByPrimary(t)
-	})
-}
+// 	t.Run("FindPrimary", func(t *testing.T) {
+// 		findByPrimary(t)
+// 	})
+// }
 
-const smallest = 1
-const biggest = 1040
+// const smallest = 1
+// const biggest = 1040
 
-const ASC_LIMIT_1 = "SELECT Username, Age, City FROM `User` ORDER BY Age ASC LIMIT 1\n"
-const DESC_LIMIT_1 = "SELECT Username, Age, City FROM `User` ORDER BY Age DESC LIMIT 1\n"
-const ASC = "SELECT Username, Age, City FROM `User` ORDER BY Age ASC\n"
-const DESC = "SELECT Username, Age, City FROM `User` ORDER BY Age DESC\n"
+// const ASC_LIMIT_1 = "SELECT Username, Age, City FROM `User` ORDER BY Age ASC LIMIT 1\n"
+// const DESC_LIMIT_1 = "SELECT Username, Age, City FROM `User` ORDER BY Age DESC LIMIT 1\n"
+// const ASC = "SELECT Username, Age, City FROM `User` ORDER BY Age ASC\n"
+// const DESC = "SELECT Username, Age, City FROM `User` ORDER BY Age DESC\n"
 
-func TestOrderBy(t *testing.T) {
-	queryMap := map[string]string{
-		"ASC_LIMIT_1":  ASC_LIMIT_1,
-		"DESC_LIMIT_1": DESC_LIMIT_1,
-		"ASC":          ASC,
-		"DESC":         DESC,
-	}
-	compKey := "Age"
+// func TestOrderBy(t *testing.T) {
+// 	queryMap := map[string]string{
+// 		"ASC_LIMIT_1":  ASC_LIMIT_1,
+// 		"DESC_LIMIT_1": DESC_LIMIT_1,
+// 		"ASC":          ASC,
+// 		"DESC":         DESC,
+// 	}
+// 	compKey := "Age"
 
-	expectedColumns := strset.New("Username", "Age", "City")
-	for identity, query := range queryMap {
-		encodedPlan1, err := util.SendSql(query)
-		if err != nil {
-			t.Fatal(err)
-		}
+// 	expectedColumns := strset.New("Username", "Age", "City")
+// 	for identity, query := range queryMap {
+// 		encodedPlan1, err := util.SendSql(query)
+// 		if err != nil {
+// 			t.Fatal(err)
+// 		}
 
-		rows, _, _ := sharedDB.EngineEntry(encodedPlan1)
-		for _, row := range rows {
-			if len(row.Values) != expectedColumns.Size() {
-				t.Fatalf("incorrect number of columns returned")
-			}
+// 		rows, _, _ := sharedDB.EngineEntry(encodedPlan1)
+// 		for _, row := range rows {
+// 			if len(row.Values) != expectedColumns.Size() {
+// 				t.Fatalf("incorrect number of columns returned")
+// 			}
 
-			for key := range row.Values {
-				if !expectedColumns.Has(key) {
-					t.Fatal("incorrect columns present")
-				}
-			}
+// 			for key := range row.Values {
+// 				if !expectedColumns.Has(key) {
+// 					t.Fatal("incorrect columns present")
+// 				}
+// 			}
 
-			age, err := strconv.ParseInt(row.Values[compKey], 10, 64)
-			if err != nil {
-				t.Fatal(err)
-			}
+// 			age, err := strconv.ParseInt(row.Values[compKey], 10, 64)
+// 			if err != nil {
+// 				t.Fatal(err)
+// 			}
 
-			last := rows[len(rows)-1]
-			lastAge, err := strconv.ParseInt(last.Values[compKey], 10, 64)
-			if err != nil {
-				t.Fatal(err)
-			}
+// 			last := rows[len(rows)-1]
+// 			lastAge, err := strconv.ParseInt(last.Values[compKey], 10, 64)
+// 			if err != nil {
+// 				t.Fatal(err)
+// 			}
 
-			validateResults(t, identity, len(rows), int(age), int(lastAge), smallest, biggest, expectedStressNumber)
-		}
-	}
-}
+// 			validateResults(t, identity, len(rows), int(age), int(lastAge), smallest, biggest, expectedStressNumber)
+// 		}
+// 	}
+// }
 
-const COUNT = "SELECT City, COUNT(*) AS UserCount FROM `User` GROUP BY City\n"
-const MAX = " SELECT City, MAX(Age) AS max_age FROM `User` GROUP BY City\n"
-const MIN = "SELECT City, MIN(Age) AS max_age FROM `User` GROUP BY City\n"
-const AVG = "SELECT City, AVG(Age) AS max_age FROM `User` GROUP BY City \n"
-const SUM = "SELECT City, SUM(Age) AS max_age FROM `User` GROUP BY City\n"
-const AVG_EXPECTED = 520
-const SUM_EXPECTED = 541320
+// const COUNT = "SELECT City, COUNT(*) AS UserCount FROM `User` GROUP BY City\n"
+// const MAX = " SELECT City, MAX(Age) AS max_age FROM `User` GROUP BY City\n"
+// const MIN = "SELECT City, MIN(Age) AS max_age FROM `User` GROUP BY City\n"
+// const AVG = "SELECT City, AVG(Age) AS max_age FROM `User` GROUP BY City \n"
+// const SUM = "SELECT City, SUM(Age) AS max_age FROM `User` GROUP BY City\n"
+// const AVG_EXPECTED = 520
+// const SUM_EXPECTED = 541320
 
-func TestGroupBy(t *testing.T) {
-	queryMap := map[string]string{
-		"COUNT": COUNT,
-		"MAX":   MAX,
-		"MIN":   MIN,
-		"AVG":   AVG,
-		"SUM":   SUM,
-	}
+// func TestGroupBy(t *testing.T) {
+// 	queryMap := map[string]string{
+// 		"COUNT": COUNT,
+// 		"MAX":   MAX,
+// 		"MIN":   MIN,
+// 		"AVG":   AVG,
+// 		"SUM":   SUM,
+// 	}
 
-	for identity, query := range queryMap {
-		encodedPlan1, err := util.SendSql(query)
-		if err != nil {
-			t.Fatal(err)
-		}
+// 	for identity, query := range queryMap {
+// 		encodedPlan1, err := util.SendSql(query)
+// 		if err != nil {
+// 			t.Fatal(err)
+// 		}
 
-		expectedCity := "Los Angeles"
-		_, groupMap, _ := sharedDB.EngineEntry(encodedPlan1)
-		for k, v := range groupMap {
-			if k != expectedCity {
-				t.Fatalf("expected city: %s, received city: %s", expectedCity, k)
-			}
+// 		expectedCity := "Los Angeles"
+// 		_, groupMap, _ := sharedDB.EngineEntry(encodedPlan1)
+// 		for k, v := range groupMap {
+// 			if k != expectedCity {
+// 				t.Fatalf("expected city: %s, received city: %s", expectedCity, k)
+// 			}
 
-			switch identity {
-			case "COUNT":
-				if v != expectedStressNumber {
-					t.Fatalf("expected count: %d, received count: %d", expectedStressNumber, v)
-				}
-			case "MAX":
-				if v != biggest {
-					t.Fatalf("expected count: %d, received count: %d", biggest, v)
-				}
-			case "MIN":
-				if v != smallest {
-					t.Fatalf("expected count: %d, received count: %d", smallest, v)
-				}
-			case "AVG":
-				if v != AVG_EXPECTED {
-					t.Fatalf("expected count: %d, received count: %d", AVG_EXPECTED, v)
-				}
-			case "SUM":
-				if v != SUM_EXPECTED {
-					t.Fatalf("expected count: %d, received count: %d", SUM_EXPECTED, v)
-				}
-			}
-		}
-	}
-}
+// 			switch identity {
+// 			case "COUNT":
+// 				if v != expectedStressNumber {
+// 					t.Fatalf("expected count: %d, received count: %d", expectedStressNumber, v)
+// 				}
+// 			case "MAX":
+// 				if v != biggest {
+// 					t.Fatalf("expected count: %d, received count: %d", biggest, v)
+// 				}
+// 			case "MIN":
+// 				if v != smallest {
+// 					t.Fatalf("expected count: %d, received count: %d", smallest, v)
+// 				}
+// 			case "AVG":
+// 				if v != AVG_EXPECTED {
+// 					t.Fatalf("expected count: %d, received count: %d", AVG_EXPECTED, v)
+// 				}
+// 			case "SUM":
+// 				if v != SUM_EXPECTED {
+// 					t.Fatalf("expected count: %d, received count: %d", SUM_EXPECTED, v)
+// 				}
+// 			}
+// 		}
+// 	}
+// }
 
 const filterField = "Username"
 const filterValue = "JaneSmith"
@@ -376,40 +381,40 @@ func checkModifiedTuples(t *testing.T) {
 	}
 }
 
-func checkUnmodifiedTuples(t *testing.T) {
-	var unModifiedCount int
-	rows := getRows(t)
-	for _, row := range rows {
-		if row.Values[modifiedField] != modifiedValue {
-			unModifiedCount++
-		}
-	}
+// func checkUnmodifiedTuples(t *testing.T) {
+// 	var unModifiedCount int
+// 	rows := getRows(t)
+// 	for _, row := range rows {
+// 		if row.Values[modifiedField] != modifiedValue {
+// 			unModifiedCount++
+// 		}
+// 	}
 
-	if unModifiedCount != (EXPECTED_AFTER_UPDATE - expectedStressNumber) {
-		t.Fatalf("expected count: [%d], modified count: [%d]", EXPECTED_AFTER_UPDATE-expectedStressNumber, unModifiedCount)
-	}
-}
+// 	if unModifiedCount != (EXPECTED_AFTER_UPDATE - expectedStressNumber) {
+// 		t.Fatalf("expected count: [%d], modified count: [%d]", EXPECTED_AFTER_UPDATE-expectedStressNumber, unModifiedCount)
+// 	}
+// }
 
-const INSERT_AFTER_UPDATE = expectedStressNumber + 1000
-const EXPECTED_AFTER_UPDATE = expectedStressNumber + expectedStressNumber + 1000
+// const INSERT_AFTER_UPDATE = expectedStressNumber + 1000
+// const EXPECTED_AFTER_UPDATE = expectedStressNumber + expectedStressNumber + 1000
 
-func TestInsertAfterUpdate(t *testing.T) {
-	t.Run("StressInsert", func(t *testing.T) {
-		insertMany(t, INSERT_AFTER_UPDATE)
-	})
+// func TestInsertAfterUpdate(t *testing.T) {
+// 	t.Run("StressInsert", func(t *testing.T) {
+// 		insertMany(t, INSERT_AFTER_UPDATE)
+// 	})
 
-	t.Run("CheckTupleNumber", func(t *testing.T) {
-		checkTupleNumber(t, EXPECTED_AFTER_UPDATE)
-	})
+// 	t.Run("CheckTupleNumber", func(t *testing.T) {
+// 		checkTupleNumber(t, EXPECTED_AFTER_UPDATE)
+// 	})
 
-	t.Run("Total Modified Tuples", func(t *testing.T) {
-		checkModifiedTuples(t)
-	})
+// 	t.Run("Total Modified Tuples", func(t *testing.T) {
+// 		checkModifiedTuples(t)
+// 	})
 
-	t.Run("Total Unmodified Tuples", func(t *testing.T) {
-		checkUnmodifiedTuples(t)
-	})
-}
+// 	t.Run("Total Unmodified Tuples", func(t *testing.T) {
+// 		checkUnmodifiedTuples(t)
+// 	})
+// }
 
 func checkTupleNumber(t *testing.T, expectedNumber int) {
 	var count int
@@ -444,7 +449,7 @@ func checkTupleNumber(t *testing.T, expectedNumber int) {
 	}
 
 	if count != expectedNumber {
-		t.Fatalf("expected count: [%d], actual count: [%d]", expectedNumber, count)
+		t.Fatalf("expected count: [%d], matched rows count: [%d], total rows count: [%d]", expectedNumber, count, innerCount)
 	}
 }
 

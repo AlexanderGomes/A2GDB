@@ -46,13 +46,11 @@ func prepareRows(plan map[string]interface{}, selectedCols []interface{}, primar
 	return bytesNeeded, rowsID, encodedRows, nil
 }
 
-func findAndUpdate(bufferM *storage.BufferPoolManager, tableObj *storage.TableObj, bytesNeeded uint16, tableName string, encodedRows [][]byte, rowsID []uint64) error {
+func findAndUpdate(bufferM *storage.BufferPoolManager, tableObj *storage.TableObj, tableStats *storage.TableInfo, bytesNeeded uint16, tableName string, encodedRows [][]byte, rowsID []uint64) error {
 	page, err := getAvailablePage(bufferM, tableObj, bytesNeeded, tableName) // new page could've been created
 	if err != nil {
 		return fmt.Errorf("getAvailablePage failed: %w", err)
 	}
-
-	page.TABLE = tableObj.TableName
 
 	newSpace := storage.FreeSpace{
 		PageID:     storage.PageID(page.Header.ID),
@@ -73,7 +71,7 @@ func findAndUpdate(bufferM *storage.BufferPoolManager, tableObj *storage.TableOb
 	}
 
 	logger.Log.Info("saving page to disk (created / existing)")
-	err = storage.UpdatePageInfo(rowsID, page, tableObj) // make sure to save possible new page (this is updating even already existing pages)
+	err = storage.UpdatePageInfo(rowsID, page, tableObj, tableStats) //race chain // handleLikeInsert // make sure to save possible new page (this is updating even already existing pages)
 	if err != nil {
 		return fmt.Errorf("UpdatePageInfo failed: %v", page)
 	}
@@ -188,6 +186,7 @@ func processPagesForUpdate(ctx context.Context, pageChan chan *storage.PageV2, u
 		var nonAddedRows NonAddedRows
 
 		pageId := storage.PageID(page.Header.ID)
+
 		pageObj := tableObj.DirectoryPage.Value[pageId]
 
 		logger.Log.WithFields(logrus.Fields{"Memlevel": pageObj.Level, "exactFreeMem": pageObj.ExactFreeMem, "offset": pageObj.Offset}).Info("Before Modification (PageObj)")
@@ -215,7 +214,7 @@ func processPagesForUpdate(ctx context.Context, pageChan chan *storage.PageV2, u
 					return fmt.Errorf("EncodeRow failed: %w", err)
 				}
 
-				location.Free = true
+				location.Free = true // race
 				freeSpacePage.FreeMemory += location.Length
 				nonAddedRows.BytesNeeded += uint16(len(rowBytes))
 
@@ -247,7 +246,7 @@ func processPagesForUpdate(ctx context.Context, pageChan chan *storage.PageV2, u
 	return nil
 }
 
-func handleLikeInsert(ctx context.Context, nonAddedRows chan *NonAddedRows, tableObj *storage.TableObj, tableName string, bpm *storage.BufferPoolManager) error {
+func handleLikeInsert(ctx context.Context, nonAddedRows chan *NonAddedRows, tableObj *storage.TableObj, tableName string, bpm *storage.BufferPoolManager, tableStats *storage.TableInfo) error {
 	logger.Log.Info("handleLikeInsert(update) Started")
 
 	for nonAddedRow := range nonAddedRows {
@@ -255,7 +254,7 @@ func handleLikeInsert(ctx context.Context, nonAddedRows chan *NonAddedRows, tabl
 			chunkedRows := ChunkRows(nonAddedRow)
 
 			for _, chunkedRow := range chunkedRows {
-				err := findAndUpdate(bpm, tableObj, chunkedRow.BytesNeeded, tableName, chunkedRow.Rows, chunkedRow.RowsId)
+				err := findAndUpdate(bpm, tableObj, tableStats, chunkedRow.BytesNeeded, tableName, chunkedRow.Rows, chunkedRow.RowsId)
 				if err != nil {
 					return fmt.Errorf("findAndUpdate failed: %w", err)
 				}
@@ -263,7 +262,7 @@ func handleLikeInsert(ctx context.Context, nonAddedRows chan *NonAddedRows, tabl
 			continue
 		}
 
-		err := findAndUpdate(bpm, tableObj, nonAddedRow.BytesNeeded, tableName, nonAddedRow.Rows, nonAddedRow.RowsId)
+		err := findAndUpdate(bpm, tableObj, tableStats, nonAddedRow.BytesNeeded, tableName, nonAddedRow.Rows, nonAddedRow.RowsId) // race chain
 		if err != nil {
 			return fmt.Errorf("findAndUpdate failed: %w", err)
 		}

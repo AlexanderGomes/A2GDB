@@ -29,7 +29,7 @@ func NewTree(degree int) *btree.BTree {
 	return btree.New(degree)
 }
 
-func UpdateBp(rows []uint64, tableObj TableObj, pageInfObj PageInfo) error {
+func UpdateBp(rows []uint64, tableObj *TableObj, pageInfObj PageInfo) error {
 	if rows == nil {
 		return nil
 	}
@@ -58,7 +58,7 @@ func UpdateBp(rows []uint64, tableObj TableObj, pageInfObj PageInfo) error {
 
 			logger.Log.WithField("item", item).Info("Inserting Into Bptree")
 			items = append(items, item)
-			tableObj.BpTree.ReplaceOrInsert(item)
+			tableObj.BpTree.ReplaceOrInsert(item) // race chain // cleanOrganize // handleLikeInsert
 		}
 	}
 
