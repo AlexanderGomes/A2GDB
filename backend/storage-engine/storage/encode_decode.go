@@ -80,9 +80,6 @@ func DecodeMemObj(data []byte) (map[uint16][]*FreeSpace, error) {
 }
 
 func EncodeDirectory(dir *DirectoryPageV2) ([]byte, error) {
-	dir.Mu.RLock()
-	defer dir.Mu.RUnlock()
-
 	buf := bytes.NewBuffer(make([]byte, 0, 1024*20))
 
 	numEntries := uint32(len(dir.Value))
@@ -166,7 +163,7 @@ func EncodePageInfo(pageInfo *PageInfo) ([]byte, error) {
 		return nil, err
 	}
 
-	if err := binary.Write(&buf, binary.LittleEndian, pageInfo.Level); err != nil {
+	if err := binary.Write(&buf, binary.LittleEndian, pageInfo.Level); err != nil { // race chain // handleLikeInsert
 		return nil, err
 	}
 
@@ -174,12 +171,12 @@ func EncodePageInfo(pageInfo *PageInfo) ([]byte, error) {
 		return nil, err
 	}
 
-	numTuples := uint32(len(pageInfo.PointerArray))
+	numTuples := uint32(len(pageInfo.PointerArray)) // race chain // handleLikeInsert
 	if err := binary.Write(&buf, binary.LittleEndian, numTuples); err != nil {
 		return nil, err
 	}
 
-	for _, tuple := range pageInfo.PointerArray { // race
+	for _, tuple := range pageInfo.PointerArray { // race // handleLikeInsert // cleanOrganize
 		if err := binary.Write(&buf, binary.LittleEndian, tuple.Offset); err != nil {
 			return nil, err
 		}
@@ -440,7 +437,6 @@ func SerializeCatalog(catalog *Catalog) ([]byte, error) {
 		if err := binary.Write(&buf, binary.LittleEndian, tableInfo.NumOfPages); err != nil {
 			return nil, err
 		}
-
 	}
 
 	return buf.Bytes(), nil

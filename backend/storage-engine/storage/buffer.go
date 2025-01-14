@@ -137,7 +137,7 @@ func (bpm *BufferPoolManager) Evict() error {
 	tableObj := bpm.DiskManager.TableObjs[page.TABLE]
 	tableStats := bpm.DiskManager.PageCatalog.Tables[tableObj.TableName]
 
-	err = UpdatePageInfo(nil, page, tableObj, tableStats)
+	err = UpdatePageInfo(nil, page, tableObj, tableStats, bpm.DiskManager)
 	if err != nil {
 		return fmt.Errorf("UpdatePageInfo failed: %w", err)
 	}
@@ -171,11 +171,16 @@ func (bpm *BufferPoolManager) FetchPage(pageID PageID, tableObj *TableObj) (*Pag
 		}
 		logger.Log.Info("Fetched from BPM, pageId: ", pageID)
 	} else {
-		pageInfo := tableObj.DirectoryPage.Value[pageID]
-		pageBytes, err := ReadPageAtOffset(tableObj.DataFile, pageInfo.Offset)
+		tableObj.DirectoryPage.Mu.RLock()
+		pageObj := tableObj.DirectoryPage.Value[pageID]
+		tableObj.DirectoryPage.Mu.RUnlock()
+
+		pageObj.Mu.RLock()
+		pageBytes, err := ReadPageAtOffset(tableObj.DataFile, pageObj.Offset)
 		if err != nil {
 			return nil, fmt.Errorf("ReadPageAtOffset failed: %w", err)
 		}
+		pageObj.Mu.RUnlock()
 
 		pagePtr, err = DecodePageV2(pageBytes)
 		if err != nil {

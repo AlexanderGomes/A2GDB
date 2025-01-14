@@ -50,6 +50,7 @@ func (qe *QueryEngine) handleUpdate(plan map[string]interface{}) Result {
 	updateInfoChan := make(chan ModifiedInfo)
 	insertChan := make(chan *NonAddedRows)
 
+	fmt.Println("pageNum (before passing)",tableStats.NumOfPages)
 	tasks := []func() error{
 		func() error {
 			return qe.BufferPoolManager.FullTableScan(ctx, pageChan, tableObj, qe.BufferPoolManager.PageTable, tableStats.NumOfPages)
@@ -58,10 +59,10 @@ func (qe *QueryEngine) handleUpdate(plan map[string]interface{}) Result {
 			return processPagesForUpdate(ctx, pageChan, updateInfoChan, modifyColumn, modifyValue, filterColumn, filterValue, tableObj)
 		},
 		func() error {
-			return cleanOrgnize(ctx, updateInfoChan, insertChan, tableObj, tableStats) // race chain
+			return cleanOrgnize(ctx, updateInfoChan, insertChan, tableObj, tableStats)
 		},
 		func() error {
-			return handleLikeInsert(ctx, insertChan, tableObj, tableName, qe.BufferPoolManager, tableStats) // race chain
+			return handleLikeInsert(ctx, insertChan, tableObj, tableName, qe.BufferPoolManager, tableStats)
 		},
 	}
 

@@ -21,13 +21,12 @@ const (
 
 type TableObj struct {
 	DirectoryPage *DirectoryPageV2
-	BpTree        *btree.BTree
 	Memory        map[uint16][]*FreeSpace
 	DirFile       *os.File
-	BpFile        *os.File
 	DataFile      *os.File
 	MemFile       *os.File
 	TableName     string
+	Mu            sync.RWMutex
 }
 
 type FreeSpace struct {
@@ -38,11 +37,6 @@ type FreeSpace struct {
 
 func (dm *DiskManagerV2) InMemoryTableSetUp(tableName string) (*TableObj, error) {
 	dirObj, dirFilePtr, err := GetNonpageFile(dm.DBdirectory, tableName, "directory_page")
-	if err != nil {
-		return nil, fmt.Errorf("GetNonpageFile failed: %w", err)
-	}
-
-	bptreeObj, bptreeFilePtr, err := GetNonpageFile(dm.DBdirectory, tableName, "bptree")
 	if err != nil {
 		return nil, fmt.Errorf("GetNonpageFile failed: %w", err)
 	}
@@ -59,11 +53,9 @@ func (dm *DiskManagerV2) InMemoryTableSetUp(tableName string) (*TableObj, error)
 
 	tableObj := &TableObj{
 		DirectoryPage: dirObj.(*DirectoryPageV2),
-		BpTree:        bptreeObj.(*btree.BTree),
 		Memory:        memObj.(map[uint16][]*FreeSpace),
 		DataFile:      dataFilePtr,
 		DirFile:       dirFilePtr,
-		BpFile:        bptreeFilePtr,
 		MemFile:       memFilePtr,
 		TableName:     tableName,
 	}
@@ -82,11 +74,6 @@ func GetNonpageFile(dbDirectory, tableName, fileName string) (interface{}, *os.F
 	}
 
 	switch fileName {
-	case "bptree":
-		object, err = GetBpTree(filePtr)
-		if err != nil {
-			return nil, nil, fmt.Errorf("getting bp data failed: %s", err)
-		}
 	case "directory_page":
 		object, err = GetDirInfo(filePtr)
 		if err != nil {
@@ -177,7 +164,6 @@ func (dm *DiskManagerV2) CreateTable(tableName string, info TableInfo) error {
 
 	os.Create(filepath.Join(tablePath, tableName))
 	os.Create(filepath.Join(tablePath, "directory_page"))
-	os.Create(filepath.Join(tablePath, "bptree"))
 	os.Create(filepath.Join(tablePath, "freeMem"))
 
 	return nil

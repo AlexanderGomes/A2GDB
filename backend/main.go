@@ -4,6 +4,8 @@ import (
 	"a2gdb/cmd"
 	"a2gdb/query-engine/engine"
 	"a2gdb/util"
+	"fmt"
+	"os"
 
 	"log"
 )
@@ -14,13 +16,22 @@ func main() {
 		log.Fatal("DB init failed: ", err)
 	}
 
-	createTable(engine)
-	insertMany(engine)
-	selects(engine)
+	for i := range 20 {
+		fmt.Println("New Interation: ", i)
+
+		createTable(engine)
+		insertMany(engine)
+		selects(engine)
+
+		err = os.RemoveAll("A2G_DB")
+		if err != nil {
+			log.Fatal("Failed to delete directory: ", err)
+		}
+	}
 }
 
 func selects(engine *engine.QueryEngine) {
-	sql1 := "UPDATE `User` SET Age = 55512 WHERE Username = 'JaneSmith'\n"
+	sql1 := "UPDATE `User` SET Age =  1281281280  WHERE Username = 'JaneSmith'\n"
 	encodedPlan1, err := util.SendSql(sql1)
 	if err != nil {
 		log.Fatal(err)
@@ -28,15 +39,14 @@ func selects(engine *engine.QueryEngine) {
 
 	_, _, result := engine.EngineEntry(encodedPlan1)
 	if result.Error != nil {
-		log.Println(result.Error)
+		log.Fatal(result.Error)
 	}
-
-	log.Println(result.Rows)
 }
 
 func insertMany(engine *engine.QueryEngine) {
-	for range 100 {
-		sql1 := "INSERT INTO `User` (Username, Age, City) VALUES ('JaneSmith', 25, 'Los Angeles')\n"
+	for i := range 1000 {
+		random := util.GenerateRandomNumber()
+		sql1 := fmt.Sprintf("INSERT INTO `User` (Username, Age, City) VALUES ('JaneSmith', %d, 'Los Angeles')\n", i+random)
 
 		encodedPlan1, err := util.SendSql(sql1)
 		if err != nil {
@@ -44,10 +54,8 @@ func insertMany(engine *engine.QueryEngine) {
 		}
 		_, _, result := engine.EngineEntry(encodedPlan1)
 		if result.Error != nil {
-			log.Println(result.Error)
+			log.Fatal(result.Error)
 		}
-
-		log.Println(result.Msg)
 	}
 }
 
@@ -61,9 +69,6 @@ func createTable(engine *engine.QueryEngine) {
 	_, _, result := engine.EngineEntry(encodedPlan1)
 
 	if result.Error != nil {
-		log.Println("couldn't create page, error: ", result.Error)
-		return
+		log.Fatal("couldn't create page, error: ", result.Error)
 	}
-
-	log.Println(result.Msg)
 }

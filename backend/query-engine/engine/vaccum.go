@@ -21,6 +21,7 @@ const (
 	SECOND_LEVEL     = 3286
 	FIRST_LEVEL      = 3686
 	EMPTY_PAGE       = 4082
+	AVAIL_DATA       = 4068
 
 	NEXT_LEVEL = 400
 )
@@ -40,7 +41,7 @@ func cleanOrgnize(ctx context.Context, updateInfoChan chan ModifiedInfo, insertC
 			return fmt.Errorf("RearrangePAGE failed: %w", err)
 		}
 
-		err = storage.UpdatePageInfo(rowsId, newPage, tableObj, tableStats) // race chain
+		err = storage.UpdatePageInfo(rowsId, newPage, tableObj, tableStats, nil)
 		if err != nil {
 			return fmt.Errorf("updatePageInfo failed: %w", err)
 		}
@@ -51,25 +52,32 @@ func cleanOrgnize(ctx context.Context, updateInfoChan chan ModifiedInfo, insertC
 
 		space.TempPagePtr = nil
 		memTag := getTag(space.FreeMemory)
-
-		dirPage := tableObj.DirectoryPage.Value
-		pageInfo := dirPage[space.PageID]
-
-		// performance considerations
-		if pageInfo.Level != 0 {
-			rankSlice := tableObj.Memory[pageInfo.Level]
-			tableObj.Memory[pageInfo.Level] = lo.Filter(rankSlice, func(item *storage.FreeSpace, i int) bool {
-				return space.PageID != item.PageID
-			})
-		}
-
 		if memTag == 0 {
 			memTag = EMPTY_PAGE
 		}
 
-		pageInfo.Level = memTag
-		pageInfo.ExactFreeMem = space.FreeMemory
+		dirPage := tableObj.DirectoryPage
 
+		dirPage.Mu.RLock()
+		pageObj := dirPage.Value[space.PageID]
+		pageObj.Mu.Lock()
+		dirPage.Mu.RUnlock()
+
+		// performance considerations
+		if pageObj.Level != 0 {
+			tableObj.Mu.Lock()
+			rankSlice := tableObj.Memory[pageObj.Level]
+			tableObj.Memory[pageObj.Level] = lo.Filter(rankSlice, func(item *storage.FreeSpace, i int) bool {
+				return space.PageID != item.PageID
+			})
+			tableObj.Mu.Unlock()
+		}
+
+		pageObj.Level = memTag
+		pageObj.ExactFreeMem = space.FreeMemory
+		pageObj.Mu.Unlock()
+
+		tableObj.Mu.Lock()
 		tableObj.Memory[memTag] = append(tableObj.Memory[memTag], space)
 		logger.Log.WithField("tableObj", tableObj.Memory).Info("After memory separation")
 
@@ -77,6 +85,7 @@ func cleanOrgnize(ctx context.Context, updateInfoChan chan ModifiedInfo, insertC
 		if err != nil {
 			return fmt.Errorf("saveMemMapping failed: %w", err)
 		}
+		tableObj.Mu.Unlock()
 
 		insertChan <- updateInfo.NonAddedRow
 
@@ -97,28 +106,34 @@ func cleanOrgnize(ctx context.Context, updateInfoChan chan ModifiedInfo, insertC
 func memSeparationSingle(newSpace *storage.FreeSpace, tableObj *storage.TableObj) error {
 	memTag := getTag(newSpace.FreeMemory)
 
-	dirPage := tableObj.DirectoryPage.Value
-	pageInfo := dirPage[newSpace.PageID]
+	dirPage := tableObj.DirectoryPage
+
+	dirPage.Mu.Lock()
+	pageObj := dirPage.Value[newSpace.PageID]
+	pageObj.Mu.Lock()
 
 	if memTag == 0 {
 		memTag = EMPTY_PAGE
 	}
 
+	tableObj.Mu.Lock()
 	tableObj.Memory[memTag] = append(tableObj.Memory[memTag], newSpace)
-
-	pageInfo.Level = memTag
-	pageInfo.ExactFreeMem = newSpace.FreeMemory
-	logger.Log.WithFields(logrus.Fields{"MemTag": memTag, "ExactFreeMem": pageInfo.ExactFreeMem, "memLevel": pageInfo.Level, "offset": pageInfo.Offset}).Info("memory separation single done")
-
 	err := saveMemMapping(tableObj)
 	if err != nil {
 		return fmt.Errorf("saveMemMapping failed: %w", err)
 	}
+	tableObj.Mu.Unlock()
+
+	pageObj.Level = memTag
+	pageObj.ExactFreeMem = newSpace.FreeMemory
+	logger.Log.WithFields(logrus.Fields{"MemTag": memTag, "ExactFreeMem": pageObj.ExactFreeMem, "memLevel": pageObj.Level, "offset": pageObj.Offset}).Info("memory separation single done")
+	pageObj.Mu.Unlock()
 
 	err = storage.UpdateDirectoryPageDisk(tableObj.DirectoryPage, tableObj.DirFile)
 	if err != nil {
 		return fmt.Errorf("UpdateDirectoryPageDisk failed: %w", err)
 	}
+	dirPage.Mu.Unlock()
 
 	logger.Log.Info("Insertion Completed")
 	return nil
@@ -152,7 +167,10 @@ func searchPage(tableObj *storage.TableObj, memoryNedded, level uint16) ([]*stor
 			return nil, nil, memTag, 0
 		}
 
+		tableObj.Mu.RLock()
 		memSlice = tableObj.Memory[memTag]
+		tableObj.Mu.RUnlock()
+
 		//# empty level
 		if len(memSlice) == 0 {
 			level += NEXT_LEVEL
@@ -197,7 +215,10 @@ func getAvailablePage(bufferM *storage.BufferPoolManager, tableObj *storage.Tabl
 	memSlice = lo.Filter(memSlice, func(item *storage.FreeSpace, i int) bool {
 		return i != deleteIndex
 	})
+
+	tableObj.Mu.Lock()
 	tableObj.Memory[memTag] = memSlice
+	tableObj.Mu.Unlock()
 
 	page, err := bufferM.FetchPage(spaceInfo.PageID, tableObj)
 	if err != nil {

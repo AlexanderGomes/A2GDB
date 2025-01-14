@@ -102,36 +102,6 @@ func ReadExistingManager(dbDirectory string) (DiskManagerV2, error) {
 	return dm, nil
 }
 
-func (dm *DiskManagerV2) WriteToDisk(page *PageV2) error {
-	tableInfo := dm.TableObjs[page.TABLE]
-	pageObj, found := tableInfo.DirectoryPage.Value[PageID(page.Header.ID)]
-
-	if !found {
-		pageOffset, err := WritePageEOFV2(page, tableInfo.DataFile)
-		if err != nil {
-			return fmt.Errorf("WriteToDisk: %w", err)
-		}
-
-		pageInfo := PageInfo{
-			Offset:       pageOffset,
-			PointerArray: page.PointerArray,
-		}
-
-		tableInfo.DirectoryPage.Value[PageID(page.Header.ID)] = &pageInfo
-
-		err = UpdateDirectoryPageDisk(tableInfo.DirectoryPage, tableInfo.DirFile)
-		if err != nil {
-			return fmt.Errorf("WriteToDisk: %w", err)
-		}
-	} else {
-		err := WritePageBackV2(page, pageObj.Offset, tableInfo.DataFile)
-		if err != nil {
-			return fmt.Errorf("WriteToDisk: %w", err)
-		}
-	}
-
-	return nil
-}
 
 func UpdateDirectoryPageDisk(page *DirectoryPageV2, dirFile *os.File) error {
 	pageBytes, err := EncodeDirectory(page)

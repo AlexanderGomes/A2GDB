@@ -16,7 +16,6 @@ const (
 	HeaderSize = 14
 
 	PageDataSize   = PageSizeV2 - HeaderSize
-	TupleEntrySize = 4
 )
 
 type RowV2 struct {
@@ -59,6 +58,7 @@ type PageInfo struct {
 	PointerArray []TupleLocation
 	Level        uint16
 	ExactFreeMem uint16
+	Mu           sync.RWMutex
 }
 
 func CreatePageV2(tableName string) *PageV2 {
@@ -212,10 +212,15 @@ func RearrangePAGE(page *PageV2, tableObj *TableObj, tableName string) (*PageV2,
 	newPage.Header.ID = page.Header.ID
 	newPage.IsPinned = page.IsPinned
 
+	directoryPage := tableObj.DirectoryPage
+
+	directoryPage.Mu.RLock()
 	pageObj, ok := tableObj.DirectoryPage.Value[PageID(page.Header.ID)]
 	if !ok {
 		return nil, fmt.Errorf("pageObj not found")
 	}
+	pageObj.Mu.Lock()
+	directoryPage.Mu.RUnlock()
 
 	for _, location := range pageObj.PointerArray {
 		if !location.Free {
@@ -229,31 +234,42 @@ func RearrangePAGE(page *PageV2, tableObj *TableObj, tableName string) (*PageV2,
 	}
 
 	pageObj.PointerArray = newPage.PointerArray
+	pageObj.Mu.Unlock()
 
 	return newPage, nil
 }
 
-func UpdatePageInfo(rowsID []uint64, pageFound *PageV2, tableObj *TableObj, tableStats *TableInfo) error {
+func UpdatePageInfo(rowsID []uint64, pageFound *PageV2, tableObj *TableObj, tableStats *TableInfo, manager *DiskManagerV2) error {
 	pageID := PageID(pageFound.Header.ID)
-	dirPage := tableObj.DirectoryPage
-	pageInfObj, found := dirPage.Value[pageID]
 
+	dirPage := tableObj.DirectoryPage
+	dirPage.Mu.Lock()
+
+	pageObj, found := dirPage.Value[pageID]
 	if !found {
 		offset, err := WritePageEOFV2(pageFound, tableObj.DataFile)
 		if err != nil {
 			return fmt.Errorf("WritePageEOFV2 failed: %w", err)
 		}
 
-		pageInfObj = &PageInfo{
+		pageObj = &PageInfo{
 			Offset:       offset,
 			PointerArray: pageFound.PointerArray,
 		}
 
-		dirPage.Value[pageID] = pageInfObj
+		dirPage.Value[pageID] = pageObj
+
 		tableStats.NumOfPages++
+		err = manager.UpdateCatalog()
+		if err != nil {
+			return fmt.Errorf("UpdateCatalog Failed: %w", err)
+		}
 	} else {
-		pageInfObj.PointerArray = append(pageInfObj.PointerArray, pageFound.PointerArray...)
-		if err := WritePageBackV2(pageFound, pageInfObj.Offset, tableObj.DataFile); err != nil {
+		pageObj.Mu.Lock()
+		pageObj.PointerArray = append(pageObj.PointerArray, pageFound.PointerArray...)
+		pageObj.Mu.Unlock()
+
+		if err := WritePageBackV2(pageFound, pageObj.Offset, tableObj.DataFile); err != nil {
 			return fmt.Errorf("WritePageBackV2 failed: %w", err)
 		}
 	}
@@ -263,10 +279,7 @@ func UpdatePageInfo(rowsID []uint64, pageFound *PageV2, tableObj *TableObj, tabl
 	if err := UpdateDirectoryPageDisk(dirPage, tableObj.DirFile); err != nil {
 		return fmt.Errorf("UpdateDirectoryPageDisk failed: %w", err)
 	}
-
-	if err := UpdateBp(rowsID, tableObj, *pageInfObj); err != nil { // race chain // cleanOrganize // handleLikeInsert
-		return fmt.Errorf("UpdateBp failed: %w", err)
-	}
+	dirPage.Mu.Unlock()
 
 	return nil
 }

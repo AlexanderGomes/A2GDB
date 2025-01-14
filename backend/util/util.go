@@ -9,6 +9,8 @@ import (
 	"os"
 	"runtime/pprof"
 	"time"
+
+	"math/rand"
 )
 
 const (
@@ -98,4 +100,9 @@ func (p *Profiler) writeProfile(profileName, fileName string) {
 	if err := profile.WriteTo(file, 0); err != nil {
 		log.Fatalf("could not write %s profile: %v", profileName, err)
 	}
+}
+
+func GenerateRandomNumber() int {
+	randGen := rand.New(rand.NewSource(time.Now().UnixNano()))
+	return randGen.Intn(1000) + 1
 }
