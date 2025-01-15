@@ -46,9 +46,9 @@ func (qe *QueryEngine) handleUpdate(plan map[string]interface{}) Result {
 
 	var wg sync.WaitGroup
 	errChan := make(chan error, 4)
-	pageChan := make(chan *storage.PageV2)
-	updateInfoChan := make(chan ModifiedInfo)
-	insertChan := make(chan *NonAddedRows)
+	pageChan := make(chan *storage.PageV2, 100)
+	updateInfoChan := make(chan ModifiedInfo, 100)
+	insertChan := make(chan *NonAddedRows, 100)
 
 	tasks := []func() error{
 		func() error {
@@ -96,46 +96,66 @@ func (qe *QueryEngine) handleUpdate(plan map[string]interface{}) Result {
 func (qe *QueryEngine) handleDelete(plan map[string]interface{}) Result {
 	var result Result
 
-	// logger.Log.Info("Delete Started")
+	tableName := plan["table"].(string)
+	deleteKey := plan["column"].(string)
+	deleteVal := strings.ReplaceAll(plan["value"].(string), "'", "")
 
-	// tableName := plan["table"].(string)
-	// deleteKey := plan["column"].(string)
-	// deleteVal := strings.ReplaceAll(plan["value"].(string), "'", "")
+	manager := qe.BufferPoolManager.DiskManager
+	tableStats := manager.PageCatalog.Tables[tableName]
 
-	// manager := qe.BufferPoolManager.DiskManager
+	tableObj, err := storage.GetTableObj(tableName, manager)
+	if err != nil {
+		result.Error = fmt.Errorf("GetTableObj failed: %w", err)
+		result.Msg = "failed"
+		return result
+	}
 
-	// tableObj, err := storage.GetTableObj(tableName, manager)
-	// if err != nil {
-	// 	result.Error = fmt.Errorf("GetTableObj failed: %w", err)
-	// 	result.Msg = "failed"
-	// 	return result
-	// }
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	// pageChan := make(chan *storage.PageV2)
-	// pages, err := qe.BufferPoolManager.FullTableScan(pageChan, tableObj.DataFile, qe.BufferPoolManager.PageTable)
-	// if err != nil {
-	// 	result.Error = fmt.Errorf("FullTableScan failed: %w", err)
-	// 	result.Msg = "failed"
-	// 	return result
-	// }
+	var wg sync.WaitGroup
+	errChan := make(chan error, 3)
 
-	// logger.Log.WithFields(logrus.Fields{"deleteKey": deleteKey, "deleteVal": deleteVal, "tableName": tableName}).Info("processPagesForDeletion inputs")
-	// freeSpaceMapping, rowsID, err := processPagesForDeletion(pages, deleteKey, deleteVal, tableObj)
-	// if err != nil {
-	// 	result.Error = fmt.Errorf("processPagesForDeletion failed: %w", err)
-	// 	result.Msg = "failed"
-	// 	return result
-	// }
+	pageChan := make(chan *storage.PageV2, 100)
+	updateInfoChan := make(chan ModifiedInfo, 100)
 
-	// err = cleanOrgnize(freeSpaceMapping, rowsID, tableObj, qe.BufferPoolManager)
-	// if err != nil {
-	// 	result.Error = fmt.Errorf("cleanOrgnize failed: %w", err)
-	// 	result.Msg = "failed"
-	// 	return result
-	// }
+	tasks := []func() error{
+		func() error {
+			return qe.BufferPoolManager.FullTableScan(ctx, pageChan, tableObj, qe.BufferPoolManager.PageTable, tableStats.NumOfPages)
+		},
+		func() error {
+			return processPagesForDeletion(ctx, pageChan, updateInfoChan, deleteKey, deleteVal, tableObj)
+		},
+		func() error {
+			return cleanOrgnize(ctx, updateInfoChan, nil, tableObj, tableStats)
+		},
+	}
 
-	logger.Log.Info("Delete Completed")
-	result.Msg = "Success"
+	for _, task := range tasks {
+		wg.Add(1)
+		go func(task func() error) {
+			defer wg.Done()
+			if err := task(); err != nil {
+				errChan <- err
+				cancel()
+			}
+		}(task)
+	}
+
+	go func() {
+		wg.Wait()
+		close(errChan)
+	}()
+
+	for err := range errChan {
+		if err != nil {
+			result.Error = fmt.Errorf("error occurred during update: %w", err)
+			result.Msg = "failed"
+			return result
+		}
+	}
+
+	result.Msg = "success"
 	return result
 }
 
@@ -198,7 +218,7 @@ func (qe *QueryEngine) handleInsert(plan map[string]interface{}) Result {
 		return result
 	}
 
-	bytesNeeded, rowsID, encodedRows, err := prepareRows(plan, selectedCols, primary)
+	bytesNeeded, encodedRows, err := prepareRows(plan, selectedCols, primary)
 	if err != nil {
 		result.Error = fmt.Errorf("preparing rows failed: %w", err)
 		result.Msg = "failed"
@@ -212,7 +232,7 @@ func (qe *QueryEngine) handleInsert(plan map[string]interface{}) Result {
 		"bytesNeeded":  bytesNeeded,
 	}).Info("findAndUpdate Inputs Set")
 
-	err = findAndUpdate(qe.BufferPoolManager, tableobj, tableStats, bytesNeeded, tableName, encodedRows, rowsID)
+	err = findAndUpdate(qe.BufferPoolManager, tableobj, tableStats, bytesNeeded, tableName, encodedRows)
 	if err != nil {
 		result.Error = fmt.Errorf("findAndUpdate Failed: %s", err)
 		result.Msg = "failed"

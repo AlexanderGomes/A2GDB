@@ -15,7 +15,7 @@ const (
 	PageSizeV2 = 4 * 1024
 	HeaderSize = 14
 
-	PageDataSize   = PageSizeV2 - HeaderSize
+	PageDataSize = PageSizeV2 - HeaderSize
 )
 
 type RowV2 struct {
@@ -239,7 +239,7 @@ func RearrangePAGE(page *PageV2, tableObj *TableObj, tableName string) (*PageV2,
 	return newPage, nil
 }
 
-func UpdatePageInfo(rowsID []uint64, pageFound *PageV2, tableObj *TableObj, tableStats *TableInfo, manager *DiskManagerV2) error {
+func UpdatePageInfo(pageFound *PageV2, tableObj *TableObj, tableStats *TableInfo, manager *DiskManagerV2) error {
 	pageID := PageID(pageFound.Header.ID)
 
 	dirPage := tableObj.DirectoryPage

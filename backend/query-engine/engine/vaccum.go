@@ -27,21 +27,22 @@ const (
 )
 
 func cleanOrgnize(ctx context.Context, updateInfoChan chan ModifiedInfo, insertChan chan *NonAddedRows, tableObj *storage.TableObj, tableStats *storage.TableInfo) error {
-	defer close(insertChan)
+	if insertChan != nil {
+		defer close(insertChan)
+	}
 
 	logger.Log.Info("cleanOrgnize (start)")
 	logger.Log.WithField("tableObj", tableObj.Memory).Info("Before memory separation")
 
 	for updateInfo := range updateInfoChan {
 		space := updateInfo.FreeSpaceMapping
-		rowsId := updateInfo.RowIds
 
 		newPage, err := storage.RearrangePAGE(space.TempPagePtr, tableObj, tableObj.TableName)
 		if err != nil {
 			return fmt.Errorf("RearrangePAGE failed: %w", err)
 		}
 
-		err = storage.UpdatePageInfo(rowsId, newPage, tableObj, tableStats, nil)
+		err = storage.UpdatePageInfo(newPage, tableObj, tableStats, nil)
 		if err != nil {
 			return fmt.Errorf("updatePageInfo failed: %w", err)
 		}
@@ -87,7 +88,9 @@ func cleanOrgnize(ctx context.Context, updateInfoChan chan ModifiedInfo, insertC
 		}
 		tableObj.Mu.Unlock()
 
-		insertChan <- updateInfo.NonAddedRow
+		if insertChan != nil {
+			insertChan <- updateInfo.NonAddedRow
+		}
 
 		select {
 		case <-ctx.Done():

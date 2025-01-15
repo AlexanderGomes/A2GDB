@@ -11,9 +11,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func prepareRows(plan map[string]interface{}, selectedCols []interface{}, primary string) (uint16, []uint64, [][]byte, error) {
+func prepareRows(plan map[string]interface{}, selectedCols []interface{}, primary string) (uint16, [][]byte, error) {
 	var bytesNeeded uint16
-	rowsID := []uint64{}
 	encodedRows := [][]byte{}
 
 	interfaceRows := plan["rows"].([]interface{})
@@ -35,18 +34,17 @@ func prepareRows(plan map[string]interface{}, selectedCols []interface{}, primar
 
 		encodedRow, err := storage.EncodeRow(&newRow)
 		if err != nil {
-			return 0, nil, nil, fmt.Errorf("encodeRow failed: %w", err)
+			return 0, nil, fmt.Errorf("encodeRow failed: %w", err)
 		}
 
 		bytesNeeded += uint16(len(encodedRow))
 		encodedRows = append(encodedRows, encodedRow)
-		rowsID = append(rowsID, newRow.ID)
 	}
 
-	return bytesNeeded, rowsID, encodedRows, nil
+	return bytesNeeded, encodedRows, nil
 }
 
-func findAndUpdate(bufferM *storage.BufferPoolManager, tableObj *storage.TableObj, tableStats *storage.TableInfo, bytesNeeded uint16, tableName string, encodedRows [][]byte, rowsID []uint64) error {
+func findAndUpdate(bufferM *storage.BufferPoolManager, tableObj *storage.TableObj, tableStats *storage.TableInfo, bytesNeeded uint16, tableName string, encodedRows [][]byte) error {
 	page, err := getAvailablePage(bufferM, tableObj, bytesNeeded, tableName) // new page could've been created
 	if err != nil {
 		return fmt.Errorf("getAvailablePage failed: %w", err)
@@ -75,7 +73,7 @@ func findAndUpdate(bufferM *storage.BufferPoolManager, tableObj *storage.TableOb
 	}
 
 	logger.Log.Info("saving page to disk (created / existing)")
-	err = storage.UpdatePageInfo(rowsID, page, tableObj, tableStats, bufferM.DiskManager) // make sure to save possible new page (this is updating even already existing pages)
+	err = storage.UpdatePageInfo(page, tableObj, tableStats, bufferM.DiskManager) // make sure to save possible new page (this is updating even already existing pages)
 	if err != nil {
 		return fmt.Errorf("UpdatePageInfo failed: %v", page)
 	}
@@ -122,14 +120,18 @@ func checkPresenceGetPrimary(selectedCols []interface{}, tableName string, catal
 	return primary, nil
 }
 
-func processPagesForDeletion(pages []*storage.PageV2, deleteKey, deleteVal string, tableObj *storage.TableObj) ([]*storage.FreeSpace, []uint64, error) {
-	var freeSpaceMapping []*storage.FreeSpace
-	var rowsID []uint64
-	rowsID = append(rowsID, 0)
+func processPagesForDeletion(ctx context.Context, pages chan *storage.PageV2, updateInfoChan chan ModifiedInfo, deleteKey, deleteVal string, tableObj *storage.TableObj) error {
+	logger.Log.Info("processPagesForDeletion (start)")
+	defer close(updateInfoChan)
 
-	for _, page := range pages {
+	for page := range pages {
 		var freeSpacePage *storage.FreeSpace
+		var updateInfo ModifiedInfo
+
+		tableObj.DirectoryPage.Mu.RLock()
 		pageObj := tableObj.DirectoryPage.Value[storage.PageID(page.Header.ID)]
+		pageObj.Mu.Lock()
+		tableObj.DirectoryPage.Mu.RUnlock()
 
 		logger.Log.WithFields(logrus.Fields{"Memlevel": pageObj.Level, "exactFreeMem": pageObj.ExactFreeMem, "offset": pageObj.Offset}).Info("Before Modification (PageObj)")
 		for i := range pageObj.PointerArray {
@@ -141,7 +143,7 @@ func processPagesForDeletion(pages []*storage.PageV2, deleteKey, deleteVal strin
 			rowBytes := page.Data[location.Offset : location.Offset+location.Length]
 			row, err := storage.DecodeRow(rowBytes)
 			if err != nil {
-				return nil, nil, fmt.Errorf("DecodeRow failed: %w", err)
+				return fmt.Errorf("DecodeRow failed: %w", err)
 			}
 
 			if row.Values[deleteKey] == deleteVal {
@@ -154,30 +156,35 @@ func processPagesForDeletion(pages []*storage.PageV2, deleteKey, deleteVal strin
 
 				freeSpacePage.FreeMemory += location.Length
 				location.Free = true
-				rowsID = append(rowsID, row.ID)
 			}
 		}
 
 		if freeSpacePage != nil {
-			pageObj.ExactFreeMem = freeSpacePage.FreeMemory
-			freeSpaceMapping = append(freeSpaceMapping, freeSpacePage)
+			pageObj.Mu.Unlock()
+			updateInfo.FreeSpaceMapping = freeSpacePage
+			updateInfoChan <- updateInfo
 		}
-		logger.Log.WithFields(logrus.Fields{"Memlevel": pageObj.Level, "exactFreeMem": pageObj.ExactFreeMem, "offset": pageObj.Offset}).Info("After Modification (PageObj)")
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			continue
+		}
 	}
 
-	return freeSpaceMapping, rowsID, nil
+	logger.Log.Info("processPagesForDeletion (end)")
+	return nil
 }
 
 type NonAddedRows struct {
 	BytesNeeded uint16
-	RowsId      []uint64
 	Rows        [][]byte
 }
 
 type ModifiedInfo struct {
 	FreeSpaceMapping *storage.FreeSpace
 	NonAddedRow      *NonAddedRows
-	RowIds           []uint64
 }
 
 func processPagesForUpdate(ctx context.Context, pageChan chan *storage.PageV2, updateInfoChan chan ModifiedInfo, updateKey, updateVal, filterKey, filterVal string, tableObj *storage.TableObj) error {
@@ -229,13 +236,11 @@ func processPagesForUpdate(ctx context.Context, pageChan chan *storage.PageV2, u
 				nonAddedRows.BytesNeeded += uint16(len(rowBytes))
 
 				nonAddedRows.Rows = append(nonAddedRows.Rows, rowBytes)
-				updateInfo.RowIds = append(updateInfo.RowIds, row.ID)
 			}
 		}
 
 		if freeSpacePage != nil {
 			pageObj.Mu.Unlock()
-			nonAddedRows.RowsId = updateInfo.RowIds
 			updateInfo.FreeSpaceMapping = freeSpacePage
 			updateInfo.NonAddedRow = &nonAddedRows
 
@@ -265,7 +270,7 @@ func handleLikeInsert(ctx context.Context, nonAddedRows chan *NonAddedRows, tabl
 			chunkedRows := ChunkRows(nonAddedRow)
 
 			for _, chunkedRow := range chunkedRows {
-				err := findAndUpdate(bpm, tableObj, tableStats, chunkedRow.BytesNeeded, tableName, chunkedRow.Rows, chunkedRow.RowsId)
+				err := findAndUpdate(bpm, tableObj, tableStats, chunkedRow.BytesNeeded, tableName, chunkedRow.Rows)
 				if err != nil {
 					return fmt.Errorf("findAndUpdate failed: %w", err)
 				}
@@ -273,7 +278,7 @@ func handleLikeInsert(ctx context.Context, nonAddedRows chan *NonAddedRows, tabl
 			continue
 		}
 
-		err := findAndUpdate(bpm, tableObj, tableStats, nonAddedRow.BytesNeeded, tableName, nonAddedRow.Rows, nonAddedRow.RowsId)
+		err := findAndUpdate(bpm, tableObj, tableStats, nonAddedRow.BytesNeeded, tableName, nonAddedRow.Rows)
 		if err != nil {
 			return fmt.Errorf("findAndUpdate failed: %w", err)
 		}
@@ -295,7 +300,7 @@ func ChunkRows(nonAddedRows *NonAddedRows) []*NonAddedRows {
 	var chunkedRows []*NonAddedRows
 
 	currentChunk := &NonAddedRows{}
-	for i, row := range nonAddedRows.Rows {
+	for _, row := range nonAddedRows.Rows {
 		rowSize := uint16(len(row))
 
 		if currentChunk.BytesNeeded+rowSize >= maxBytesPerChunk {
@@ -305,7 +310,6 @@ func ChunkRows(nonAddedRows *NonAddedRows) []*NonAddedRows {
 
 		currentChunk.BytesNeeded += rowSize
 		currentChunk.Rows = append(currentChunk.Rows, row)
-		currentChunk.RowsId = append(currentChunk.RowsId, nonAddedRows.RowsId[i])
 	}
 
 	if len(currentChunk.Rows) > 0 {

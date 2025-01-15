@@ -2,6 +2,8 @@ package tests
 
 import (
 	"a2gdb/cmd"
+	"a2gdb/query-engine/engine"
+	"a2gdb/storage-engine/storage"
 	"a2gdb/util"
 	"fmt"
 	"log"
@@ -243,54 +245,54 @@ func TestInsertAfterUpdate(t *testing.T) {
 	})
 }
 
-// func TestDelete(t *testing.T) {
-// 	sql1 := fmt.Sprintf("DELETE FROM `%s` WHERE %s = '%s'\n", tableName, checkKey, checkVal)
-// 	encodedPlan1, err := util.SendSql(sql1)
-// 	if err != nil {
-// 		t.Fatal(err)
-// 	}
-// 	sharedDB.EngineEntry(encodedPlan1)
+func TestDelete(t *testing.T) {
+	sql1 := fmt.Sprintf("DELETE FROM `%s` WHERE %s = '%s'\n", tableName, checkKey, checkVal)
+	encodedPlan1, err := util.SendSql(sql1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sharedDB.EngineEntry(encodedPlan1)
 
-// 	manager := sharedDB.BufferPoolManager.DiskManager
-// 	tableObj, err := storage.GetTableObj(tableName, manager)
-// 	if err != nil {
-// 		t.Fatalf("couldn't get table object for table %s, error: %s", tableName, err)
-// 	}
+	manager := sharedDB.BufferPoolManager.DiskManager
+	tableObj, err := storage.GetTableObj(tableName, manager)
+	if err != nil {
+		t.Fatalf("couldn't get table object for table %s, error: %s", tableName, err)
+	}
 
-// 	tablePages, err := GetTablePagesFromDiskTest(tableObj.DataFile)
-// 	if err != nil {
-// 		t.Fatalf("couldn't get table pages for table %s, error: %s", tableName, err)
-// 	}
+	tablePages, err := storage.GetTablePagesFromDiskTest(tableObj.DataFile)
+	if err != nil {
+		t.Fatalf("couldn't get table pages for table %s, error: %s", tableName, err)
+	}
 
-// 	for _, page := range tablePages {
-// 		pageObj, ok := tableObj.DirectoryPage.Value[storage.PageID(page.Header.ID)]
-// 		if !ok {
-// 			t.Fatalf("directory page contains wrong value for page: %+v", page)
-// 		}
+	for _, page := range tablePages {
+		pageObj, ok := tableObj.DirectoryPage.Value[storage.PageID(page.Header.ID)]
+		if !ok {
+			t.Fatalf("directory page contains wrong value for page: %+v", page)
+		}
 
-// 		for i := range pageObj.PointerArray {
-// 			location := &pageObj.PointerArray[i]
-// 			if !location.Free {
-// 				t.Fatalf("location not marked as free when it should be: %+v", location)
-// 			}
+		for i := range pageObj.PointerArray {
+			location := &pageObj.PointerArray[i]
+			if !location.Free {
+				t.Fatalf("location not marked as free when it should be: %+v", location)
+			}
 
-// 			if pageObj.ExactFreeMem != 0 {
-// 				t.Fatalf("exact memory not zeroed, page %+v", page)
-// 			}
+			if pageObj.ExactFreeMem != 0 {
+				t.Fatalf("exact memory not zeroed, page %+v", page)
+			}
 
-// 			if pageObj.Level != engine.EMPTY_PAGE {
-// 				t.Fatalf("not on expected level, page %+v", page)
-// 			}
-// 		}
-// 	}
-// }
+			if pageObj.Level != engine.EMPTY_PAGE {
+				t.Fatalf("not on expected level, page %+v", page)
+			}
+		}
+	}
+}
 
-// func TestInsertAfterDelete(t *testing.T) {
-// 	t.Run("insertManyAfterDelete", func(t *testing.T) {
-// 		insertMany(t, expectedStressNumber)
-// 	})
+func TestInsertAfterDelete(t *testing.T) {
+	t.Run("insertManyAfterDelete", func(t *testing.T) {
+		insertMany(t, expectedStressNumber)
+	})
 
-// 	t.Run("checkTupleNumber", func(t *testing.T) {
-// 		checkTupleNumber(t, expectedStressNumber)
-// 	})
-// }
+	t.Run("checkTupleNumber", func(t *testing.T) {
+		checkTupleNumber(t, expectedStressNumber)
+	})
+}
