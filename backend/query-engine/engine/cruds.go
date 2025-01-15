@@ -50,7 +50,6 @@ func (qe *QueryEngine) handleUpdate(plan map[string]interface{}) Result {
 	updateInfoChan := make(chan ModifiedInfo)
 	insertChan := make(chan *NonAddedRows)
 
-	fmt.Println("pageNum (before passing)",tableStats.NumOfPages)
 	tasks := []func() error{
 		func() error {
 			return qe.BufferPoolManager.FullTableScan(ctx, pageChan, tableObj, qe.BufferPoolManager.PageTable, tableStats.NumOfPages)

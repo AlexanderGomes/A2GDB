@@ -25,7 +25,6 @@ type BufferPoolManager struct {
 
 func (bpm *BufferPoolManager) FullTableScan(ctx context.Context, pc chan *PageV2, tableObj *TableObj, pageTable map[PageID]FrameID, staticNumPages uint64) error {
 	var wg sync.WaitGroup
-	fmt.Println("FullTableScan total pages: ", staticNumPages)
 
 	errChan := make(chan error, 2)
 

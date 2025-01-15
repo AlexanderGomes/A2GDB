@@ -177,9 +177,7 @@ func FullTableScan(pc chan *PageV2, file *os.File, pageTable map[PageID]FrameID,
 	var pageCount uint64
 
 	for {
-		fmt.Println("current page: ", pageCount)
 		if pageCount == tp {
-			fmt.Println("Limit", pageCount)
 			break
 		}
 

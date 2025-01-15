@@ -2,8 +2,6 @@ package tests
 
 import (
 	"a2gdb/cmd"
-	"a2gdb/query-engine/engine"
-	"a2gdb/storage-engine/storage"
 	"a2gdb/util"
 	"fmt"
 	"log"
@@ -13,8 +11,6 @@ import (
 
 	"github.com/scylladb/go-set/strset"
 )
-
-var sharedDB *engine.QueryEngine
 
 const REMOVE_DB = true
 const REMOVE_LOGS = true
@@ -71,13 +67,6 @@ func TestCreateTable(t *testing.T) {
 	}
 }
 
-const expectedTupleNumber = 40
-const tableName = "User"
-const checkKey = "Username"
-const checkVal = "JaneSmith"
-const stressNumber = 1000
-const expectedStressNumber = 1040
-
 func TestInsert(t *testing.T) {
 	t.Run("InsertMany", func(t *testing.T) {
 		insertMany(t, expectedTupleNumber)
@@ -90,133 +79,32 @@ func TestInsert(t *testing.T) {
 	t.Run("StressInsert", func(t *testing.T) {
 		insertMany(t, stressNumber)
 	})
+
 	t.Run("checkTupleNumberStress", func(t *testing.T) {
 		checkTupleNumber(t, expectedStressNumber)
 	})
 }
 
-const filterField = "Username"
-const filterValue = "JaneSmith"
-const modifiedField = "Age"
-const modifiedValue = "123456789123"
-
-func TestUpdate(t *testing.T) {
-	sql1 := fmt.Sprintf("UPDATE `User` SET %s = %s WHERE Username = 'JaneSmith'\n", modifiedField, modifiedValue)
-	encodedPlan1, err := util.SendSql(sql1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, _, res := sharedDB.EngineEntry(encodedPlan1)
-
-	if res.Error != nil {
-		t.Fatal(res.Error)
-	}
-
-	t.Run("Total Tuples After Update", func(t *testing.T) {
-		checkTupleNumber(t, expectedStressNumber)
+func TestSelects(t *testing.T) {
+	t.Run("SelectStar", func(t *testing.T) {
+		selectStart(t)
+	})
+	t.Run("selectFilter", func(t *testing.T) {
+		selectFilter(t)
 	})
 
-	t.Run("Total Modified Tuples", func(t *testing.T) {
-		checkModifiedTuples(t)
+	t.Run("selectWhere", func(t *testing.T) {
+		selectWhere(t)
 	})
 
+	t.Run("selectWhereAnd", func(t *testing.T) {
+		selectWhereAnd(t)
+	})
+
+	t.Run("FindPrimary", func(t *testing.T) {
+		findByPrimary(t)
+	})
 }
-
-func checkModifiedTuples(t *testing.T) {
-	var modifiedCount int
-	rows := getRows(t)
-	for _, row := range rows {
-		if row.Values[filterField] == filterValue && row.Values[modifiedField] == modifiedValue {
-			modifiedCount++
-		}
-	}
-
-	if modifiedCount != expectedStressNumber {
-		t.Fatalf("expected count: [%d], modified count: [%d]", expectedStressNumber, modifiedCount)
-	}
-}
-
-// func TestDelete(t *testing.T) {
-// 	sql1 := fmt.Sprintf("DELETE FROM `%s` WHERE %s = '%s'\n", tableName, checkKey, checkVal)
-// 	encodedPlan1, err := util.SendSql(sql1)
-// 	if err != nil {
-// 		t.Fatal(err)
-// 	}
-// 	sharedDB.EngineEntry(encodedPlan1)
-
-// 	manager := sharedDB.BufferPoolManager.DiskManager
-// 	tableObj, err := storage.GetTableObj(tableName, manager)
-// 	if err != nil {
-// 		t.Fatalf("couldn't get table object for table %s, error: %s", tableName, err)
-// 	}
-
-// 	tablePages, err := GetTablePagesFromDiskTest(tableObj.DataFile)
-// 	if err != nil {
-// 		t.Fatalf("couldn't get table pages for table %s, error: %s", tableName, err)
-// 	}
-
-// 	for _, page := range tablePages {
-// 		pageObj, ok := tableObj.DirectoryPage.Value[storage.PageID(page.Header.ID)]
-// 		if !ok {
-// 			t.Fatalf("directory page contains wrong value for page: %+v", page)
-// 		}
-
-// 		for i := range pageObj.PointerArray {
-// 			location := &pageObj.PointerArray[i]
-// 			if !location.Free {
-// 				t.Fatalf("location not marked as free when it should be: %+v", location)
-// 			}
-
-// 			if pageObj.ExactFreeMem != 0 {
-// 				t.Fatalf("exact memory not zeroed, page %+v", page)
-// 			}
-
-// 			if pageObj.Level != engine.EMPTY_PAGE {
-// 				t.Fatalf("not on expected level, page %+v", page)
-// 			}
-// 		}
-// 	}
-// }
-
-
-// func TestInsertAfterDelete(t *testing.T) {
-// 	t.Run("insertManyAfterDelete", func(t *testing.T) {
-// 		insertMany(t, expectedStressNumber)
-// 	})
-
-// 	t.Run("checkTupleNumber", func(t *testing.T) {
-// 		checkTupleNumber(t, expectedStressNumber)
-// 	})
-// }
-
-// func TestSelects(t *testing.T) {
-// 	t.Run("SelectStar", func(t *testing.T) {
-// 		selectStart(t)
-// 	})
-// 	t.Run("selectFilter", func(t *testing.T) {
-// 		selectFilter(t)
-// 	})
-
-// 	t.Run("selectWhere", func(t *testing.T) {
-// 		selectWhere(t)
-// 	})
-
-// 	t.Run("selectWhereAnd", func(t *testing.T) {
-// 		selectWhereAnd(t)
-// 	})
-
-// 	t.Run("FindPrimary", func(t *testing.T) {
-// 		findByPrimary(t)
-// 	})
-// }
-
-const smallest = 1
-const biggest = 1040
-
-const ASC_LIMIT_1 = "SELECT Username, Age, City FROM `User` ORDER BY Age ASC LIMIT 1\n"
-const DESC_LIMIT_1 = "SELECT Username, Age, City FROM `User` ORDER BY Age DESC LIMIT 1\n"
-const ASC = "SELECT Username, Age, City FROM `User` ORDER BY Age ASC\n"
-const DESC = "SELECT Username, Age, City FROM `User` ORDER BY Age DESC\n"
 
 func TestOrderBy(t *testing.T) {
 	queryMap := map[string]string{
@@ -234,7 +122,11 @@ func TestOrderBy(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		rows, _, _ := sharedDB.EngineEntry(encodedPlan1)
+		rows, _, res := sharedDB.EngineEntry(encodedPlan1)
+		if res.Error != nil {
+			t.Fatal(res.Error)
+		}
+
 		for _, row := range rows {
 			if len(row.Values) != expectedColumns.Size() {
 				t.Fatalf("incorrect number of columns returned")
@@ -245,30 +137,23 @@ func TestOrderBy(t *testing.T) {
 					t.Fatal("incorrect columns present")
 				}
 			}
-
-			age, err := strconv.ParseInt(row.Values[compKey], 10, 64)
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			last := rows[len(rows)-1]
-			lastAge, err := strconv.ParseInt(last.Values[compKey], 10, 64)
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			validateResults(t, identity, len(rows), int(age), int(lastAge), smallest, biggest, expectedStressNumber)
 		}
+
+		first := rows[0]
+		firstAge, err := strconv.ParseInt(first.Values[compKey], 10, 64)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		last := rows[len(rows)-1]
+		lastAge, err := strconv.ParseInt(last.Values[compKey], 10, 64)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		validateResults(t, identity, len(rows), int(firstAge), int(lastAge), smallest, biggest, expectedStressNumber)
 	}
 }
-
-const COUNT = "SELECT City, COUNT(*) AS UserCount FROM `User` GROUP BY City\n"
-const MAX = " SELECT City, MAX(Age) AS max_age FROM `User` GROUP BY City\n"
-const MIN = "SELECT City, MIN(Age) AS max_age FROM `User` GROUP BY City\n"
-const AVG = "SELECT City, AVG(Age) AS max_age FROM `User` GROUP BY City \n"
-const SUM = "SELECT City, SUM(Age) AS max_age FROM `User` GROUP BY City\n"
-const AVG_EXPECTED = 520
-const SUM_EXPECTED = 541320
 
 func TestGroupBy(t *testing.T) {
 	queryMap := map[string]string{
@@ -318,22 +203,27 @@ func TestGroupBy(t *testing.T) {
 	}
 }
 
-func checkUnmodifiedTuples(t *testing.T) {
-	var unModifiedCount int
-	rows := getRows(t)
-	for _, row := range rows {
-		if row.Values[modifiedField] != modifiedValue {
-			unModifiedCount++
-		}
+func TestUpdate(t *testing.T) {
+	sql1 := fmt.Sprintf("UPDATE `User` SET %s = %s WHERE Username = 'JaneSmith'\n", modifiedField, modifiedValue)
+	encodedPlan1, err := util.SendSql(sql1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, res := sharedDB.EngineEntry(encodedPlan1)
+
+	if res.Error != nil {
+		t.Fatal(res.Error)
 	}
 
-	if unModifiedCount != (EXPECTED_AFTER_UPDATE - expectedStressNumber) {
-		t.Fatalf("expected count: [%d], modified count: [%d]", EXPECTED_AFTER_UPDATE-expectedStressNumber, unModifiedCount)
-	}
+	t.Run("Total Tuples After Update", func(t *testing.T) {
+		checkTupleNumber(t, expectedStressNumber)
+	})
+
+	t.Run("Total Modified Tuples", func(t *testing.T) {
+		checkModifiedTuples(t)
+	})
+
 }
-
-const INSERT_AFTER_UPDATE = expectedStressNumber + 1000
-const EXPECTED_AFTER_UPDATE = expectedStressNumber + expectedStressNumber + 1000
 
 func TestInsertAfterUpdate(t *testing.T) {
 	t.Run("StressInsert", func(t *testing.T) {
@@ -353,281 +243,54 @@ func TestInsertAfterUpdate(t *testing.T) {
 	})
 }
 
-func checkTupleNumber(t *testing.T, expectedNumber int) {
-	var count int
-	manager := sharedDB.BufferPoolManager.DiskManager
-	tableObj, err := storage.GetTableObj(tableName, manager)
-	if err != nil {
-		t.Fatalf("couldn't get table object for table %s, error: %s", tableName, err)
-	}
+// func TestDelete(t *testing.T) {
+// 	sql1 := fmt.Sprintf("DELETE FROM `%s` WHERE %s = '%s'\n", tableName, checkKey, checkVal)
+// 	encodedPlan1, err := util.SendSql(sql1)
+// 	if err != nil {
+// 		t.Fatal(err)
+// 	}
+// 	sharedDB.EngineEntry(encodedPlan1)
 
-	tablePages, err := storage.GetTablePagesFromDiskTest(tableObj.DataFile)
-	if err != nil {
-		t.Fatalf("couldn't get table pages for table %s, error: %s", tableName, err)
-	}
+// 	manager := sharedDB.BufferPoolManager.DiskManager
+// 	tableObj, err := storage.GetTableObj(tableName, manager)
+// 	if err != nil {
+// 		t.Fatalf("couldn't get table object for table %s, error: %s", tableName, err)
+// 	}
 
-	var innerCount int
-	for _, page := range tablePages {
-		pageObj := tableObj.DirectoryPage.Value[storage.PageID(page.Header.ID)]
-		for i := range pageObj.PointerArray {
-			location := &pageObj.PointerArray[i]
+// 	tablePages, err := GetTablePagesFromDiskTest(tableObj.DataFile)
+// 	if err != nil {
+// 		t.Fatalf("couldn't get table pages for table %s, error: %s", tableName, err)
+// 	}
 
-			rowBytes := page.Data[location.Offset : location.Offset+location.Length]
-			row, err := storage.DecodeRow(rowBytes)
-			if err != nil {
-				t.Fatalf("couldn't decode row, location: %+v, error: %s", location, err)
-			}
+// 	for _, page := range tablePages {
+// 		pageObj, ok := tableObj.DirectoryPage.Value[storage.PageID(page.Header.ID)]
+// 		if !ok {
+// 			t.Fatalf("directory page contains wrong value for page: %+v", page)
+// 		}
 
-			innerCount++
-			if row.Values[checkKey] == checkVal {
-				count++
-			}
-		}
-	}
+// 		for i := range pageObj.PointerArray {
+// 			location := &pageObj.PointerArray[i]
+// 			if !location.Free {
+// 				t.Fatalf("location not marked as free when it should be: %+v", location)
+// 			}
 
-	if count != expectedNumber {
-		t.Fatalf("expected count: [%d], matched rows count: [%d], total rows count: [%d]", expectedNumber, count, innerCount)
-	}
-}
+// 			if pageObj.ExactFreeMem != 0 {
+// 				t.Fatalf("exact memory not zeroed, page %+v", page)
+// 			}
 
-func insertMany(t *testing.T, x int) {
-	for i := range x {
-		random := util.GenerateRandomNumber()
-		sql1 := fmt.Sprintf("INSERT INTO `User` (Username, Age, City) VALUES ('JaneSmith', %d, 'Los Angeles')\n", i+random)
-		encodedPlan1, err := util.SendSql(sql1)
-		if err != nil {
-			t.Fatal(err)
-		}
-		_, _, res := sharedDB.EngineEntry(encodedPlan1)
-		if res.Error != nil {
-			t.Fatal("InsertMany Failed: ", res.Error)
-		}
-	}
-}
+// 			if pageObj.Level != engine.EMPTY_PAGE {
+// 				t.Fatalf("not on expected level, page %+v", page)
+// 			}
+// 		}
+// 	}
+// }
 
-func selectFilter(t *testing.T) {
-	expectedColumns := strset.New("Username", "Age")
+// func TestInsertAfterDelete(t *testing.T) {
+// 	t.Run("insertManyAfterDelete", func(t *testing.T) {
+// 		insertMany(t, expectedStressNumber)
+// 	})
 
-	sql1 := fmt.Sprintf("SELECT Username, Age FROM `%s`\n", tableName)
-	encodedPlan1, err := util.SendSql(sql1)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	rows, _, _ := sharedDB.EngineEntry(encodedPlan1)
-	if len(rows) != expectedStressNumber {
-		t.Fatalf("incorrect number of rows returned")
-	}
-
-	for _, row := range rows {
-		if len(row.Values) != expectedColumns.Size() {
-			t.Fatalf("incorrect number of columns returned")
-		}
-
-		for key := range row.Values {
-			if !expectedColumns.Has(key) {
-				t.Fatal("incorrect columns present")
-			}
-		}
-	}
-}
-
-func selectStart(t *testing.T) *storage.RowV2 {
-	sql1 := fmt.Sprintf("SELECT * FROM `%s`\n", tableName)
-	encodedPlan1, err := util.SendSql(sql1)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	rows, _, _ := sharedDB.EngineEntry(encodedPlan1)
-	if len(rows) != expectedStressNumber {
-		t.Fatalf("incorrect number of rows returned")
-	}
-
-	tableInfo := sharedDB.BufferPoolManager.DiskManager.PageCatalog.Tables[tableName]
-	if len(rows[4].Values) != len(tableInfo.Schema) {
-		t.Fatalf("wrong number of columns returned")
-	}
-
-	return rows[0]
-}
-
-func selectWhere(t *testing.T) {
-	expectedColumns := strset.New("Username", "Age", "City")
-	compKey := "Age"
-	conditions := []string{">", "=", "<"}
-	compVal := 20
-
-	for _, condition := range conditions {
-		sql1 := fmt.Sprintf("SELECT Username, Age, City FROM `%s` WHERE Age %s 20\n", tableName, condition)
-		encodedPlan1, err := util.SendSql(sql1)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		rows, _, _ := sharedDB.EngineEntry(encodedPlan1)
-		for _, row := range rows {
-			if len(row.Values) != expectedColumns.Size() {
-				t.Fatalf("incorrect number of columns returned")
-			}
-
-			for key := range row.Values {
-				if !expectedColumns.Has(key) {
-					t.Fatal("incorrect columns present")
-				}
-			}
-
-			age, err := strconv.Atoi(row.Values[compKey])
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			switch condition {
-			case ">":
-				if age < compVal {
-					t.Fatal("incorrect filter value passed (BIGGER_THAN)")
-				}
-			case "=":
-				if age != compVal {
-					t.Fatal("incorrect filter value passed (EQUALS)")
-				}
-			case "<":
-				if age > compVal {
-					t.Fatal("incorrect filter value passed (BIGGER_THAN)")
-				}
-			}
-		}
-	}
-}
-
-func selectWhereAnd(t *testing.T) {
-	expectedColumns := strset.New("Username", "Age", "City")
-	compKey := "Age"
-	compValLeft := 20
-	compValRight := 30
-
-	sql1 := "SELECT Username, Age, City FROM `User` WHERE Age BETWEEN 20 AND 30\n"
-	encodedPlan1, err := util.SendSql(sql1)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	rows, _, _ := sharedDB.EngineEntry(encodedPlan1)
-
-	for _, row := range rows {
-		if len(row.Values) != expectedColumns.Size() {
-			t.Fatalf("incorrect number of columns returned")
-		}
-
-		for key := range row.Values {
-			if !expectedColumns.Has(key) {
-				t.Fatal("incorrect columns present")
-			}
-		}
-
-		age, err := strconv.Atoi(row.Values[compKey])
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		if age < compValLeft || age > compValRight {
-			t.Fatalf("row: [%+v] contains incorrect result", row)
-		}
-	}
-}
-
-func findByPrimary(t *testing.T) {
-	row := selectStart(t)
-
-	sql1 := fmt.Sprintf("SELECT * FROM `%s` WHERE UserId = CAST('%d' AS DECIMAL(20,0))\n", tableName, row.ID)
-	encodedPlan1, err := util.SendSql(sql1)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	rows, _, _ := sharedDB.EngineEntry(encodedPlan1)
-	user := rows[0]
-	if len(rows) != 1 {
-		t.Fatalf("Returned %d users instead of one", len(rows))
-	}
-
-	if user.ID != row.ID {
-		t.Fatal("wrong user")
-	}
-
-	tableInfo := sharedDB.BufferPoolManager.DiskManager.PageCatalog.Tables[tableName]
-	if len(rows[0].Values) != len(tableInfo.Schema) {
-		t.Fatalf("wrong number of columns returned")
-	}
-}
-
-func validateResults(t *testing.T, identity string, rowLength, age, lastAge, smallest, biggest, expectedStressNumber int) {
-	switch identity {
-	case "ASC_LIMIT_1":
-		checkRowCount(t, identity, rowLength, 1)
-		checkAge(t, identity, age, smallest)
-
-	case "DESC_LIMIT_1":
-		checkRowCount(t, identity, rowLength, 1)
-		checkAge(t, identity, age, biggest)
-
-	case "ASC":
-		checkRowCount(t, identity, rowLength, expectedStressNumber)
-		checkOrder(t, identity, lastAge, biggest)
-	case "DESC":
-		checkRowCount(t, identity, rowLength, expectedStressNumber)
-		checkOrder(t, identity, lastAge, smallest)
-	}
-}
-
-func checkRowCount(t *testing.T, identity string, rowLength, expectedCount int) {
-	if rowLength != expectedCount {
-		t.Fatalf("[%s] incorrect number of rows returned: %d (expected: %d)", identity, rowLength, expectedCount)
-	}
-}
-
-func checkAge(t *testing.T, identity string, actual, expected int) {
-	if actual != expected {
-		t.Fatalf("[%s] wrong age returned: %d (expected: %d)", identity, actual, expected)
-	}
-}
-
-func checkOrder(t *testing.T, identity string, actual, expected int) {
-	if actual != expected {
-		t.Fatalf("[%s] wrong order: %d (expected: %d)", identity, actual, expected)
-	}
-}
-
-func getRows(t *testing.T) []*storage.RowV2 {
-	var rows []*storage.RowV2
-
-	manager := sharedDB.BufferPoolManager.DiskManager
-	tableObj, err := storage.GetTableObj(tableName, manager)
-	if err != nil {
-		t.Fatalf("couldn't get table object for table %s, error: %s", tableName, err)
-	}
-
-	tablePages, err := storage.GetTablePagesFromDiskTest(tableObj.DataFile)
-	if err != nil {
-		t.Fatalf("couldn't get table pages for table %s, error: %s", tableName, err)
-	}
-
-	for _, page := range tablePages {
-		pageObj, ok := tableObj.DirectoryPage.Value[storage.PageID(page.Header.ID)]
-		if !ok {
-			t.Fatalf("directory page contains wrong value for page: %+v", page)
-		}
-
-		for _, location := range pageObj.PointerArray {
-			rowBytes := page.Data[location.Offset : location.Offset+location.Length]
-			row, err := storage.DecodeRow(rowBytes)
-			if err != nil {
-				t.Fatalf("couldn't decode row, location: %+v, error: %s", location, err)
-			}
-
-			rows = append(rows, row)
-		}
-	}
-
-	return rows
-}
+// 	t.Run("checkTupleNumber", func(t *testing.T) {
+// 		checkTupleNumber(t, expectedStressNumber)
+// 	})
+// }

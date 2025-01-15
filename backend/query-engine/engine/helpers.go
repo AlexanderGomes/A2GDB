@@ -57,28 +57,20 @@ func findAndUpdate(bufferM *storage.BufferPoolManager, tableObj *storage.TableOb
 		FreeMemory: page.Header.UpperPtr - page.Header.LowerPtr, //assuming new page
 	}
 
-	before := newSpace.FreeMemory
-
 	tableObj.DirectoryPage.Mu.RLock()
 	pageInfoObj, ok := tableObj.DirectoryPage.Value[storage.PageID(page.Header.ID)]
 	tableObj.DirectoryPage.Mu.RUnlock()
 
-	var fromObj uint16
 	if ok {
 		pageInfoObj.Mu.RLock()
 		newSpace.FreeMemory = pageInfoObj.ExactFreeMem
-		fromObj = newSpace.FreeMemory
 		pageInfoObj.Mu.RUnlock()
 	}
 
-	fmt.Println("encodedRows: ", len(encodedRows))
 	for _, encodedRow := range encodedRows {
 		newSpace.FreeMemory -= uint16(len(encodedRow))
 		err := page.AddTuple(encodedRow)
 		if err != nil {
-			fmt.Println("default space: ", before)
-			fmt.Println("pageObj space: ", fromObj)
-			fmt.Println("page: ", page)
 
 			return fmt.Errorf("AddTuple failed: %w", err)
 		}
@@ -271,7 +263,6 @@ func handleLikeInsert(ctx context.Context, nonAddedRows chan *NonAddedRows, tabl
 	logger.Log.Info("handleLikeInsert(update) Started")
 
 	for nonAddedRow := range nonAddedRows {
-		fmt.Println("nonAddedRow BytesNeeded: ", nonAddedRow.BytesNeeded)
 		if nonAddedRow.BytesNeeded >= AVAIL_DATA {
 			chunkedRows := ChunkRows(nonAddedRow)
 
@@ -283,8 +274,7 @@ func handleLikeInsert(ctx context.Context, nonAddedRows chan *NonAddedRows, tabl
 			}
 			continue
 		}
-
-		fmt.Println("handleLikeInsert single")
+		
 		err := findAndUpdate(bpm, tableObj, tableStats, nonAddedRow.BytesNeeded, tableName, nonAddedRow.Rows, nonAddedRow.RowsId)
 		if err != nil {
 			return fmt.Errorf("findAndUpdate failed: %w", err)
