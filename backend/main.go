@@ -5,8 +5,6 @@ import (
 	"a2gdb/query-engine/engine"
 	"a2gdb/util"
 	"fmt"
-	"os"
-
 	"log"
 )
 
@@ -16,22 +14,11 @@ func main() {
 		log.Fatal("DB init failed: ", err)
 	}
 
-	for i := range 20 {
-		fmt.Println("New Interation: ", i)
-
-		createTable(engine)
-		insertMany(engine)
-		selects(engine)
-
-		err = os.RemoveAll("A2G_DB")
-		if err != nil {
-			log.Fatal("Failed to delete directory: ", err)
-		}
-	}
+	selects(engine)
 }
 
 func selects(engine *engine.QueryEngine) {
-	sql1 := "UPDATE `User` SET Age =  1281281280  WHERE Username = 'JaneSmith'\n"
+	sql1 := "UPDATE `User` SET Age =  10101010  WHERE Username = 'JaneSmith'\n"
 	encodedPlan1, err := util.SendSql(sql1)
 	if err != nil {
 		log.Fatal(err)
@@ -44,7 +31,7 @@ func selects(engine *engine.QueryEngine) {
 }
 
 func insertMany(engine *engine.QueryEngine) {
-	for i := range 1000 {
+	for i := range 10000 {
 		random := util.GenerateRandomNumber()
 		sql1 := fmt.Sprintf("INSERT INTO `User` (Username, Age, City) VALUES ('JaneSmith', %d, 'Los Angeles')\n", i+random)
 

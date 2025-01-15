@@ -60,7 +60,6 @@ func findAndUpdate(bufferM *storage.BufferPoolManager, tableObj *storage.TableOb
 	tableObj.DirectoryPage.Mu.RLock()
 	pageInfoObj, ok := tableObj.DirectoryPage.Value[storage.PageID(page.Header.ID)]
 	tableObj.DirectoryPage.Mu.RUnlock()
-
 	if ok {
 		pageInfoObj.Mu.RLock()
 		newSpace.FreeMemory = pageInfoObj.ExactFreeMem
@@ -71,7 +70,6 @@ func findAndUpdate(bufferM *storage.BufferPoolManager, tableObj *storage.TableOb
 		newSpace.FreeMemory -= uint16(len(encodedRow))
 		err := page.AddTuple(encodedRow)
 		if err != nil {
-
 			return fmt.Errorf("AddTuple failed: %w", err)
 		}
 	}
@@ -274,7 +272,7 @@ func handleLikeInsert(ctx context.Context, nonAddedRows chan *NonAddedRows, tabl
 			}
 			continue
 		}
-		
+
 		err := findAndUpdate(bpm, tableObj, tableStats, nonAddedRow.BytesNeeded, tableName, nonAddedRow.Rows, nonAddedRow.RowsId)
 		if err != nil {
 			return fmt.Errorf("findAndUpdate failed: %w", err)

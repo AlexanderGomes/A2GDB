@@ -2,6 +2,7 @@ package storage
 
 import (
 	"a2gdb/logger"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -13,10 +14,10 @@ import (
 
 const (
 	PERCENTAGE     = 20
-	BUFFER_SIZE    = 2000
-	NUM_DECODERS   = 20
-	PAGES_PER_READ = 100
-	MAX_FILE_SIZE  = 1 * 1024 * 1024 * 1024
+	BUFFER_SIZE    = 25
+	NUM_DECODERS   = 10
+	PAGES_PER_READ = 20
+	MAX_FILE_SIZE  = 1 * 1024
 )
 
 type TableObj struct {
@@ -221,19 +222,25 @@ type Chunk struct {
 	Size      int64
 }
 
-func FullTableScanBigFiles(file *os.File, pageTable map[PageID]FrameID) ([]*PageV2, error) {
+func FullTableScanBigFiles(pc chan *PageV2, file *os.File, pageTable map[PageID]FrameID) error {
 	logger.Log.Info("FullTableScanBigFiles")
 
-	chunks := FileCreateChunks(file, PERCENTAGE)
+	chunks := FileCreateChunks(file, PERCENTAGE) // static file info
 	byteChan := make(chan []byte, BUFFER_SIZE)
-	pageChan := make(chan *PageV2, BUFFER_SIZE)
+	errChan := make(chan error, 4)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	var wgReaders sync.WaitGroup
 	for _, c := range chunks {
 		wgReaders.Add(1)
 		go func(chunk *Chunk) {
 			defer wgReaders.Done()
-			ReadWorker(file, chunk, byteChan, PAGES_PER_READ)
+			if err := ReadWorker(ctx, file, chunk, byteChan, PAGES_PER_READ); err != nil {
+				errChan <- err
+				cancel()
+			}
 		}(c)
 	}
 
@@ -247,25 +254,25 @@ func FullTableScanBigFiles(file *os.File, pageTable map[PageID]FrameID) ([]*Page
 		wgDecoders.Add(1)
 		go func() {
 			defer wgDecoders.Done()
-			DecoderWorker(byteChan, pageChan)
+			if err := DecoderWorker(ctx, byteChan, pc, pageTable); err != nil {
+				errChan <- err
+				cancel()
+			}
 		}()
 	}
 
 	go func() {
 		wgDecoders.Wait()
-		close(pageChan)
+		close(errChan)
 	}()
 
-	var pages []*PageV2
-	for page := range pageChan {
-		_, ok := pageTable[PageID(page.Header.ID)]
-		if !ok {
-			pages = append(pages, page)
+	for err := range errChan {
+		if err != nil {
+			return fmt.Errorf("FullTableScanBigFiles failed: %w", err)
 		}
-		logger.Log.Info("Skipped Page: ", page.Header.ID)
 	}
 
-	return pages, nil
+	return nil
 }
 
 func FileCreateChunks(file *os.File, percentage int) []*Chunk {
@@ -305,7 +312,7 @@ func FileCreateChunks(file *os.File, percentage int) []*Chunk {
 	return chunks
 }
 
-func ReadWorker(file *os.File, chunk *Chunk, byteChan chan []byte, pagesPerRead int) error {
+func ReadWorker(ctx context.Context, file *os.File, chunk *Chunk, byteChan chan []byte, pagesPerRead int) error {
 	bufferSize := PageSizeV2 * pagesPerRead
 
 	for offset := chunk.Beggining; offset <= chunk.End; {
@@ -330,7 +337,7 @@ func ReadWorker(file *os.File, chunk *Chunk, byteChan chan []byte, pagesPerRead 
 	return nil
 }
 
-func DecoderWorker(byteChan chan []byte, pageChan chan *PageV2) error {
+func DecoderWorker(ctx context.Context, byteChan chan []byte, pageChan chan *PageV2, pageTable map[PageID]FrameID) error {
 	for buffer := range byteChan {
 		numPages := len(buffer) / PageSizeV2
 
@@ -345,7 +352,11 @@ func DecoderWorker(byteChan chan []byte, pageChan chan *PageV2) error {
 			if err != nil {
 				return fmt.Errorf("decodePageV2 failed: %v", err)
 			}
-			pageChan <- page
+
+			_, ok := pageTable[PageID(page.Header.ID)]
+			if !ok {
+				pageChan <- page
+			}
 		}
 	}
 
@@ -353,12 +364,12 @@ func DecoderWorker(byteChan chan []byte, pageChan chan *PageV2) error {
 }
 
 func GetTablePagesFromDisk(pc chan *PageV2, tableObj *TableObj, pageMemTable map[PageID]FrameID, totalPages uint64) error {
-	stat, _ := tableObj.DataFile.Stat()
-	size := stat.Size()
+	// stat, _ := tableObj.DataFile.Stat()
+	// size := stat.Size()
 
-	if size >= MAX_FILE_SIZE {
-		// return FullTableScanBigFiles(dataFile, pageMemTable)
-	}
+	// if size >= MAX_FILE_SIZE {
+	// 	return FullTableScanBigFiles(pc, tableObj.DataFile, pageMemTable)
+	// }
 	return FullTableScan(pc, tableObj.DataFile, pageMemTable, totalPages)
 }
 
