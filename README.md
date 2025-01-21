@@ -1,5 +1,5 @@
 ## **Welcome!**
-This year (2025), I’m focusing on building a distributed database and exploring techniques for creating more resource-efficient software.
+This year (2025), I’m focusing on building a DBaaS to master the practical aspects of building and managing complex, scalable systems.
 
 ## **Why This Project?**
 Database systems operate at extreme scales, processing billions of tuples and often handling data far larger than RAM. At this level, inefficiencies in code—whether in speed, memory usage, or algorithm complexity—become impossible to ignore. Algorithms that seem similar in theory can behave very differently in practice.
