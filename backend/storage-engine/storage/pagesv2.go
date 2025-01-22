@@ -200,13 +200,6 @@ func GenerateRandomID() uint64 {
 	return randomNum.Uint64()
 }
 
-func GenerateRandomIDRow() int64 {
-	max := new(big.Int).Lsh(big.NewInt(1), 64)
-	randomNum, _ := rand.Int(rand.Reader, max)
-
-	return randomNum.Int64()
-}
-
 func RearrangePAGE(page *PageV2, tableObj *TableObj, tableName string) (*PageV2, error) {
 	newPage := CreatePageV2(tableName)
 	newPage.Header.ID = page.Header.ID

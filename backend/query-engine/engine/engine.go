@@ -41,7 +41,8 @@ func (qe *QueryEngine) EngineEntry(queryPlan interface{}) ([]*storage.RowV2, map
 	return rows, groupByMap, &result
 }
 
-// ## keeping rows, and groupMap for test compatibility
+// ## return rows, and groupMap for test compatibility
+// ## DBMS fundamentals could be applied, consider vector processing
 func (qe *QueryEngine) handleSelect(plan map[string]interface{}) ([]*storage.RowV2, map[string]int, Result) {
 	var err error
 	var rows []*storage.RowV2

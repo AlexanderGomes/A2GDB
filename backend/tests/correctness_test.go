@@ -270,18 +270,17 @@ func TestDelete(t *testing.T) {
 			t.Fatalf("directory page contains wrong value for page: %+v", page)
 		}
 
-		for i := range pageObj.PointerArray {
-			location := &pageObj.PointerArray[i]
+		if pageObj.ExactFreeMem != engine.AVAIL_DATA {
+			t.Fatalf("exact memory not zeroed, pageObj: %+v", pageObj)
+		}
+
+		if pageObj.Level != engine.EMPTY_PAGE {
+			t.Fatalf("not on expected level, page %+v", page)
+		}
+
+		for _, location := range pageObj.PointerArray {
 			if !location.Free {
 				t.Fatalf("location not marked as free when it should be: %+v", location)
-			}
-
-			if pageObj.ExactFreeMem != 0 {
-				t.Fatalf("exact memory not zeroed, page %+v", page)
-			}
-
-			if pageObj.Level != engine.EMPTY_PAGE {
-				t.Fatalf("not on expected level, page %+v", page)
 			}
 		}
 	}

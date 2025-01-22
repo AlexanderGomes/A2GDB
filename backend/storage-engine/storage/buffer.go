@@ -11,7 +11,8 @@ import (
 )
 
 const (
-	MaxPoolSize = 27
+	MaxPoolSize = 30
+	WalPath     = "A2G_DB/wal_logs"
 )
 
 type FrameID int
@@ -21,27 +22,29 @@ type BufferPoolManager struct {
 	PageTable   map[PageID]FrameID
 	Replacer    *LRUKReplacer
 	DiskManager *DiskManagerV2
+	Wal         *WalManager
+	Mu          sync.RWMutex
 }
 
-func (bpm *BufferPoolManager) FullTableScan(ctx context.Context, pc chan *PageV2, tableObj *TableObj, pageTable map[PageID]FrameID, staticNumPages uint64) error {
+func (bpm *BufferPoolManager) FullTableScan(ctx context.Context, pageChan chan *PageV2, tableObj *TableObj, staticNumPages uint64) error {
 	var wg sync.WaitGroup
 
 	errChan := make(chan error, 2)
 
-	defer close(pc)
+	defer close(pageChan)
 	defer close(errChan)
 
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		if err := bpm.FullBufferScan(pc); err != nil {
+		if err := bpm.FullBufferScan(pageChan); err != nil {
 			errChan <- fmt.Errorf("FullBufferScan Failed: %w", err)
 		}
 	}()
 
 	go func() {
 		defer wg.Done()
-		if err := GetTablePagesFromDisk(pc, tableObj, pageTable, staticNumPages); err != nil {
+		if err := GetTablePagesFromDisk(pageChan, tableObj, bpm.PageTable, staticNumPages); err != nil {
 			errChan <- fmt.Errorf("GetTablePagesFromDisk Failed: %w", err)
 		}
 	}()
@@ -58,7 +61,7 @@ func (bpm *BufferPoolManager) FullTableScan(ctx context.Context, pc chan *PageV2
 	}
 }
 
-func (bpm *BufferPoolManager) FullBufferScan(pc chan *PageV2) error {
+func (bpm *BufferPoolManager) FullBufferScan(pageChan chan *PageV2) error {
 	for _, page := range bpm.Pages {
 		if page == nil {
 			continue
@@ -70,7 +73,7 @@ func (bpm *BufferPoolManager) FullBufferScan(pc chan *PageV2) error {
 		}
 
 		logger.Log.WithField("pageID", page.Header.ID).Info("Page From Bpm")
-		pc <- page
+		pageChan <- page
 	}
 
 	return nil
@@ -230,5 +233,10 @@ func NewBufferPoolManager(k int, fileName string) (*BufferPoolManager, error) {
 		return nil, err
 	}
 
-	return &BufferPoolManager{pages, &freeList, pageTable, replacer, diskManager}, nil
+	wal, err := NewWalManager(WalPath)
+	if err != nil {
+		return nil, fmt.Errorf("NewWalManager failed initialization: %w", err)
+	}
+
+	return &BufferPoolManager{pages, &freeList, pageTable, replacer, diskManager, wal, sync.RWMutex{}}, nil
 }

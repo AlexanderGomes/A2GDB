@@ -11,9 +11,9 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func prepareRows(plan map[string]interface{}, selectedCols []interface{}, primary string) (uint16, [][]byte, error) {
+func prepareRows(plan map[string]interface{}, selectedCols []interface{}, primary, tableName string, wal *storage.WalManager) (uint16, [][]byte, error) {
 	var bytesNeeded uint16
-	encodedRows := [][]byte{}
+	var encodedRows [][]byte
 
 	interfaceRows := plan["rows"].([]interface{})
 
@@ -35,6 +35,11 @@ func prepareRows(plan map[string]interface{}, selectedCols []interface{}, primar
 		encodedRow, err := storage.EncodeRow(&newRow)
 		if err != nil {
 			return 0, nil, fmt.Errorf("encodeRow failed: %w", err)
+		}
+
+		err = wal.Log(storage.LogTypeInsert, tableName, newRow.ID, encodedRow, encodedRow)
+		if err != nil {
+			return 0, nil, fmt.Errorf("wal.log failed: %w", err)
 		}
 
 		bytesNeeded += uint16(len(encodedRow))
@@ -133,7 +138,6 @@ func processPagesForDeletion(ctx context.Context, pages chan *storage.PageV2, up
 		pageObj.Mu.Lock()
 		tableObj.DirectoryPage.Mu.RUnlock()
 
-		logger.Log.WithFields(logrus.Fields{"Memlevel": pageObj.Level, "exactFreeMem": pageObj.ExactFreeMem, "offset": pageObj.Offset}).Info("Before Modification (PageObj)")
 		for i := range pageObj.PointerArray {
 			location := &pageObj.PointerArray[i]
 			if location.Free {
@@ -152,6 +156,7 @@ func processPagesForDeletion(ctx context.Context, pages chan *storage.PageV2, up
 						PageID:      storage.PageID(page.Header.ID),
 						TempPagePtr: page,
 						FreeMemory:  pageObj.ExactFreeMem}
+					logger.Log.WithField("Memory Processing (before)", freeSpacePage.FreeMemory).Info("initiating freeSpacePage (processPagesForDeletion)")
 				}
 
 				freeSpacePage.FreeMemory += location.Length
@@ -161,6 +166,8 @@ func processPagesForDeletion(ctx context.Context, pages chan *storage.PageV2, up
 
 		if freeSpacePage != nil {
 			pageObj.Mu.Unlock()
+			logger.Log.WithField("Memory Processing (after)", freeSpacePage.FreeMemory).Info("sending updateInfo (processPagesForDeletion)")
+
 			updateInfo.FreeSpaceMapping = freeSpacePage
 			updateInfoChan <- updateInfo
 		}
@@ -187,7 +194,7 @@ type ModifiedInfo struct {
 	NonAddedRow      *NonAddedRows
 }
 
-func processPagesForUpdate(ctx context.Context, pageChan chan *storage.PageV2, updateInfoChan chan ModifiedInfo, updateKey, updateVal, filterKey, filterVal string, tableObj *storage.TableObj) error {
+func processPagesForUpdate(ctx context.Context, pageChan chan *storage.PageV2, updateInfoChan chan ModifiedInfo, updateKey, updateVal, filterKey, filterVal string, tableObj *storage.TableObj, wal *storage.WalManager) error {
 	logger.Log.Info("processPagesForUpdate (start)")
 	defer close(updateInfoChan)
 
@@ -226,16 +233,21 @@ func processPagesForUpdate(ctx context.Context, pageChan chan *storage.PageV2, u
 				}
 
 				row.Values[updateKey] = updateVal
-				rowBytes, err := storage.EncodeRow(row)
+				newRowBytes, err := storage.EncodeRow(row)
 				if err != nil {
 					return fmt.Errorf("EncodeRow failed: %w", err)
 				}
 
+				err = wal.Log(storage.LogTypeUpdate, tableObj.TableName, row.ID, rowBytes, newRowBytes)
+				if err != nil {
+					return fmt.Errorf("wal.log failed: %w", err)
+				}
+
 				location.Free = true
 				freeSpacePage.FreeMemory += location.Length
-				nonAddedRows.BytesNeeded += uint16(len(rowBytes))
+				nonAddedRows.BytesNeeded += uint16(len(newRowBytes))
 
-				nonAddedRows.Rows = append(nonAddedRows.Rows, rowBytes)
+				nonAddedRows.Rows = append(nonAddedRows.Rows, newRowBytes)
 			}
 		}
 

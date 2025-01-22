@@ -102,7 +102,6 @@ func ReadExistingManager(dbDirectory string) (DiskManagerV2, error) {
 	return dm, nil
 }
 
-
 func UpdateDirectoryPageDisk(page *DirectoryPageV2, dirFile *os.File) error {
 	pageBytes, err := EncodeDirectory(page)
 	if err != nil {

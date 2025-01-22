@@ -31,6 +31,7 @@ func (qe *QueryEngine) handleUpdate(plan map[string]interface{}) Result {
 
 	tableName := plan["table"].(string)
 	manager := qe.BufferPoolManager.DiskManager
+	walManager := qe.BufferPoolManager.Wal
 
 	tableObj, err := storage.GetTableObj(tableName, manager)
 	if err != nil {
@@ -52,10 +53,10 @@ func (qe *QueryEngine) handleUpdate(plan map[string]interface{}) Result {
 
 	tasks := []func() error{
 		func() error {
-			return qe.BufferPoolManager.FullTableScan(ctx, pageChan, tableObj, qe.BufferPoolManager.PageTable, tableStats.NumOfPages)
+			return qe.BufferPoolManager.FullTableScan(ctx, pageChan, tableObj, tableStats.NumOfPages)
 		},
 		func() error {
-			return processPagesForUpdate(ctx, pageChan, updateInfoChan, modifyColumn, modifyValue, filterColumn, filterValue, tableObj)
+			return processPagesForUpdate(ctx, pageChan, updateInfoChan, modifyColumn, modifyValue, filterColumn, filterValue, tableObj, walManager)
 		},
 		func() error {
 			return cleanOrgnize(ctx, updateInfoChan, insertChan, tableObj, tableStats)
@@ -121,7 +122,7 @@ func (qe *QueryEngine) handleDelete(plan map[string]interface{}) Result {
 
 	tasks := []func() error{
 		func() error {
-			return qe.BufferPoolManager.FullTableScan(ctx, pageChan, tableObj, qe.BufferPoolManager.PageTable, tableStats.NumOfPages)
+			return qe.BufferPoolManager.FullTableScan(ctx, pageChan, tableObj, tableStats.NumOfPages)
 		},
 		func() error {
 			return processPagesForDeletion(ctx, pageChan, updateInfoChan, deleteKey, deleteVal, tableObj)
@@ -218,7 +219,7 @@ func (qe *QueryEngine) handleInsert(plan map[string]interface{}) Result {
 		return result
 	}
 
-	bytesNeeded, encodedRows, err := prepareRows(plan, selectedCols, primary)
+	bytesNeeded, encodedRows, err := prepareRows(plan, selectedCols, primary, tableName, qe.BufferPoolManager.Wal)
 	if err != nil {
 		result.Error = fmt.Errorf("preparing rows failed: %w", err)
 		result.Msg = "failed"
@@ -232,6 +233,7 @@ func (qe *QueryEngine) handleInsert(plan map[string]interface{}) Result {
 		"bytesNeeded":  bytesNeeded,
 	}).Info("findAndUpdate Inputs Set")
 
+	// block below everything below
 	err = findAndUpdate(qe.BufferPoolManager, tableobj, tableStats, bytesNeeded, tableName, encodedRows)
 	if err != nil {
 		result.Error = fmt.Errorf("findAndUpdate Failed: %s", err)

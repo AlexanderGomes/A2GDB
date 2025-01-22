@@ -163,7 +163,7 @@ func EncodePageInfo(pageInfo *PageInfo) ([]byte, error) {
 		return nil, err
 	}
 
-	if err := binary.Write(&buf, binary.LittleEndian, pageInfo.Level); err != nil { // race chain // handleLikeInsert
+	if err := binary.Write(&buf, binary.LittleEndian, pageInfo.Level); err != nil {
 		return nil, err
 	}
 
@@ -171,12 +171,12 @@ func EncodePageInfo(pageInfo *PageInfo) ([]byte, error) {
 		return nil, err
 	}
 
-	numTuples := uint32(len(pageInfo.PointerArray)) // race chain // handleLikeInsert
+	numTuples := uint32(len(pageInfo.PointerArray))
 	if err := binary.Write(&buf, binary.LittleEndian, numTuples); err != nil {
 		return nil, err
 	}
 
-	for _, tuple := range pageInfo.PointerArray { // race // handleLikeInsert // cleanOrganize
+	for _, tuple := range pageInfo.PointerArray {
 		if err := binary.Write(&buf, binary.LittleEndian, tuple.Offset); err != nil {
 			return nil, err
 		}
@@ -581,4 +581,88 @@ func DecodeItem(data []byte) (Item, error) {
 	}
 
 	return item, nil
+}
+
+func encodeLog(log *LogRecord) ([]byte, error) {
+	data, err := serializeLogRecord(log)
+	if err != nil {
+		return nil, err
+	}
+
+	length := uint32(len(data))
+	buf := new(bytes.Buffer)
+
+	if err := binary.Write(buf, binary.BigEndian, length); err != nil {
+		return nil, err
+	}
+
+	if _, err := buf.Write(data); err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
+}
+
+func serializeLogRecord(log *LogRecord) ([]byte, error) {
+	buf := new(bytes.Buffer)
+
+	if err := binary.Write(buf, binary.BigEndian, log.LSN); err != nil {
+		return nil, err
+	}
+
+	if err := binary.Write(buf, binary.BigEndian, log.Type); err != nil {
+		return nil, err
+	}
+
+	if err := writeString(buf, log.TxID); err != nil {
+		return nil, err
+	}
+
+	if err := writeString(buf, log.TableID); err != nil {
+		return nil, err
+	}
+
+	if err := binary.Write(buf, binary.BigEndian, log.RowID); err != nil {
+		return nil, err
+	}
+
+	if err := writeBytes(buf, log.BeforeImage); err != nil {
+		return nil, err
+	}
+
+	if err := writeBytes(buf, log.AfterImage); err != nil {
+		return nil, err
+	}
+
+	if err := binary.Write(buf, binary.BigEndian, log.Timestamp.UnixNano()); err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
+}
+
+func writeBytes(buf *bytes.Buffer, b []byte) error {
+	length := uint32(len(b))
+	if err := binary.Write(buf, binary.BigEndian, length); err != nil {
+		return err
+	}
+
+	if _, err := buf.Write(b); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func writeString(buf *bytes.Buffer, s string) error {
+	length := uint16(len(s))
+	if err := binary.Write(buf, binary.BigEndian, length); err != nil {
+		return err
+	}
+
+	if _, err := buf.WriteString(s); err != nil {
+		return err
+	}
+
+	return nil
 }

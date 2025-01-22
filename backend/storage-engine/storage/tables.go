@@ -186,7 +186,7 @@ func FullTableScan(pc chan *PageV2, file *os.File, pageTable map[PageID]FrameID,
 		_, err := file.ReadAt(buffer, int64(offset))
 		if err != nil && err == io.EOF {
 			if err == io.EOF {
-				logger.Log.Info("FullTableScan (end of file)")
+				logger.Log.Info("FullTableScanNormalFiles (end of file)")
 				break
 			}
 

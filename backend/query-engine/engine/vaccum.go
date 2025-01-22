@@ -31,9 +31,6 @@ func cleanOrgnize(ctx context.Context, updateInfoChan chan ModifiedInfo, insertC
 		defer close(insertChan)
 	}
 
-	logger.Log.Info("cleanOrgnize (start)")
-	logger.Log.WithField("tableObj", tableObj.Memory).Info("Before memory separation")
-
 	for updateInfo := range updateInfoChan {
 		space := updateInfo.FreeSpaceMapping
 
@@ -41,15 +38,6 @@ func cleanOrgnize(ctx context.Context, updateInfoChan chan ModifiedInfo, insertC
 		if err != nil {
 			return fmt.Errorf("RearrangePAGE failed: %w", err)
 		}
-
-		err = storage.UpdatePageInfo(newPage, tableObj, tableStats, nil)
-		if err != nil {
-			return fmt.Errorf("updatePageInfo failed: %w", err)
-		}
-
-		totalSpace := newPage.Header.UpperPtr - newPage.Header.LowerPtr // just rearranged the page, so this makes sense
-
-		logger.Log.WithFields(logrus.Fields{"totalSpace": totalSpace, "LowerPtr": newPage.Header.LowerPtr, "UpperPtr": newPage.Header.UpperPtr}).Info("Cleaned Page")
 
 		space.TempPagePtr = nil
 		memTag := getTag(space.FreeMemory)
@@ -61,10 +49,9 @@ func cleanOrgnize(ctx context.Context, updateInfoChan chan ModifiedInfo, insertC
 
 		dirPage.Mu.RLock()
 		pageObj := dirPage.Value[space.PageID]
-		pageObj.Mu.Lock()
 		dirPage.Mu.RUnlock()
 
-		// performance considerations
+		pageObj.Mu.Lock()
 		if pageObj.Level != 0 {
 			tableObj.Mu.Lock()
 			rankSlice := tableObj.Memory[pageObj.Level]
@@ -78,14 +65,19 @@ func cleanOrgnize(ctx context.Context, updateInfoChan chan ModifiedInfo, insertC
 		pageObj.ExactFreeMem = space.FreeMemory
 		pageObj.Mu.Unlock()
 
+		err = storage.UpdatePageInfo(newPage, tableObj, tableStats, nil)
+		if err != nil {
+			return fmt.Errorf("updatePageInfo failed: %w", err)
+		}
+
 		tableObj.Mu.Lock()
 		tableObj.Memory[memTag] = append(tableObj.Memory[memTag], space)
-		logger.Log.WithField("tableObj", tableObj.Memory).Info("After memory separation")
 
 		err = saveMemMapping(tableObj)
 		if err != nil {
 			return fmt.Errorf("saveMemMapping failed: %w", err)
 		}
+
 		tableObj.Mu.Unlock()
 
 		if insertChan != nil {
@@ -211,6 +203,7 @@ func getAvailablePage(bufferM *storage.BufferPoolManager, tableObj *storage.Tabl
 		logger.Log.Info("Created new page")
 
 		page := storage.CreatePageV2(tableName)
+
 		return page, nil
 	}
 

@@ -16,12 +16,13 @@ func main() {
 
 	createTable(engine)
 	insertMany(engine)
-	selects(engine)
+
+	sql := "UPDATE `User` SET Age = 121209 WHERE Username = 'JaneSmith'\n"
+	selects(engine, sql)
 }
 
-func selects(engine *engine.QueryEngine) {
-	sql1 := "UPDATE `User` SET Age =  10101010  WHERE Username = 'JaneSmith'\n"
-	encodedPlan1, err := util.SendSql(sql1)
+func selects(engine *engine.QueryEngine, sql string) {
+	encodedPlan1, err := util.SendSql(sql)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -30,10 +31,11 @@ func selects(engine *engine.QueryEngine) {
 	if result.Error != nil {
 		log.Fatal(result.Error)
 	}
+
 }
 
 func insertMany(engine *engine.QueryEngine) {
-	for i := range 10000 {
+	for i := range 100 {
 		random := util.GenerateRandomNumber()
 		sql1 := fmt.Sprintf("INSERT INTO `User` (Username, Age, City) VALUES ('JaneSmith', %d, 'Los Angeles')\n", i+random)
 
