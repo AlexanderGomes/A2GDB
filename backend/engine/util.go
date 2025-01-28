@@ -116,7 +116,7 @@ func handleError(err error, msg string) Result {
 
 func rollbackAndReturn(txId, primary string, walManager *WalManager, engine *QueryEngine, err error, msg string) Result {
 	if rollbackErr := walManager.AbortTransaction(txId, primary, engine); rollbackErr != nil {
-		err = fmt.Errorf("%w, AbortTransaction failed", err)
+		err = fmt.Errorf("AbortTransaction failed: %w", rollbackErr)
 	}
 	return Result{
 		Error: err,

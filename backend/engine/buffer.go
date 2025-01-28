@@ -178,11 +178,12 @@ func (bpm *BufferPoolManager) FetchPage(pageID PageID, tableObj *TableObj) (*Pag
 		tableObj.DirectoryPage.Mu.RUnlock()
 
 		pageObj.Mu.RLock()
+		defer pageObj.Mu.RUnlock()
+		
 		pageBytes, err := ReadPageAtOffset(tableObj.DataFile, pageObj.Offset)
 		if err != nil {
 			return nil, fmt.Errorf("ReadPageAtOffset failed: %w", err)
 		}
-		pageObj.Mu.RUnlock()
 
 		pagePtr, err = DecodePageV2(pageBytes)
 		if err != nil {

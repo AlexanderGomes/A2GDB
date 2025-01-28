@@ -81,6 +81,7 @@ func (p *PageV2) AddTuple(data []byte) error {
 	canInsert := p.Header.UpperPtr-p.Header.LowerPtr > tupleLen && offset < PageDataSize
 
 	if !canInsert {
+		fmt.Println("pageHeader: ", p.Header)
 		return fmt.Errorf("AddTuple (can't insert)")
 	}
 
@@ -89,7 +90,6 @@ func (p *PageV2) AddTuple(data []byte) error {
 	tupleLocation := TupleLocation{
 		Offset: offset,
 		Length: tupleLen,
-		Free:   false,
 	}
 
 	p.PointerArray = append(p.PointerArray, tupleLocation)
@@ -212,13 +212,16 @@ func RearrangePAGE(page *PageV2, tableObj *TableObj, tableName string) (*PageV2,
 	if !ok {
 		return nil, fmt.Errorf("pageObj not found")
 	}
-	pageObj.Mu.Lock()
 	directoryPage.Mu.RUnlock()
 
-	for _, location := range pageObj.PointerArray {
+	pageObj.Mu.Lock()
+	defer pageObj.Mu.Unlock()
+
+	for i := range pageObj.PointerArray {
+		location := &pageObj.PointerArray[i]
+
 		if !location.Free {
 			rowBytes := page.Data[location.Offset : location.Offset+location.Length]
-
 			err := newPage.AddTuple(rowBytes)
 			if err != nil {
 				return nil, fmt.Errorf("AddTuple failed: %w", err)
@@ -227,7 +230,6 @@ func RearrangePAGE(page *PageV2, tableObj *TableObj, tableName string) (*PageV2,
 	}
 
 	pageObj.PointerArray = newPage.PointerArray
-	pageObj.Mu.Unlock()
 
 	return newPage, nil
 }
@@ -237,6 +239,7 @@ func UpdatePageInfo(pageFound *PageV2, tableObj *TableObj, tableStats *TableInfo
 
 	dirPage := tableObj.DirectoryPage
 	dirPage.Mu.Lock()
+	defer dirPage.Mu.Unlock()
 
 	pageObj, found := dirPage.Value[pageID]
 	if !found {
@@ -272,7 +275,6 @@ func UpdatePageInfo(pageFound *PageV2, tableObj *TableObj, tableStats *TableInfo
 	if err := UpdateDirectoryPageDisk(dirPage, tableObj.DirFile); err != nil {
 		return fmt.Errorf("UpdateDirectoryPageDisk failed: %w", err)
 	}
-	dirPage.Mu.Unlock()
 
 	return nil
 }

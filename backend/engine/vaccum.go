@@ -26,6 +26,8 @@ const (
 )
 
 func cleanOrgnize(ctx context.Context, updateInfoChan chan ModifiedInfo, insertChan chan *NonAddedRows, tableObj *TableObj, tableStats *TableInfo) error {
+	logger.Log.Info("cleanOrgnize (start)")
+
 	if insertChan != nil {
 		defer close(insertChan)
 	}
@@ -35,7 +37,7 @@ func cleanOrgnize(ctx context.Context, updateInfoChan chan ModifiedInfo, insertC
 
 		newPage, err := RearrangePAGE(space.TempPagePtr, tableObj, tableObj.TableName)
 		if err != nil {
-			return fmt.Errorf("RearrangePAGE failed: %w", err)
+			return fmt.Errorf("(cleanOrgnize) => RearrangePAGE failed: %w", err)
 		}
 
 		space.TempPagePtr = nil
@@ -101,8 +103,9 @@ func memSeparationSingle(newSpace *FreeSpace, tableObj *TableObj) error {
 	memTag := getTag(newSpace.FreeMemory)
 
 	dirPage := tableObj.DirectoryPage
-
 	dirPage.Mu.Lock()
+	defer dirPage.Mu.Unlock()
+
 	pageObj := dirPage.Value[newSpace.PageID]
 	pageObj.Mu.Lock()
 
@@ -117,17 +120,16 @@ func memSeparationSingle(newSpace *FreeSpace, tableObj *TableObj) error {
 		return fmt.Errorf("saveMemMapping failed: %w", err)
 	}
 	tableObj.Mu.Unlock()
+	pageObj.Mu.Unlock()
 
 	pageObj.Level = memTag
 	pageObj.ExactFreeMem = newSpace.FreeMemory
 	logger.Log.WithFields(logrus.Fields{"MemTag": memTag, "ExactFreeMem": pageObj.ExactFreeMem, "memLevel": pageObj.Level, "offset": pageObj.Offset}).Info("memory separation single done")
-	pageObj.Mu.Unlock()
 
 	err = UpdateDirectoryPageDisk(tableObj.DirectoryPage, tableObj.DirFile)
 	if err != nil {
 		return fmt.Errorf("UpdateDirectoryPageDisk failed: %w", err)
 	}
-	dirPage.Mu.Unlock()
 
 	logger.Log.Info("Insertion Completed")
 	return nil

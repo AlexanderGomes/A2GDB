@@ -13,7 +13,6 @@ func main() {
 		log.Fatal("DB init failed: ", err)
 	}
 
-	createTable(engine)
 	insertMany(engine)
 }
 
@@ -40,7 +39,7 @@ func insertMany(engineM *engine.QueryEngine) {
 		}
 		_, _, result := engineM.EngineEntry(encodedPlan1, false)
 		if result.Error != nil {
-			log.Fatal("!!!!: ",result.Error)
+			fmt.Println(result.Error)
 		}
 	}
 }

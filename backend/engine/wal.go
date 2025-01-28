@@ -201,6 +201,7 @@ func (wl *WalManager) CommitTransaction(txID string) error {
 }
 
 func (wl *WalManager) AbortTransaction(txID, primary string, engine *QueryEngine) error {
+	fmt.Println("abort called")
 	wl.mu.Lock()
 	defer wl.mu.Unlock()
 
@@ -238,10 +239,12 @@ func (wl *WalManager) AbortTransaction(txID, primary string, engine *QueryEngine
 
 	delete(wl.activeTx, txID)
 
+	fmt.Println("abort finished")
 	return nil
 }
 
 func (wl *WalManager) Undo(logs []*LogRecord, engine *QueryEngine, primary string) error {
+	fmt.Println("undo called")
 	for i := len(logs) - 1; i >= 0; i-- {
 		log := logs[i]
 		switch log.Type {
@@ -255,10 +258,13 @@ func (wl *WalManager) Undo(logs []*LogRecord, engine *QueryEngine, primary strin
 		}
 	}
 
+	fmt.Println("undo finisehd")
+
 	return nil
 }
 
 func undoInsert(log *LogRecord, engine *QueryEngine, primary string) error {
+	fmt.Println("rowId: ", log.RowID)
 	sql := fmt.Sprintf("DELETE FROM `%s` WHERE %s = CAST('%d' AS DECIMAL(20,0))\n", log.TableID, primary, log.RowID)
 
 	encodedPlan1, err := SendSql(sql)
@@ -268,7 +274,7 @@ func undoInsert(log *LogRecord, engine *QueryEngine, primary string) error {
 
 	_, _, result := engine.EngineEntry(encodedPlan1, true)
 	if result.Error != nil {
-		return fmt.Errorf("EngineEntry failed: %w", err)
+		return fmt.Errorf("EngineEntry failed: %w", result.Error)
 	}
 
 	return nil

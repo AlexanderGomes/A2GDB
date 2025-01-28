@@ -3,6 +3,7 @@ package engine
 import (
 	"a2gdb/logger"
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -136,7 +137,6 @@ func checkPresenceGetPrimary(selectedCols []interface{}, tableName string, catal
 }
 
 func processPagesForDeletion(ctx context.Context, pages chan *PageV2, updateInfoChan chan ModifiedInfo, deleteKey, deleteVal, txID string, tableObj *TableObj, wal *WalManager, txOff bool) error {
-	logger.Log.Info("processPagesForDeletion (start)")
 	defer close(updateInfoChan)
 
 	for page := range pages {
@@ -144,9 +144,13 @@ func processPagesForDeletion(ctx context.Context, pages chan *PageV2, updateInfo
 		var updateInfo ModifiedInfo
 
 		tableObj.DirectoryPage.Mu.RLock()
-		pageObj := tableObj.DirectoryPage.Value[PageID(page.Header.ID)]
-		pageObj.Mu.Lock()
+		pageObj, ok := tableObj.DirectoryPage.Value[PageID(page.Header.ID)]
+		if !ok {
+			return errors.New("pageObj missing")
+		}
 		tableObj.DirectoryPage.Mu.RUnlock()
+
+		pageObj.Mu.Lock()
 
 		for i := range pageObj.PointerArray {
 			location := &pageObj.PointerArray[i]
@@ -166,7 +170,6 @@ func processPagesForDeletion(ctx context.Context, pages chan *PageV2, updateInfo
 						PageID:      PageID(page.Header.ID),
 						TempPagePtr: page,
 						FreeMemory:  pageObj.ExactFreeMem}
-					logger.Log.WithField("Memory Processing (before)", freeSpacePage.FreeMemory).Info("initiating freeSpacePage (processPagesForDeletion)")
 				}
 
 				if !txOff {
@@ -181,10 +184,8 @@ func processPagesForDeletion(ctx context.Context, pages chan *PageV2, updateInfo
 			}
 		}
 
+		pageObj.Mu.Unlock()
 		if freeSpacePage != nil {
-			pageObj.Mu.Unlock()
-			logger.Log.WithField("Memory Processing (after)", freeSpacePage.FreeMemory).Info("sending updateInfo (processPagesForDeletion)")
-
 			updateInfo.FreeSpaceMapping = freeSpacePage
 			updateInfoChan <- updateInfo
 		}
@@ -197,7 +198,6 @@ func processPagesForDeletion(ctx context.Context, pages chan *PageV2, updateInfo
 		}
 	}
 
-	logger.Log.Info("processPagesForDeletion (end)")
 	return nil
 }
 

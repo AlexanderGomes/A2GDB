@@ -150,6 +150,7 @@ func (qe *QueryEngine) handleDelete(plan map[string]interface{}, transactionOff 
 		txId = walManager.BeginTransaction()
 	}
 
+	fmt.Println("pagenum: ", tableStats.NumOfPages)
 	tasks := []func() error{
 		func() error {
 			return qe.BufferPoolManager.FullTableScan(ctx, pageChan, tableObj, tableStats.NumOfPages)
@@ -181,7 +182,7 @@ func (qe *QueryEngine) handleDelete(plan map[string]interface{}, transactionOff 
 	canCommit := true
 	for err := range errChan {
 		canCommit = false
-		result.Error = fmt.Errorf("error occurred during update: %w", err)
+		result.Error = fmt.Errorf("delete failed: %w", err)
 		result.Msg = "failed"
 		return result
 	}
@@ -255,7 +256,7 @@ func (qe *QueryEngine) handleInsert(plan map[string]interface{}) Result {
 
 	bytesNeeded, encodedRows, err := prepareRows(plan, selectedCols, primary, tableName, txId, walManager)
 	if err != nil {
-		rollbackAndReturn(txId, primary, walManager, qe, fmt.Errorf("preparing rows failed: %w", err), "failed")
+		return rollbackAndReturn(txId, primary, walManager, qe, fmt.Errorf("preparing rows failed: %w", err), "failed")
 	}
 
 	logger.Log.WithFields(logrus.Fields{
@@ -266,13 +267,13 @@ func (qe *QueryEngine) handleInsert(plan map[string]interface{}) Result {
 	}).Info("findAndUpdate Inputs Set")
 
 	err = findAndUpdate(qe.BufferPoolManager, tableobj, tableStats, bytesNeeded, tableName, encodedRows)
-	if err == nil { // induced
-		rollbackAndReturn(txId, primary, walManager, qe, fmt.Errorf("findAndUpdate Failed: %s", err), "failed")
+	if err != nil { // induced error
+		return rollbackAndReturn(txId, primary, walManager, qe, fmt.Errorf("findAndUpdate Failed: %s", err), "failed")
 	}
 
 	err = walManager.CommitTransaction(txId)
 	if err != nil {
-		rollbackAndReturn(txId, primary, walManager, qe, fmt.Errorf("CommitTransaction Failed: %s", err), "failed")
+		return rollbackAndReturn(txId, primary, walManager, qe, fmt.Errorf("CommitTransaction Failed: %s", err), "failed")
 	}
 
 	return Result{Msg: "Tuples Inserted"}
