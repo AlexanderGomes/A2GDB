@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"a2gdb/storage-engine/storage"
 	"errors"
 	"fmt"
 	"log"
@@ -13,9 +12,9 @@ import (
 	"github.com/scylladb/go-set/strset"
 )
 
-func groupBy(innerMap map[string]interface{}, colName string, rows *[]*storage.RowV2, selectedCols []interface{}) (map[string]int, error) {
+func groupBy(innerMap map[string]interface{}, colName string, rows *[]*RowV2, selectedCols []interface{}) (map[string]int, error) {
 	var resMap map[string]int
-	groupMap := map[string][]*storage.RowV2{}
+	groupMap := map[string][]*RowV2{}
 
 	customFieldSlice := innerMap["selected_columns"].([]interface{})
 	//customField := customFieldSlice[len(customFieldSlice)-1].(string)
@@ -60,7 +59,7 @@ func groupBy(innerMap map[string]interface{}, colName string, rows *[]*storage.R
 	return resMap, nil
 }
 
-func sumCount(groupMap map[string][]*storage.RowV2, colName string) (map[string]int, error) {
+func sumCount(groupMap map[string][]*RowV2, colName string) (map[string]int, error) {
 	sumMap := map[string]int{}
 
 	for k, v := range groupMap {
@@ -81,7 +80,7 @@ func sumCount(groupMap map[string][]*storage.RowV2, colName string) (map[string]
 	return sumMap, nil
 }
 
-func avgCount(groupMap map[string][]*storage.RowV2, colName string) (map[string]int, error) {
+func avgCount(groupMap map[string][]*RowV2, colName string) (map[string]int, error) {
 	avgMap := map[string]int{}
 
 	for k, v := range groupMap {
@@ -102,7 +101,7 @@ func avgCount(groupMap map[string][]*storage.RowV2, colName string) (map[string]
 	return avgMap, nil
 }
 
-func minCount(groupMap map[string][]*storage.RowV2, field string) (map[string]int, error) {
+func minCount(groupMap map[string][]*RowV2, field string) (map[string]int, error) {
 	minMap := map[string]int{}
 
 	for k, v := range groupMap {
@@ -123,7 +122,7 @@ func minCount(groupMap map[string][]*storage.RowV2, field string) (map[string]in
 	return minMap, nil
 }
 
-func maxCount(groupMap map[string][]*storage.RowV2, field string) (map[string]int, error) {
+func maxCount(groupMap map[string][]*RowV2, field string) (map[string]int, error) {
 	minMap := map[string]int{}
 
 	for k, v := range groupMap {
@@ -145,7 +144,7 @@ func maxCount(groupMap map[string][]*storage.RowV2, field string) (map[string]in
 	return minMap, nil
 }
 
-func uniqueCount(groupMap map[string][]*storage.RowV2) map[string]int {
+func uniqueCount(groupMap map[string][]*RowV2) map[string]int {
 	countMap := map[string]int{}
 
 	for k, v := range groupMap {
@@ -155,7 +154,7 @@ func uniqueCount(groupMap map[string][]*storage.RowV2) map[string]int {
 	return countMap
 }
 
-func sortAscDesc(innerMap map[string]interface{}, rows *[]*storage.RowV2) {
+func sortAscDesc(innerMap map[string]interface{}, rows *[]*RowV2) {
 	column := innerMap["column"].(string)
 	direction := innerMap["sortDirection"].(string)
 
@@ -188,7 +187,7 @@ func sortAscDesc(innerMap map[string]interface{}, rows *[]*storage.RowV2) {
 	}
 }
 
-func filterByColumn(innerMap, refList map[string]interface{}, rows *[]*storage.RowV2) error {
+func filterByColumn(innerMap, refList map[string]interface{}, rows *[]*RowV2) error {
 	conditionObj := innerMap["condition"].(map[string]interface{})
 	operation := conditionObj["op"].(map[string]interface{})
 
@@ -236,7 +235,7 @@ func compare(a, b int64, operator string, largeComp *LargeComparisons) bool {
 	}
 }
 
-func rangeComparison(conditionObj interface{}, reflist map[string]interface{}, rows *[]*storage.RowV2, kind string) error {
+func rangeComparison(conditionObj interface{}, reflist map[string]interface{}, rows *[]*RowV2, kind string) error {
 	maps := conditionObj.([]interface{})
 
 	leftObjOp := maps[0].(map[string]interface{})
@@ -255,7 +254,7 @@ func rangeComparison(conditionObj interface{}, reflist map[string]interface{}, r
 	leftVal := int(leftValMap["literal"].(float64))
 	rightVal := int(rightValMap["literal"].(float64))
 
-	var filteredRows []*storage.RowV2
+	var filteredRows []*RowV2
 	for _, row := range *rows {
 		userValStr, ok := row.Values[columnName]
 		if !ok {
@@ -283,7 +282,7 @@ func rangeComparison(conditionObj interface{}, reflist map[string]interface{}, r
 	return nil
 }
 
-func equals(conditionObj interface{}, reflist map[string]interface{}, rows *[]*storage.RowV2, kind string) error {
+func equals(conditionObj interface{}, reflist map[string]interface{}, rows *[]*RowV2, kind string) error {
 	maps := conditionObj.([]interface{})
 
 	typeObj := maps[1].(map[string]interface{})
@@ -311,8 +310,8 @@ func equals(conditionObj interface{}, reflist map[string]interface{}, rows *[]*s
 	return nil
 }
 
-func decimalComparison(maps []interface{}, reflist map[string]interface{}, rows *[]*storage.RowV2) error {
-	var filteredRows []*storage.RowV2
+func decimalComparison(maps []interface{}, reflist map[string]interface{}, rows *[]*RowV2) error {
+	var filteredRows []*RowV2
 
 	colNameObj := maps[0].(map[string]interface{})
 	colNameMapSlice := colNameObj["operands"].([]interface{})
@@ -343,8 +342,8 @@ func decimalComparison(maps []interface{}, reflist map[string]interface{}, rows 
 	return nil
 }
 
-func charComparison(maps []interface{}, reflist map[string]interface{}, rows *[]*storage.RowV2) error {
-	var filteredRows []*storage.RowV2
+func charComparison(maps []interface{}, reflist map[string]interface{}, rows *[]*RowV2) error {
+	var filteredRows []*RowV2
 
 	colNameMap := maps[0].(map[string]interface{})
 	colNameCode := colNameMap["name"].(string)
@@ -370,8 +369,8 @@ func charComparison(maps []interface{}, reflist map[string]interface{}, rows *[]
 	return nil
 }
 
-func intComparison(conditionObj interface{}, reflist map[string]interface{}, rows *[]*storage.RowV2, kind string) error {
-	var filteredRows []*storage.RowV2
+func intComparison(conditionObj interface{}, reflist map[string]interface{}, rows *[]*RowV2, kind string) error {
+	var filteredRows []*RowV2
 	maps := conditionObj.([]interface{})
 
 	colObjMap := maps[0].(map[string]interface{})
@@ -405,7 +404,7 @@ func intComparison(conditionObj interface{}, reflist map[string]interface{}, row
 	return nil
 }
 
-func columnSelect(nodeMap, refList map[string]interface{}, rows []*storage.RowV2) ([]interface{}, string) {
+func columnSelect(nodeMap, refList map[string]interface{}, rows []*RowV2) ([]interface{}, string) {
 	var colName string
 
 	columns, ok := nodeMap["selected_columns"].([]interface{})

@@ -2,9 +2,7 @@ package tests
 
 import (
 	"a2gdb/cmd"
-	"a2gdb/query-engine/engine"
-	"a2gdb/storage-engine/storage"
-	"a2gdb/util"
+	"a2gdb/engine"
 	"fmt"
 	"log"
 	"os"
@@ -54,12 +52,12 @@ func TestInitDB(t *testing.T) {
 
 func TestCreateTable(t *testing.T) {
 	sql := "CREATE TABLE `User`(PRIMARY KEY(UserId), Username VARCHAR, Age INT, City VARCHAR)\n"
-	encodedPlan1, err := util.SendSql(sql)
+	encodedPlan1, err := engine.SendSql(sql)
 	if err != nil {
 		t.Fatal("Error getting query plan: ", err)
 	}
 
-	sharedDB.EngineEntry(encodedPlan1)
+	sharedDB.EngineEntry(encodedPlan1, false)
 
 	dbPath := "./A2G_DB"
 
@@ -119,12 +117,12 @@ func TestOrderBy(t *testing.T) {
 
 	expectedColumns := strset.New("Username", "Age", "City")
 	for identity, query := range queryMap {
-		encodedPlan1, err := util.SendSql(query)
+		encodedPlan1, err := engine.SendSql(query)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		rows, _, res := sharedDB.EngineEntry(encodedPlan1)
+		rows, _, res := sharedDB.EngineEntry(encodedPlan1, false)
 		if res.Error != nil {
 			t.Fatal(res.Error)
 		}
@@ -167,13 +165,13 @@ func TestGroupBy(t *testing.T) {
 	}
 
 	for identity, query := range queryMap {
-		encodedPlan1, err := util.SendSql(query)
+		encodedPlan1, err := engine.SendSql(query)
 		if err != nil {
 			t.Fatal(err)
 		}
 
 		expectedCity := "Los Angeles"
-		_, groupMap, _ := sharedDB.EngineEntry(encodedPlan1)
+		_, groupMap, _ := sharedDB.EngineEntry(encodedPlan1, false)
 		for k, v := range groupMap {
 			if k != expectedCity {
 				t.Fatalf("expected city: %s, received city: %s", expectedCity, k)
@@ -207,11 +205,11 @@ func TestGroupBy(t *testing.T) {
 
 func TestUpdate(t *testing.T) {
 	sql1 := fmt.Sprintf("UPDATE `User` SET %s = %s WHERE Username = 'JaneSmith'\n", modifiedField, modifiedValue)
-	encodedPlan1, err := util.SendSql(sql1)
+	encodedPlan1, err := engine.SendSql(sql1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, res := sharedDB.EngineEntry(encodedPlan1)
+	_, _, res := sharedDB.EngineEntry(encodedPlan1, false)
 
 	if res.Error != nil {
 		t.Fatal(res.Error)
@@ -247,25 +245,25 @@ func TestInsertAfterUpdate(t *testing.T) {
 
 func TestDelete(t *testing.T) {
 	sql1 := fmt.Sprintf("DELETE FROM `%s` WHERE %s = '%s'\n", tableName, checkKey, checkVal)
-	encodedPlan1, err := util.SendSql(sql1)
+	encodedPlan1, err := engine.SendSql(sql1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	sharedDB.EngineEntry(encodedPlan1)
+	sharedDB.EngineEntry(encodedPlan1, false)
 
 	manager := sharedDB.BufferPoolManager.DiskManager
-	tableObj, err := storage.GetTableObj(tableName, manager)
+	tableObj, err := engine.GetTableObj(tableName, manager)
 	if err != nil {
 		t.Fatalf("couldn't get table object for table %s, error: %s", tableName, err)
 	}
 
-	tablePages, err := storage.GetTablePagesFromDiskTest(tableObj.DataFile)
+	tablePages, err := engine.GetTablePagesFromDiskTest(tableObj.DataFile)
 	if err != nil {
 		t.Fatalf("couldn't get table pages for table %s, error: %s", tableName, err)
 	}
 
 	for _, page := range tablePages {
-		pageObj, ok := tableObj.DirectoryPage.Value[storage.PageID(page.Header.ID)]
+		pageObj, ok := tableObj.DirectoryPage.Value[engine.PageID(page.Header.ID)]
 		if !ok {
 			t.Fatalf("directory page contains wrong value for page: %+v", page)
 		}

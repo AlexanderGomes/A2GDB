@@ -2,7 +2,6 @@ package engine
 
 import (
 	"a2gdb/logger"
-	"a2gdb/storage-engine/storage"
 	"context"
 	"fmt"
 	"strconv"
@@ -11,15 +10,15 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func prepareRows(plan map[string]interface{}, selectedCols []interface{}, primary, tableName string, wal *storage.WalManager) (uint16, [][]byte, error) {
+func prepareRows(plan map[string]interface{}, selectedCols []interface{}, primary, tableName, txID string, wal *WalManager) (uint16, [][]byte, error) {
 	var bytesNeeded uint16
 	var encodedRows [][]byte
 
 	interfaceRows := plan["rows"].([]interface{})
 
 	for _, row := range interfaceRows {
-		newRow := storage.RowV2{
-			ID:     storage.GenerateRandomID(),
+		newRow := RowV2{
+			ID:     GenerateRandomID(),
 			Values: make(map[string]string),
 		}
 
@@ -32,12 +31,12 @@ func prepareRows(plan map[string]interface{}, selectedCols []interface{}, primar
 			newRow.Values[strRowCol] = strRowVal
 		}
 
-		encodedRow, err := storage.EncodeRow(&newRow)
+		encodedRow, err := EncodeRow(&newRow)
 		if err != nil {
 			return 0, nil, fmt.Errorf("encodeRow failed: %w", err)
 		}
 
-		err = wal.Log(storage.LogTypeInsert, tableName, newRow.ID, encodedRow, encodedRow)
+		err = wal.Log(txID, LogTypeInsert, tableName, newRow.ID, nil, encodedRow)
 		if err != nil {
 			return 0, nil, fmt.Errorf("wal.log failed: %w", err)
 		}
@@ -49,19 +48,19 @@ func prepareRows(plan map[string]interface{}, selectedCols []interface{}, primar
 	return bytesNeeded, encodedRows, nil
 }
 
-func findAndUpdate(bufferM *storage.BufferPoolManager, tableObj *storage.TableObj, tableStats *storage.TableInfo, bytesNeeded uint16, tableName string, encodedRows [][]byte) error {
+func findAndUpdate(bufferM *BufferPoolManager, tableObj *TableObj, tableStats *TableInfo, bytesNeeded uint16, tableName string, encodedRows [][]byte) error {
 	page, err := getAvailablePage(bufferM, tableObj, bytesNeeded, tableName) // new page could've been created
 	if err != nil {
 		return fmt.Errorf("getAvailablePage failed: %w", err)
 	}
 
-	newSpace := storage.FreeSpace{
-		PageID:     storage.PageID(page.Header.ID),
+	newSpace := FreeSpace{
+		PageID:     PageID(page.Header.ID),
 		FreeMemory: page.Header.UpperPtr - page.Header.LowerPtr, //assuming new page
 	}
 
 	tableObj.DirectoryPage.Mu.RLock()
-	pageInfoObj, ok := tableObj.DirectoryPage.Value[storage.PageID(page.Header.ID)]
+	pageInfoObj, ok := tableObj.DirectoryPage.Value[PageID(page.Header.ID)]
 	tableObj.DirectoryPage.Mu.RUnlock()
 	if ok {
 		pageInfoObj.Mu.RLock()
@@ -78,7 +77,7 @@ func findAndUpdate(bufferM *storage.BufferPoolManager, tableObj *storage.TableOb
 	}
 
 	logger.Log.Info("saving page to disk (created / existing)")
-	err = storage.UpdatePageInfo(page, tableObj, tableStats, bufferM.DiskManager) // make sure to save possible new page (this is updating even already existing pages)
+	err = UpdatePageInfo(page, tableObj, tableStats, bufferM.DiskManager) // make sure to save possible new page (this is updating even already existing pages)
 	if err != nil {
 		return fmt.Errorf("UpdatePageInfo failed: %v", page)
 	}
@@ -92,7 +91,18 @@ func findAndUpdate(bufferM *storage.BufferPoolManager, tableObj *storage.TableOb
 	return nil
 }
 
-func checkPresenceGetPrimary(selectedCols []interface{}, tableName string, catalog *storage.Catalog) (string, error) {
+func isPrimary(key string, tableName string, catalog *Catalog) (bool, error) {
+	tableInfo, ok := catalog.Tables[tableName]
+	if !ok {
+		return false, fmt.Errorf("table: %s doesn't exist", tableName)
+	}
+
+	columnInfo := tableInfo.Schema[key]
+
+	return columnInfo.IsIndex, nil
+}
+
+func checkPresenceGetPrimary(selectedCols []interface{}, tableName string, catalog *Catalog) (string, error) {
 	var primary string
 
 	// #check if table exist
@@ -125,16 +135,16 @@ func checkPresenceGetPrimary(selectedCols []interface{}, tableName string, catal
 	return primary, nil
 }
 
-func processPagesForDeletion(ctx context.Context, pages chan *storage.PageV2, updateInfoChan chan ModifiedInfo, deleteKey, deleteVal string, tableObj *storage.TableObj) error {
+func processPagesForDeletion(ctx context.Context, pages chan *PageV2, updateInfoChan chan ModifiedInfo, deleteKey, deleteVal, txID string, tableObj *TableObj, wal *WalManager, txOff bool) error {
 	logger.Log.Info("processPagesForDeletion (start)")
 	defer close(updateInfoChan)
 
 	for page := range pages {
-		var freeSpacePage *storage.FreeSpace
+		var freeSpacePage *FreeSpace
 		var updateInfo ModifiedInfo
 
 		tableObj.DirectoryPage.Mu.RLock()
-		pageObj := tableObj.DirectoryPage.Value[storage.PageID(page.Header.ID)]
+		pageObj := tableObj.DirectoryPage.Value[PageID(page.Header.ID)]
 		pageObj.Mu.Lock()
 		tableObj.DirectoryPage.Mu.RUnlock()
 
@@ -145,18 +155,25 @@ func processPagesForDeletion(ctx context.Context, pages chan *storage.PageV2, up
 			}
 
 			rowBytes := page.Data[location.Offset : location.Offset+location.Length]
-			row, err := storage.DecodeRow(rowBytes)
+			row, err := DecodeRow(rowBytes)
 			if err != nil {
 				return fmt.Errorf("DecodeRow failed: %w", err)
 			}
 
 			if row.Values[deleteKey] == deleteVal {
 				if freeSpacePage == nil {
-					freeSpacePage = &storage.FreeSpace{
-						PageID:      storage.PageID(page.Header.ID),
+					freeSpacePage = &FreeSpace{
+						PageID:      PageID(page.Header.ID),
 						TempPagePtr: page,
 						FreeMemory:  pageObj.ExactFreeMem}
 					logger.Log.WithField("Memory Processing (before)", freeSpacePage.FreeMemory).Info("initiating freeSpacePage (processPagesForDeletion)")
+				}
+
+				if !txOff {
+					err = wal.Log(txID, LogTypeDelete, tableObj.TableName, row.ID, rowBytes, nil)
+					if err != nil {
+						return fmt.Errorf("wal.log failed: %w", err)
+					}
 				}
 
 				freeSpacePage.FreeMemory += location.Length
@@ -190,20 +207,20 @@ type NonAddedRows struct {
 }
 
 type ModifiedInfo struct {
-	FreeSpaceMapping *storage.FreeSpace
+	FreeSpaceMapping *FreeSpace
 	NonAddedRow      *NonAddedRows
 }
 
-func processPagesForUpdate(ctx context.Context, pageChan chan *storage.PageV2, updateInfoChan chan ModifiedInfo, updateKey, updateVal, filterKey, filterVal string, tableObj *storage.TableObj, wal *storage.WalManager) error {
+func processPagesForUpdate(ctx context.Context, pageChan chan *PageV2, updateInfoChan chan ModifiedInfo, updateKey, updateVal, filterKey, filterVal, txID string, tableObj *TableObj, wal *WalManager) error {
 	logger.Log.Info("processPagesForUpdate (start)")
 	defer close(updateInfoChan)
 
 	for page := range pageChan {
-		var freeSpacePage *storage.FreeSpace
+		var freeSpacePage *FreeSpace
 		var updateInfo ModifiedInfo
 		var nonAddedRows NonAddedRows
 
-		pageId := storage.PageID(page.Header.ID)
+		pageId := PageID(page.Header.ID)
 
 		directoryPage := tableObj.DirectoryPage
 
@@ -222,23 +239,23 @@ func processPagesForUpdate(ctx context.Context, pageChan chan *storage.PageV2, u
 			}
 
 			rowBytes := page.Data[location.Offset : location.Offset+location.Length]
-			row, err := storage.DecodeRow(rowBytes)
+			row, err := DecodeRow(rowBytes)
 			if err != nil {
 				return fmt.Errorf("couldn't decode row, location: %+v, error: %s", location, err)
 			}
 
 			if row.Values[filterKey] == filterVal {
 				if freeSpacePage == nil {
-					freeSpacePage = &storage.FreeSpace{PageID: storage.PageID(page.Header.ID), TempPagePtr: page, FreeMemory: pageObj.ExactFreeMem}
+					freeSpacePage = &FreeSpace{PageID: PageID(page.Header.ID), TempPagePtr: page, FreeMemory: pageObj.ExactFreeMem}
 				}
 
 				row.Values[updateKey] = updateVal
-				newRowBytes, err := storage.EncodeRow(row)
+				newRowBytes, err := EncodeRow(row)
 				if err != nil {
 					return fmt.Errorf("EncodeRow failed: %w", err)
 				}
 
-				err = wal.Log(storage.LogTypeUpdate, tableObj.TableName, row.ID, rowBytes, newRowBytes)
+				err = wal.Log(txID, LogTypeUpdate, tableObj.TableName, row.ID, rowBytes, newRowBytes)
 				if err != nil {
 					return fmt.Errorf("wal.log failed: %w", err)
 				}
@@ -274,7 +291,7 @@ func processPagesForUpdate(ctx context.Context, pageChan chan *storage.PageV2, u
 	return nil
 }
 
-func handleLikeInsert(ctx context.Context, nonAddedRows chan *NonAddedRows, tableObj *storage.TableObj, tableName string, bpm *storage.BufferPoolManager, tableStats *storage.TableInfo) error {
+func handleLikeInsert(ctx context.Context, nonAddedRows chan *NonAddedRows, tableObj *TableObj, tableName string, bpm *BufferPoolManager, tableStats *TableInfo) error {
 	logger.Log.Info("handleLikeInsert(update) Started")
 
 	for nonAddedRow := range nonAddedRows {

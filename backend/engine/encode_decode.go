@@ -1,4 +1,4 @@
-package storage
+package engine
 
 import (
 	"bytes"
@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 )
 
 func EncodeMemObj(memObj map[uint16][]*FreeSpace) ([]byte, error) {
@@ -665,4 +666,95 @@ func writeString(buf *bytes.Buffer, s string) error {
 	}
 
 	return nil
+}
+
+func decodeLength(encodedData []byte) (uint32, error) {
+	if len(encodedData) < 4 {
+		return 0, errors.New("encoded data too short to contain length")
+	}
+
+	buf := bytes.NewReader(encodedData)
+
+	var length uint32
+	if err := binary.Read(buf, binary.BigEndian, &length); err != nil {
+		return 0, err
+	}
+
+	return length, nil
+}
+
+func deserializeLogRecord(data []byte) (*LogRecord, error) {
+	buf := bytes.NewBuffer(data)
+	log := &LogRecord{}
+
+	if err := binary.Read(buf, binary.BigEndian, &log.LSN); err != nil {
+		return nil, err
+	}
+
+	if err := binary.Read(buf, binary.BigEndian, &log.Type); err != nil {
+		return nil, err
+	}
+
+	txID, err := readString(buf)
+	if err != nil {
+		return nil, err
+	}
+	log.TxID = txID
+
+	tableID, err := readString(buf)
+	if err != nil {
+		return nil, err
+	}
+	log.TableID = tableID
+
+	if err := binary.Read(buf, binary.BigEndian, &log.RowID); err != nil {
+		return nil, err
+	}
+
+	beforeImage, err := readBytes(buf)
+	if err != nil {
+		return nil, err
+	}
+	log.BeforeImage = beforeImage
+
+	afterImage, err := readBytes(buf)
+	if err != nil {
+		return nil, err
+	}
+	log.AfterImage = afterImage
+
+	var timestampNano int64
+	if err := binary.Read(buf, binary.BigEndian, &timestampNano); err != nil {
+		return nil, err
+	}
+	log.Timestamp = time.Unix(0, timestampNano)
+
+	return log, nil
+}
+
+func readString(buf *bytes.Buffer) (string, error) {
+	var length uint16
+	if err := binary.Read(buf, binary.BigEndian, &length); err != nil {
+		return "", err
+	}
+
+	strBytes := make([]byte, length)
+	if _, err := buf.Read(strBytes); err != nil {
+		return "", err
+	}
+
+	return string(strBytes), nil
+}
+
+func readBytes(buf *bytes.Buffer) ([]byte, error) {
+	var length uint32
+	if err := binary.Read(buf, binary.BigEndian, &length); err != nil {
+		return nil, err
+	}
+
+	bytes := make([]byte, length)
+	if _, err := buf.Read(bytes); err != nil {
+		return nil, err
+	}
+	return bytes, nil
 }

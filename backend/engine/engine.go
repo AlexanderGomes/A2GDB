@@ -1,16 +1,15 @@
 package engine
 
 import (
-	"a2gdb/storage-engine/storage"
 	"fmt"
 )
 
 type QueryEngine struct {
-	BufferPoolManager *storage.BufferPoolManager
+	BufferPoolManager *BufferPoolManager
 }
 
-func (qe *QueryEngine) EngineEntry(queryPlan interface{}) ([]*storage.RowV2, map[string]int, *Result) {
-	var rows []*storage.RowV2
+func (qe *QueryEngine) EngineEntry(queryPlan interface{}, transactionOff bool) ([]*RowV2, map[string]int, *Result) {
+	var rows []*RowV2
 	var groupByMap map[string]int
 	var result Result
 
@@ -30,7 +29,7 @@ func (qe *QueryEngine) EngineEntry(queryPlan interface{}) ([]*storage.RowV2, map
 	case "SELECT":
 		rows, groupByMap, result = qe.handleSelect(plan)
 	case "DELETE":
-		result = qe.handleDelete(plan)
+		result = qe.handleDelete(plan, transactionOff)
 	case "UPDATE":
 		result = qe.handleUpdate(plan)
 	default:
@@ -43,9 +42,9 @@ func (qe *QueryEngine) EngineEntry(queryPlan interface{}) ([]*storage.RowV2, map
 
 // ## return rows, and groupMap for test compatibility
 // ## DBMS fundamentals could be applied, consider vector processing
-func (qe *QueryEngine) handleSelect(plan map[string]interface{}) ([]*storage.RowV2, map[string]int, Result) {
+func (qe *QueryEngine) handleSelect(plan map[string]interface{}) ([]*RowV2, map[string]int, Result) {
 	var err error
-	var rows []*storage.RowV2
+	var rows []*RowV2
 	var selectedCols []interface{}
 	var colName string
 	var groupByMap map[string]int
@@ -59,7 +58,7 @@ func (qe *QueryEngine) handleSelect(plan map[string]interface{}) ([]*storage.Row
 		switch nodeOperation := nodeInnerMap["relOp"]; nodeOperation {
 		case "LogicalTableScan":
 			tableName := nodeInnerMap["table"].([]interface{})[0].(string)
-			rows, err = storage.GetAllRows(tableName, qe.BufferPoolManager.DiskManager)
+			rows, err = GetAllRows(tableName, qe.BufferPoolManager.DiskManager)
 			if err != nil {
 				result.Error = fmt.Errorf("LogicalTableScan - GetAllRows failed: %w", err)
 				result.Msg = "failed"

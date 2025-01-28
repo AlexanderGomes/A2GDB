@@ -2,7 +2,6 @@ package engine
 
 import (
 	"a2gdb/logger"
-	"a2gdb/storage-engine/storage"
 	"context"
 	"fmt"
 
@@ -26,7 +25,7 @@ const (
 	NEXT_LEVEL = 400
 )
 
-func cleanOrgnize(ctx context.Context, updateInfoChan chan ModifiedInfo, insertChan chan *NonAddedRows, tableObj *storage.TableObj, tableStats *storage.TableInfo) error {
+func cleanOrgnize(ctx context.Context, updateInfoChan chan ModifiedInfo, insertChan chan *NonAddedRows, tableObj *TableObj, tableStats *TableInfo) error {
 	if insertChan != nil {
 		defer close(insertChan)
 	}
@@ -34,7 +33,7 @@ func cleanOrgnize(ctx context.Context, updateInfoChan chan ModifiedInfo, insertC
 	for updateInfo := range updateInfoChan {
 		space := updateInfo.FreeSpaceMapping
 
-		newPage, err := storage.RearrangePAGE(space.TempPagePtr, tableObj, tableObj.TableName)
+		newPage, err := RearrangePAGE(space.TempPagePtr, tableObj, tableObj.TableName)
 		if err != nil {
 			return fmt.Errorf("RearrangePAGE failed: %w", err)
 		}
@@ -55,7 +54,7 @@ func cleanOrgnize(ctx context.Context, updateInfoChan chan ModifiedInfo, insertC
 		if pageObj.Level != 0 {
 			tableObj.Mu.Lock()
 			rankSlice := tableObj.Memory[pageObj.Level]
-			tableObj.Memory[pageObj.Level] = lo.Filter(rankSlice, func(item *storage.FreeSpace, i int) bool {
+			tableObj.Memory[pageObj.Level] = lo.Filter(rankSlice, func(item *FreeSpace, i int) bool {
 				return space.PageID != item.PageID
 			})
 			tableObj.Mu.Unlock()
@@ -65,7 +64,7 @@ func cleanOrgnize(ctx context.Context, updateInfoChan chan ModifiedInfo, insertC
 		pageObj.ExactFreeMem = space.FreeMemory
 		pageObj.Mu.Unlock()
 
-		err = storage.UpdatePageInfo(newPage, tableObj, tableStats, nil)
+		err = UpdatePageInfo(newPage, tableObj, tableStats, nil)
 		if err != nil {
 			return fmt.Errorf("updatePageInfo failed: %w", err)
 		}
@@ -98,7 +97,7 @@ func cleanOrgnize(ctx context.Context, updateInfoChan chan ModifiedInfo, insertC
 }
 
 // ###[x] last two fields of pageObj aren't being saved on the updatePageInfo function but it gets add and saved here.
-func memSeparationSingle(newSpace *storage.FreeSpace, tableObj *storage.TableObj) error {
+func memSeparationSingle(newSpace *FreeSpace, tableObj *TableObj) error {
 	memTag := getTag(newSpace.FreeMemory)
 
 	dirPage := tableObj.DirectoryPage
@@ -124,7 +123,7 @@ func memSeparationSingle(newSpace *storage.FreeSpace, tableObj *storage.TableObj
 	logger.Log.WithFields(logrus.Fields{"MemTag": memTag, "ExactFreeMem": pageObj.ExactFreeMem, "memLevel": pageObj.Level, "offset": pageObj.Offset}).Info("memory separation single done")
 	pageObj.Mu.Unlock()
 
-	err = storage.UpdateDirectoryPageDisk(tableObj.DirectoryPage, tableObj.DirFile)
+	err = UpdateDirectoryPageDisk(tableObj.DirectoryPage, tableObj.DirFile)
 	if err != nil {
 		return fmt.Errorf("UpdateDirectoryPageDisk failed: %w", err)
 	}
@@ -134,13 +133,13 @@ func memSeparationSingle(newSpace *storage.FreeSpace, tableObj *storage.TableObj
 	return nil
 }
 
-func saveMemMapping(tableObj *storage.TableObj) error {
-	bytes, err := storage.EncodeMemObj(tableObj.Memory)
+func saveMemMapping(tableObj *TableObj) error {
+	bytes, err := EncodeMemObj(tableObj.Memory)
 	if err != nil {
 		return fmt.Errorf("EncodeMemObj failed: %w", err)
 	}
 
-	err = storage.WriteNonPageFile(tableObj.MemFile, bytes)
+	err = WriteNonPageFile(tableObj.MemFile, bytes)
 	if err != nil {
 		return fmt.Errorf("WriteNonPageFile failed: %w", err)
 	}
@@ -148,10 +147,10 @@ func saveMemMapping(tableObj *storage.TableObj) error {
 	return nil
 }
 
-func searchPage(tableObj *storage.TableObj, memoryNedded, level uint16) ([]*storage.FreeSpace, *storage.FreeSpace, uint16, int) {
-	var memSlice []*storage.FreeSpace
+func searchPage(tableObj *TableObj, memoryNedded, level uint16) ([]*FreeSpace, *FreeSpace, uint16, int) {
+	var memSlice []*FreeSpace
 	var memTag uint16
-	var spaceInfo *storage.FreeSpace
+	var spaceInfo *FreeSpace
 	var deleteIndex int
 
 	for len(memSlice) == 0 {
@@ -182,7 +181,7 @@ func searchPage(tableObj *storage.TableObj, memoryNedded, level uint16) ([]*stor
 
 		//# free space not found
 		if spaceInfo == nil {
-			memSlice = []*storage.FreeSpace{}
+			memSlice = []*FreeSpace{}
 			level += NEXT_LEVEL
 			continue
 		}
@@ -192,23 +191,23 @@ func searchPage(tableObj *storage.TableObj, memoryNedded, level uint16) ([]*stor
 	return memSlice, spaceInfo, memTag, deleteIndex
 }
 
-func getAvailablePage(bufferM *storage.BufferPoolManager, tableObj *storage.TableObj, memoryNedded uint16, tableName string) (*storage.PageV2, error) {
-	var memSlice []*storage.FreeSpace
+func getAvailablePage(bufferM *BufferPoolManager, tableObj *TableObj, memoryNedded uint16, tableName string) (*PageV2, error) {
+	var memSlice []*FreeSpace
 	var memTag uint16
-	var spaceInfo *storage.FreeSpace
+	var spaceInfo *FreeSpace
 	var deleteIndex int
 
 	memSlice, spaceInfo, memTag, deleteIndex = searchPage(tableObj, memoryNedded, memoryNedded)
 	if memTag == 0 && spaceInfo == nil {
 		logger.Log.Info("Created new page")
 
-		page := storage.CreatePageV2(tableName)
+		page := CreatePageV2(tableName)
 
 		return page, nil
 	}
 
 	// deleting page found
-	memSlice = lo.Filter(memSlice, func(item *storage.FreeSpace, i int) bool {
+	memSlice = lo.Filter(memSlice, func(item *FreeSpace, i int) bool {
 		return i != deleteIndex
 	})
 

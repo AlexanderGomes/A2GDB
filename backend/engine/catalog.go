@@ -1,4 +1,4 @@
-package storage
+package engine
 
 type Catalog struct {
 	Tables map[string]*TableInfo

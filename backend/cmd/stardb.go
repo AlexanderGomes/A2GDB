@@ -1,15 +1,14 @@
 package cmd
 
 import (
+	"a2gdb/engine"
 	"a2gdb/logger"
-	"a2gdb/query-engine/engine"
-	"a2gdb/storage-engine/storage"
 	"fmt"
 )
 
 func InitDatabase(k int, dirName string) (*engine.QueryEngine, error) {
 	logger.InitLogger()
-	bufferPool, err := storage.NewBufferPoolManager(k, dirName)
+	bufferPool, err := engine.NewBufferPoolManager(k, dirName)
 	if err != nil {
 		return nil, fmt.Errorf("error initializing database: %w", err)
 	}

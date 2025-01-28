@@ -1,4 +1,4 @@
-package util
+package engine
 
 import (
 	"encoding/json"
@@ -105,4 +105,21 @@ func (p *Profiler) writeProfile(profileName, fileName string) {
 func GenerateRandomNumber() int {
 	randGen := rand.New(rand.NewSource(time.Now().UnixNano()))
 	return randGen.Intn(1000) + 1
+}
+
+func handleError(err error, msg string) Result {
+	return Result{
+		Error: err,
+		Msg:   msg,
+	}
+}
+
+func rollbackAndReturn(txId, primary string, walManager *WalManager, engine *QueryEngine, err error, msg string) Result {
+	if rollbackErr := walManager.AbortTransaction(txId, primary, engine); rollbackErr != nil {
+		err = fmt.Errorf("%w, AbortTransaction failed", err)
+	}
+	return Result{
+		Error: err,
+		Msg:   msg,
+	}
 }
