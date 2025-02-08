@@ -225,7 +225,7 @@ type Chunk struct {
 func FullTableScanBigFiles(pc chan *PageV2, file *os.File, pageTable map[PageID]FrameID) error {
 	logger.Log.Info("FullTableScanBigFiles")
 
-	chunks := FileCreateChunks(file, PERCENTAGE) // static file info
+	chunks := FileCreateChunks(file, PERCENTAGE) 
 	byteChan := make(chan []byte, BUFFER_SIZE)
 	errChan := make(chan error, 4)
 

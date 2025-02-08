@@ -139,7 +139,7 @@ func (bpm *BufferPoolManager) Evict() error {
 	tableObj := bpm.DiskManager.TableObjs[page.TABLE]
 	tableStats := bpm.DiskManager.PageCatalog.Tables[tableObj.TableName]
 
-	err = UpdatePageInfo(page, tableObj, tableStats, bpm.DiskManager)
+	err = UpdatePageInfo(page, tableObj, tableStats, bpm.DiskManager, ADDING)
 	if err != nil {
 		return fmt.Errorf("UpdatePageInfo failed: %w", err)
 	}

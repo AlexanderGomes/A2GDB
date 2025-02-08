@@ -122,7 +122,7 @@ func (qe *QueryEngine) handleDelete(plan map[string]interface{}, transactionOff 
 		return result
 	}
 
-	primary, err := isPrimary(deleteKey, tableName, manager.PageCatalog)
+	isPrimary, err := isPrimary(deleteKey, tableName, manager.PageCatalog)
 	if err != nil {
 		result.Error = fmt.Errorf("isPrimary failed: %w", err)
 		result.Msg = "failed"
@@ -130,7 +130,7 @@ func (qe *QueryEngine) handleDelete(plan map[string]interface{}, transactionOff 
 	}
 
 	var deleteVal string = strings.ReplaceAll(plan["value"].(string), "'", "")
-	if primary {
+	if isPrimary {
 		primaryVal := plan["value"].(string)
 		re := regexp.MustCompile(`\d+`)
 		deleteVal = re.FindString(primaryVal)
@@ -156,7 +156,7 @@ func (qe *QueryEngine) handleDelete(plan map[string]interface{}, transactionOff 
 			return qe.BufferPoolManager.FullTableScan(ctx, pageChan, tableObj, tableStats.NumOfPages)
 		},
 		func() error {
-			return processPagesForDeletion(ctx, pageChan, updateInfoChan, deleteKey, deleteVal, txId, tableObj, walManager, transactionOff)
+			return processPagesForDeletion(ctx, pageChan, updateInfoChan, deleteKey, deleteVal, txId, isPrimary, tableObj, walManager, transactionOff)
 		},
 		func() error {
 			return cleanOrgnize(ctx, updateInfoChan, nil, tableObj, tableStats)
@@ -267,7 +267,7 @@ func (qe *QueryEngine) handleInsert(plan map[string]interface{}) Result {
 	}).Info("findAndUpdate Inputs Set")
 
 	err = findAndUpdate(qe.BufferPoolManager, tableobj, tableStats, bytesNeeded, tableName, encodedRows)
-	if err != nil { // induced error
+	if err != nil {
 		return rollbackAndReturn(txId, primary, walManager, qe, fmt.Errorf("findAndUpdate Failed: %s", err), "failed")
 	}
 

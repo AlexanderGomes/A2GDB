@@ -12,10 +12,11 @@ import (
 )
 
 const (
-	PageSizeV2 = 4 * 1024
-	HeaderSize = 14
-
+	PageSizeV2   = 4 * 1024
+	HeaderSize   = 14
 	PageDataSize = PageSizeV2 - HeaderSize
+	ADDING       = 0
+	REPLACING    = 1
 )
 
 type RowV2 struct {
@@ -81,7 +82,7 @@ func (p *PageV2) AddTuple(data []byte) error {
 	canInsert := p.Header.UpperPtr-p.Header.LowerPtr > tupleLen && offset < PageDataSize
 
 	if !canInsert {
-		fmt.Println("pageHeader: ", p.Header)
+		fmt.Println("(addTuple) pageHeader: ", p.Header)
 		return fmt.Errorf("AddTuple (can't insert)")
 	}
 
@@ -141,6 +142,7 @@ func ReadNonPageFile(file *os.File) ([]byte, error) {
 		if n > 0 {
 			buffer.Write(tempBuffer[:n])
 		}
+
 		if err != nil {
 			if err == io.EOF {
 				break
@@ -229,12 +231,10 @@ func RearrangePAGE(page *PageV2, tableObj *TableObj, tableName string) (*PageV2,
 		}
 	}
 
-	pageObj.PointerArray = newPage.PointerArray
-
 	return newPage, nil
 }
 
-func UpdatePageInfo(pageFound *PageV2, tableObj *TableObj, tableStats *TableInfo, manager *DiskManagerV2) error {
+func UpdatePageInfo(pageFound *PageV2, tableObj *TableObj, tableStats *TableInfo, manager *DiskManagerV2, operation int) error {
 	pageID := PageID(pageFound.Header.ID)
 
 	dirPage := tableObj.DirectoryPage
@@ -262,7 +262,11 @@ func UpdatePageInfo(pageFound *PageV2, tableObj *TableObj, tableStats *TableInfo
 		}
 	} else {
 		pageObj.Mu.Lock()
-		pageObj.PointerArray = append(pageObj.PointerArray, pageFound.PointerArray...)
+		if operation == ADDING {
+			pageObj.PointerArray = append(pageObj.PointerArray, pageFound.PointerArray...)
+		} else if operation == REPLACING {
+			pageObj.PointerArray = pageFound.PointerArray
+		}
 		pageObj.Mu.Unlock()
 
 		if err := WritePageBackV2(pageFound, pageObj.Offset, tableObj.DataFile); err != nil {

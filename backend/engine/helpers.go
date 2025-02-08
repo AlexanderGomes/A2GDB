@@ -78,7 +78,7 @@ func findAndUpdate(bufferM *BufferPoolManager, tableObj *TableObj, tableStats *T
 	}
 
 	logger.Log.Info("saving page to disk (created / existing)")
-	err = UpdatePageInfo(page, tableObj, tableStats, bufferM.DiskManager) // make sure to save possible new page (this is updating even already existing pages)
+	err = UpdatePageInfo(page, tableObj, tableStats, bufferM.DiskManager, ADDING) // make sure to save possible new page (this is updating even already existing pages)
 	if err != nil {
 		return fmt.Errorf("UpdatePageInfo failed: %v", page)
 	}
@@ -136,10 +136,15 @@ func checkPresenceGetPrimary(selectedCols []interface{}, tableName string, catal
 	return primary, nil
 }
 
-func processPagesForDeletion(ctx context.Context, pages chan *PageV2, updateInfoChan chan ModifiedInfo, deleteKey, deleteVal, txID string, tableObj *TableObj, wal *WalManager, txOff bool) error {
+func processPagesForDeletion(ctx context.Context, pages chan *PageV2, updateInfoChan chan ModifiedInfo, deleteKey, deleteVal, txID string, isPrimary bool, tableObj *TableObj, wal *WalManager, txOff bool) error {
 	defer close(updateInfoChan)
 
+	var foundMatch bool
 	for page := range pages {
+		if isPrimary && foundMatch {
+			break
+		}
+
 		var freeSpacePage *FreeSpace
 		var updateInfo ModifiedInfo
 
@@ -181,12 +186,18 @@ func processPagesForDeletion(ctx context.Context, pages chan *PageV2, updateInfo
 
 				freeSpacePage.FreeMemory += location.Length
 				location.Free = true
+
+				if isPrimary {
+					foundMatch = true
+					break
+				}
 			}
 		}
 
 		pageObj.Mu.Unlock()
 		if freeSpacePage != nil {
 			updateInfo.FreeSpaceMapping = freeSpacePage
+			fmt.Printf("sent updateInfo: %+v\n", freeSpacePage)
 			updateInfoChan <- updateInfo
 		}
 

@@ -61,12 +61,12 @@ func cleanOrgnize(ctx context.Context, updateInfoChan chan ModifiedInfo, insertC
 			})
 			tableObj.Mu.Unlock()
 		}
-
 		pageObj.Level = memTag
 		pageObj.ExactFreeMem = space.FreeMemory
 		pageObj.Mu.Unlock()
 
-		err = UpdatePageInfo(newPage, tableObj, tableStats, nil)
+		// existing page already has something inside of the pointer array.
+		err = UpdatePageInfo(newPage, tableObj, tableStats, nil, REPLACING)
 		if err != nil {
 			return fmt.Errorf("updatePageInfo failed: %w", err)
 		}
