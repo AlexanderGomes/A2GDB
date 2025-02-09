@@ -200,7 +200,7 @@ func (wl *WalManager) CommitTransaction(txID string) error {
 	return nil
 }
 
-func (wl *WalManager) AbortTransaction(txID, primary string, engine *QueryEngine) error {
+func (wl *WalManager) AbortTransaction(txID, primary, modifiedColumn string, engine *QueryEngine) error {
 	wl.mu.Lock()
 	defer wl.mu.Unlock()
 
@@ -209,7 +209,7 @@ func (wl *WalManager) AbortTransaction(txID, primary string, engine *QueryEngine
 		return fmt.Errorf("transaction %s not found", txID)
 	}
 
-	if err := wl.Undo(logs, engine, primary); err != nil {
+	if err := wl.Undo(logs, engine, primary, modifiedColumn); err != nil {
 		return fmt.Errorf("undo failed: %w", err)
 	}
 
@@ -241,7 +241,7 @@ func (wl *WalManager) AbortTransaction(txID, primary string, engine *QueryEngine
 	return nil
 }
 
-func (wl *WalManager) Undo(logs []*LogRecord, engine *QueryEngine, primary string) error {
+func (wl *WalManager) Undo(logs []*LogRecord, engine *QueryEngine, primary, modifiedColumn string) error {
 	for i := len(logs) - 1; i >= 0; i-- {
 		log := logs[i]
 		switch log.Type {
@@ -251,8 +251,34 @@ func (wl *WalManager) Undo(logs []*LogRecord, engine *QueryEngine, primary strin
 				return fmt.Errorf("undoInsert failed: %w", err)
 			}
 		case LogTypeUpdate:
+			err := undoUpdate(log, engine, primary, modifiedColumn)
+			if err != nil {
+				return fmt.Errorf("undoInsert failed: %w", err)
+			}
 		case LogTypeDelete:
 		}
+	}
+
+	return nil
+}
+func undoUpdate(log *LogRecord, engine *QueryEngine, primary, modifiedColumn string) error {
+	oldRow, err := DecodeRow(log.BeforeImage)
+	if err != nil {
+		return fmt.Errorf("DecodeRow failed: %w", err)
+	}
+
+	oldVal := oldRow.Values[modifiedColumn]
+	sql := fmt.Sprintf("UPDATE `%s` SET %s = %s WHERE %s = CAST('%d' AS DECIMAL(20,0))\n", log.TableID, modifiedColumn, oldVal, primary, log.RowID)
+	fmt.Println("SQL: ", sql)
+
+	encodedPlan1, err := SendSql(sql)
+	if err != nil {
+		return fmt.Errorf("SendSql failed: %w", err)
+	}
+
+	_, _, result := engine.EngineEntry(encodedPlan1, true)
+	if result.Error != nil {
+		return fmt.Errorf("EngineEntry failed: %w", result.Error)
 	}
 
 	return nil
@@ -261,7 +287,6 @@ func (wl *WalManager) Undo(logs []*LogRecord, engine *QueryEngine, primary strin
 func undoInsert(log *LogRecord, engine *QueryEngine, primary string) error {
 	sql := fmt.Sprintf("DELETE FROM `%s` WHERE %s = CAST('%d' AS DECIMAL(20,0))\n", log.TableID, primary, log.RowID)
 
-	fmt.Println("query: ", sql)
 	encodedPlan1, err := SendSql(sql)
 	if err != nil {
 		return fmt.Errorf("SendSql failed: %w", err)

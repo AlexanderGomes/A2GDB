@@ -18,13 +18,12 @@ type Result struct {
 	groupBy map[string]int
 }
 
-func (qe *QueryEngine) handleUpdate(plan map[string]interface{}) Result {
+func (qe *QueryEngine) handleUpdate(plan map[string]interface{}, transactionOff bool, induceErr bool) Result {
 	logger.Log.Info("Update Started")
 
 	var result Result
 
 	filterColumn := plan["filter_column"].(string)
-	filterValue := strings.ReplaceAll(plan["filter_value"].(string), "'", "")
 
 	modifyColumn := plan["modify_column"].(string)
 	modifyValue := plan["modify_value"].(string)
@@ -42,6 +41,19 @@ func (qe *QueryEngine) handleUpdate(plan map[string]interface{}) Result {
 
 	tableStats := manager.PageCatalog.Tables[tableName]
 
+	isPrimary, err := isPrimary(filterColumn, tableName, manager.PageCatalog)
+	if err != nil {
+		result.Error = fmt.Errorf("isPrimary failed: %w", err)
+		result.Msg = "failed"
+		return result
+	}
+
+	var filterValue string = strings.ReplaceAll(plan["filter_value"].(string), "'", "")
+	if isPrimary {
+		re := regexp.MustCompile(`\d+`)
+		filterValue = re.FindString(filterValue)
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -51,14 +63,17 @@ func (qe *QueryEngine) handleUpdate(plan map[string]interface{}) Result {
 	updateInfoChan := make(chan ModifiedInfo, 100)
 	insertChan := make(chan *NonAddedRows, 100)
 
-	txId := walManager.BeginTransaction()
+	var txId string
+	if !transactionOff {
+		txId = walManager.BeginTransaction()
+	}
 
 	tasks := []func() error{
 		func() error {
 			return qe.BufferPoolManager.FullTableScan(ctx, pageChan, tableObj, tableStats.NumOfPages)
 		},
 		func() error {
-			return processPagesForUpdate(ctx, pageChan, updateInfoChan, modifyColumn, modifyValue, filterColumn, filterValue, txId, tableObj, walManager)
+			return processPagesForUpdate(ctx, pageChan, updateInfoChan, modifyColumn, modifyValue, filterColumn, filterValue, txId, tableObj, walManager, transactionOff)
 		},
 		func() error {
 			return cleanOrgnize(ctx, updateInfoChan, insertChan, tableObj, tableStats)
@@ -85,14 +100,19 @@ func (qe *QueryEngine) handleUpdate(plan map[string]interface{}) Result {
 	}()
 
 	canCommit := true
-	for err := range errChan {
-		canCommit = false
-		result.Error = fmt.Errorf("error occurred during update: %w", err)
-		result.Msg = "failed"
-		return result
+	firstError := <-errChan
+	if firstError != nil {
+		primary, primaryErr := getPrimary(tableName, manager.PageCatalog)
+		if primaryErr != nil {
+			result.Error = fmt.Errorf("couldn't get primary: %w", primaryErr)
+			result.Msg = "failed"
+			return result
+		}
+
+		return rollbackAndReturn(txId, primary, modifyColumn, walManager, qe, fmt.Errorf("error occurred during update: %w", err), "failed")
 	}
 
-	if canCommit {
+	if canCommit && !transactionOff {
 		if err := walManager.CommitTransaction(txId); err != nil {
 			result.Error = fmt.Errorf("CommitTransaction failed: %w", err)
 			result.Msg = "failed"
@@ -131,9 +151,8 @@ func (qe *QueryEngine) handleDelete(plan map[string]interface{}, transactionOff 
 
 	var deleteVal string = strings.ReplaceAll(plan["value"].(string), "'", "")
 	if isPrimary {
-		primaryVal := plan["value"].(string)
 		re := regexp.MustCompile(`\d+`)
-		deleteVal = re.FindString(primaryVal)
+		deleteVal = re.FindString(deleteVal)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -150,7 +169,6 @@ func (qe *QueryEngine) handleDelete(plan map[string]interface{}, transactionOff 
 		txId = walManager.BeginTransaction()
 	}
 
-	fmt.Println("pagenum: ", tableStats.NumOfPages)
 	tasks := []func() error{
 		func() error {
 			return qe.BufferPoolManager.FullTableScan(ctx, pageChan, tableObj, tableStats.NumOfPages)
@@ -256,7 +274,7 @@ func (qe *QueryEngine) handleInsert(plan map[string]interface{}) Result {
 
 	bytesNeeded, encodedRows, err := prepareRows(plan, selectedCols, primary, tableName, txId, walManager)
 	if err != nil {
-		return rollbackAndReturn(txId, primary, walManager, qe, fmt.Errorf("preparing rows failed: %w", err), "failed")
+		return rollbackAndReturn(txId, primary, "", walManager, qe, fmt.Errorf("preparing rows failed: %w", err), "failed")
 	}
 
 	logger.Log.WithFields(logrus.Fields{
@@ -268,12 +286,12 @@ func (qe *QueryEngine) handleInsert(plan map[string]interface{}) Result {
 
 	err = findAndUpdate(qe.BufferPoolManager, tableobj, tableStats, bytesNeeded, tableName, encodedRows)
 	if err != nil {
-		return rollbackAndReturn(txId, primary, walManager, qe, fmt.Errorf("findAndUpdate Failed: %s", err), "failed")
+		return rollbackAndReturn(txId, primary, "", walManager, qe, fmt.Errorf("findAndUpdate Failed: %s", err), "failed")
 	}
 
 	err = walManager.CommitTransaction(txId)
 	if err != nil {
-		return rollbackAndReturn(txId, primary, walManager, qe, fmt.Errorf("CommitTransaction Failed: %s", err), "failed")
+		return rollbackAndReturn(txId, primary, "", walManager, qe, fmt.Errorf("CommitTransaction Failed: %s", err), "failed")
 	}
 
 	return Result{Msg: "Tuples Inserted"}

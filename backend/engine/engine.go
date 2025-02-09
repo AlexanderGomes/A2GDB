@@ -31,7 +31,7 @@ func (qe *QueryEngine) EngineEntry(queryPlan interface{}, transactionOff bool) (
 	case "DELETE":
 		result = qe.handleDelete(plan, transactionOff)
 	case "UPDATE":
-		result = qe.handleUpdate(plan)
+		result = qe.handleUpdate(plan, transactionOff, true)
 	default:
 		result.Error = fmt.Errorf("unsupported type: %s", operation)
 		result.Msg = "failed"

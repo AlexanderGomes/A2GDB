@@ -129,6 +129,8 @@ public class QueryPlanner {
   }
 
   private String handleUpdate(SqlNode node) {
+    System.out.println(node);
+
     SqlUpdate updateNode = (SqlUpdate) node;
 
     SqlNode updateCondition = updateNode.getCondition();

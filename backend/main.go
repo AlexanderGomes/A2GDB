@@ -13,7 +13,8 @@ func main() {
 		log.Fatal("DB init failed: ", err)
 	}
 
-	insertMany(engine)
+	sql := "UPDATE `User` SET Age = 82929 WHERE UserId = CAST('5624482437119656993' AS DECIMAL(20,0))\n"
+	selects(engine, sql)
 }
 
 func selects(engineM *engine.QueryEngine, sql string) {

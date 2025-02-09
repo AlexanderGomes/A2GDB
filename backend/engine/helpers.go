@@ -222,7 +222,7 @@ type ModifiedInfo struct {
 	NonAddedRow      *NonAddedRows
 }
 
-func processPagesForUpdate(ctx context.Context, pageChan chan *PageV2, updateInfoChan chan ModifiedInfo, updateKey, updateVal, filterKey, filterVal, txID string, tableObj *TableObj, wal *WalManager) error {
+func processPagesForUpdate(ctx context.Context, pageChan chan *PageV2, updateInfoChan chan ModifiedInfo, updateKey, updateVal, filterKey, filterVal, txID string, tableObj *TableObj, wal *WalManager, txOff bool) error {
 	logger.Log.Info("processPagesForUpdate (start)")
 	defer close(updateInfoChan)
 
@@ -249,8 +249,8 @@ func processPagesForUpdate(ctx context.Context, pageChan chan *PageV2, updateInf
 				continue
 			}
 
-			rowBytes := page.Data[location.Offset : location.Offset+location.Length]
-			row, err := DecodeRow(rowBytes)
+			oldRowBytes := page.Data[location.Offset : location.Offset+location.Length]
+			row, err := DecodeRow(oldRowBytes)
 			if err != nil {
 				return fmt.Errorf("couldn't decode row, location: %+v, error: %s", location, err)
 			}
@@ -266,9 +266,11 @@ func processPagesForUpdate(ctx context.Context, pageChan chan *PageV2, updateInf
 					return fmt.Errorf("EncodeRow failed: %w", err)
 				}
 
-				err = wal.Log(txID, LogTypeUpdate, tableObj.TableName, row.ID, rowBytes, newRowBytes)
-				if err != nil {
-					return fmt.Errorf("wal.log failed: %w", err)
+				if !txOff {
+					err = wal.Log(txID, LogTypeUpdate, tableObj.TableName, row.ID, oldRowBytes, newRowBytes)
+					if err != nil {
+						return fmt.Errorf("wal.log failed: %w", err)
+					}
 				}
 
 				location.Free = true
@@ -319,7 +321,7 @@ func handleLikeInsert(ctx context.Context, nonAddedRows chan *NonAddedRows, tabl
 		}
 
 		err := findAndUpdate(bpm, tableObj, tableStats, nonAddedRow.BytesNeeded, tableName, nonAddedRow.Rows)
-		if err != nil {
+		if err != nil { 
 			return fmt.Errorf("findAndUpdate failed: %w", err)
 		}
 
@@ -357,4 +359,26 @@ func ChunkRows(nonAddedRows *NonAddedRows) []*NonAddedRows {
 	}
 
 	return chunkedRows
+}
+
+func getPrimary(tableName string, catalog *Catalog) (string, error) {
+	var primary string
+
+	tableInfo, ok := catalog.Tables[tableName]
+	if !ok {
+		return "", fmt.Errorf("table: %s doesn't exist", tableName)
+	}
+
+	for column, columnInfo := range tableInfo.Schema {
+		if columnInfo.IsIndex {
+			primary = column
+			break
+		}
+	}
+
+	if primary == "" {
+		return "", fmt.Errorf("primary doesn't exist")
+	}
+
+	return primary, nil
 }
