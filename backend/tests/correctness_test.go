@@ -303,9 +303,9 @@ func TestUndos(t *testing.T) {
 		UndoDelete(t)
 	})
 
-	// t.Run("UndoUpdate", func(t *testing.T) {
-
-	// })
+	t.Run("UndoUpdate", func(t *testing.T) {
+		UndoUpdate(t)
+	})
 }
 
 func UndoInsert(t *testing.T) {
@@ -329,7 +329,7 @@ func UndoInsert(t *testing.T) {
 	}
 }
 
-func UndoDelete(t *testing.T) {
+func UndoUpdate(t *testing.T) {
 	// get the id of one user
 	sql := "SELECT * FROM `User` WHERE Username = 'JaneSmith'\n"
 	encodedPlan1, err := engine.SendSql(sql)
@@ -371,7 +371,7 @@ func UndoDelete(t *testing.T) {
 	}
 }
 
-func UndoUpdate(t *testing.T) {
+func UndoDelete(t *testing.T) {
 	// get the id of one user
 	sql := "SELECT * FROM `User` WHERE Username = 'JaneSmith'\n"
 	encodedPlan1, err := engine.SendSql(sql)
@@ -392,7 +392,7 @@ func UndoUpdate(t *testing.T) {
 	sharedDB.EngineEntry(sql, false, true)
 
 	// check if the user still exists
-	sql = fmt.Sprintf(" SELECT * FROM `User` WHERE UserId = CAST('%d' AS DECIMAL(20,0))\n", id)
+	sql = fmt.Sprintf("SELECT * FROM `User` WHERE UserId = CAST('%d' AS DECIMAL(20,0))\n", id)
 	encodedPlan2, err := engine.SendSql(sql)
 	if err != nil {
 		t.Fatal(err)
@@ -403,7 +403,6 @@ func UndoUpdate(t *testing.T) {
 		t.Fatal(results.Error)
 	}
 
-	fmt.Println(results.Rows[0])
 	if len(results.Rows) != 1 {
 		t.Fatalf("Undo Delete failed, wrong number of tuples")
 	}

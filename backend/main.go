@@ -13,8 +13,18 @@ func main() {
 		log.Fatal("DB init failed: ", err)
 	}
 
-	sql := "DELETE FROM `User` WHERE UserId = CAST('8277451026064947902' AS DECIMAL(20,0))\n"
-	selects(engine, sql)
+
+	createTable(engine)
+	insertMany(engine)
+	sql := "INSERT INTO `User` (Username, Age, City) VALUES ('JaneSmith', 25, 'Los Angeles'), ('AliceBrown', 28, 'Chicago'), ('BobWhite', 35, 'Houston')\n"
+	go selects(engine, sql)
+	go selects(engine, sql)
+	go selects(engine, sql)
+
+	sql2 := "SELECT Username, Age, City FROM `User` WHERE Age > 20\n"
+	go selects(engine, sql2)
+
+	select {}
 }
 
 func selects(engineM *engine.QueryEngine, sql string) {
@@ -27,6 +37,8 @@ func selects(engineM *engine.QueryEngine, sql string) {
 	if result.Error != nil {
 		log.Fatal(result.Error)
 	}
+
+	fmt.Println(result.Msg)
 }
 
 func insertMany(engineM *engine.QueryEngine) {
