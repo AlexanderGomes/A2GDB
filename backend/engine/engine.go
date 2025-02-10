@@ -8,7 +8,7 @@ type QueryEngine struct {
 	BufferPoolManager *BufferPoolManager
 }
 
-func (qe *QueryEngine) EngineEntry(queryPlan interface{}, transactionOff bool) ([]*RowV2, map[string]int, *Result) {
+func (qe *QueryEngine) EngineEntry(queryPlan interface{}, transactionOff, induceErr bool) ([]*RowV2, map[string]int, *Result) {
 	var rows []*RowV2
 	var groupByMap map[string]int
 	var result Result
@@ -31,7 +31,7 @@ func (qe *QueryEngine) EngineEntry(queryPlan interface{}, transactionOff bool) (
 	case "DELETE":
 		result = qe.handleDelete(plan, transactionOff)
 	case "UPDATE":
-		result = qe.handleUpdate(plan, transactionOff, true)
+		result = qe.handleUpdate(plan, transactionOff, induceErr)
 	default:
 		result.Error = fmt.Errorf("unsupported type: %s", operation)
 		result.Msg = "failed"

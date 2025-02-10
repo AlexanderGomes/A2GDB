@@ -276,7 +276,7 @@ func undoUpdate(log *LogRecord, engine *QueryEngine, primary, modifiedColumn str
 		return fmt.Errorf("SendSql failed: %w", err)
 	}
 
-	_, _, result := engine.EngineEntry(encodedPlan1, true)
+	_, _, result := engine.EngineEntry(encodedPlan1, true, false)
 	if result.Error != nil {
 		return fmt.Errorf("EngineEntry failed: %w", result.Error)
 	}
@@ -292,7 +292,7 @@ func undoInsert(log *LogRecord, engine *QueryEngine, primary string) error {
 		return fmt.Errorf("SendSql failed: %w", err)
 	}
 
-	_, _, result := engine.EngineEntry(encodedPlan1, true)
+	_, _, result := engine.EngineEntry(encodedPlan1, true, false)
 	if result.Error != nil {
 		return fmt.Errorf("EngineEntry failed: %w", result.Error)
 	}

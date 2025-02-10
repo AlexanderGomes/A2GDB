@@ -101,7 +101,8 @@ func (qe *QueryEngine) handleUpdate(plan map[string]interface{}, transactionOff 
 
 	canCommit := true
 	firstError := <-errChan
-	if firstError != nil {
+	if firstError != nil || induceErr {
+		canCommit = false
 		primary, primaryErr := getPrimary(tableName, manager.PageCatalog)
 		if primaryErr != nil {
 			result.Error = fmt.Errorf("couldn't get primary: %w", primaryErr)

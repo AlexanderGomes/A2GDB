@@ -237,9 +237,8 @@ func processPagesForUpdate(ctx context.Context, pageChan chan *PageV2, updateInf
 
 		directoryPage.Mu.RLock()
 		pageObj := directoryPage.Value[pageId]
-		pageObj.Mu.Lock()
-
 		directoryPage.Mu.RUnlock()
+		pageObj.Mu.Lock()
 
 		logger.Log.WithFields(logrus.Fields{"Memlevel": pageObj.Level, "exactFreeMem": pageObj.ExactFreeMem, "offset": pageObj.Offset}).Info("Before Modification (PageObj)")
 		for i := range pageObj.PointerArray {
@@ -281,8 +280,9 @@ func processPagesForUpdate(ctx context.Context, pageChan chan *PageV2, updateInf
 			}
 		}
 
+		pageObj.Mu.Unlock() // at the end of each page
+
 		if freeSpacePage != nil {
-			pageObj.Mu.Unlock()
 			updateInfo.FreeSpaceMapping = freeSpacePage
 			updateInfo.NonAddedRow = &nonAddedRows
 
@@ -321,7 +321,7 @@ func handleLikeInsert(ctx context.Context, nonAddedRows chan *NonAddedRows, tabl
 		}
 
 		err := findAndUpdate(bpm, tableObj, tableStats, nonAddedRow.BytesNeeded, tableName, nonAddedRow.Rows)
-		if err != nil { 
+		if err != nil {
 			return fmt.Errorf("findAndUpdate failed: %w", err)
 		}
 
