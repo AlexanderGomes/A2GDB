@@ -114,8 +114,8 @@ func handleError(err error, msg string) Result {
 	}
 }
 
-func rollbackAndReturn(txId, primary, modifiedColumn string, walManager *WalManager, engine *QueryEngine, err error, msg string) Result {
-	if rollbackErr := walManager.AbortTransaction(txId, primary, modifiedColumn, engine); rollbackErr != nil {
+func rollbackAndReturn(txId, primary, modifiedColumn string, walManager *WalManager, engine *QueryEngine, catalog *Catalog, err error, msg string) Result {
+	if rollbackErr := walManager.AbortTransaction(txId, primary, modifiedColumn, engine, catalog); rollbackErr != nil {
 		err = fmt.Errorf("AbortTransaction failed: %w", rollbackErr)
 	}
 	return Result{

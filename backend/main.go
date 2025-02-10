@@ -13,7 +13,7 @@ func main() {
 		log.Fatal("DB init failed: ", err)
 	}
 
-	sql := "UPDATE `User` SET Age = 82828282 WHERE UserId = CAST('13045412650426019748' AS DECIMAL(20,0))\n"
+	sql := "DELETE FROM `User` WHERE UserId = CAST('8277451026064947902' AS DECIMAL(20,0))\n"
 	selects(engine, sql)
 }
 
@@ -23,7 +23,7 @@ func selects(engineM *engine.QueryEngine, sql string) {
 		log.Fatal(err)
 	}
 
-	_, _, result := engineM.EngineEntry(encodedPlan1, false, true)
+	_, _, result := engineM.EngineEntry(encodedPlan1, false, false)
 	if result.Error != nil {
 		log.Fatal(result.Error)
 	}

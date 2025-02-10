@@ -25,11 +25,11 @@ func (qe *QueryEngine) EngineEntry(queryPlan interface{}, transactionOff, induce
 	case "CREATE_TABLE":
 		result = qe.handleCreate(plan)
 	case "INSERT":
-		result = qe.handleInsert(plan)
+		result = qe.handleInsert(plan, transactionOff)
 	case "SELECT":
 		rows, groupByMap, result = qe.handleSelect(plan)
 	case "DELETE":
-		result = qe.handleDelete(plan, transactionOff)
+		result = qe.handleDelete(plan, transactionOff, induceErr)
 	case "UPDATE":
 		result = qe.handleUpdate(plan, transactionOff, induceErr)
 	default:

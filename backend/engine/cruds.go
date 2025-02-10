@@ -99,10 +99,8 @@ func (qe *QueryEngine) handleUpdate(plan map[string]interface{}, transactionOff 
 		close(errChan)
 	}()
 
-	canCommit := true
 	firstError := <-errChan
 	if firstError != nil || induceErr {
-		canCommit = false
 		primary, primaryErr := getPrimary(tableName, manager.PageCatalog)
 		if primaryErr != nil {
 			result.Error = fmt.Errorf("couldn't get primary: %w", primaryErr)
@@ -110,10 +108,10 @@ func (qe *QueryEngine) handleUpdate(plan map[string]interface{}, transactionOff 
 			return result
 		}
 
-		return rollbackAndReturn(txId, primary, modifyColumn, walManager, qe, fmt.Errorf("error occurred during update: %w", err), "failed")
+		return rollbackAndReturn(txId, primary, modifyColumn, walManager, qe, nil, fmt.Errorf("error occurred during update: %w", err), "failed")
 	}
 
-	if canCommit && !transactionOff {
+	if !transactionOff {
 		if err := walManager.CommitTransaction(txId); err != nil {
 			result.Error = fmt.Errorf("CommitTransaction failed: %w", err)
 			result.Msg = "failed"
@@ -125,11 +123,12 @@ func (qe *QueryEngine) handleUpdate(plan map[string]interface{}, transactionOff 
 	return result
 }
 
-func (qe *QueryEngine) handleDelete(plan map[string]interface{}, transactionOff bool) Result {
+func (qe *QueryEngine) handleDelete(plan map[string]interface{}, transactionOff, induceErr bool) Result {
 	var result Result
 
 	manager := qe.BufferPoolManager.DiskManager
 	walManager := qe.BufferPoolManager.Wal
+	catalog := qe.BufferPoolManager.DiskManager.PageCatalog
 
 	tableName := plan["table"].(string)
 	tableStats := manager.PageCatalog.Tables[tableName]
@@ -198,15 +197,19 @@ func (qe *QueryEngine) handleDelete(plan map[string]interface{}, transactionOff 
 		close(errChan)
 	}()
 
-	canCommit := true
-	for err := range errChan {
-		canCommit = false
-		result.Error = fmt.Errorf("delete failed: %w", err)
-		result.Msg = "failed"
-		return result
+	firstError := <-errChan
+	if firstError != nil || induceErr {
+		primary, primaryErr := getPrimary(tableName, manager.PageCatalog)
+		if primaryErr != nil {
+			result.Error = fmt.Errorf("couldn't get primary: %w", primaryErr)
+			result.Msg = "failed"
+			return result
+		}
+
+		return rollbackAndReturn(txId, primary, "", walManager, qe, catalog, fmt.Errorf("error occurred during delete: %w", err), "failed")
 	}
 
-	if canCommit && !transactionOff {
+	if !transactionOff {
 		if err := walManager.CommitTransaction(txId); err != nil {
 			result.Error = fmt.Errorf("CommitTransaction failed: %w", err)
 			result.Msg = "failed"
@@ -250,7 +253,7 @@ func (qe *QueryEngine) handleCreate(plan map[string]interface{}) Result {
 	return result
 }
 
-func (qe *QueryEngine) handleInsert(plan map[string]interface{}) Result {
+func (qe *QueryEngine) handleInsert(plan map[string]interface{}, transactionOff bool) Result {
 	logger.Log.Info("Insertion Started")
 
 	manager := qe.BufferPoolManager.DiskManager
@@ -271,11 +274,14 @@ func (qe *QueryEngine) handleInsert(plan map[string]interface{}) Result {
 		return handleError(fmt.Errorf("GetTable failed for: %s, error: %s", tableName, err), "failed")
 	}
 
-	txId := walManager.BeginTransaction()
+	var txId string
+	if !transactionOff {
+		txId = walManager.BeginTransaction()
+	}
 
-	bytesNeeded, encodedRows, err := prepareRows(plan, selectedCols, primary, tableName, txId, walManager)
+	bytesNeeded, encodedRows, err := prepareRows(plan, selectedCols, primary, tableName, txId, walManager, transactionOff)
 	if err != nil {
-		return rollbackAndReturn(txId, primary, "", walManager, qe, fmt.Errorf("preparing rows failed: %w", err), "failed")
+		return rollbackAndReturn(txId, primary, "", walManager, qe, nil, fmt.Errorf("preparing rows failed: %w", err), "failed")
 	}
 
 	logger.Log.WithFields(logrus.Fields{
@@ -287,12 +293,14 @@ func (qe *QueryEngine) handleInsert(plan map[string]interface{}) Result {
 
 	err = findAndUpdate(qe.BufferPoolManager, tableobj, tableStats, bytesNeeded, tableName, encodedRows)
 	if err != nil {
-		return rollbackAndReturn(txId, primary, "", walManager, qe, fmt.Errorf("findAndUpdate Failed: %s", err), "failed")
+		return rollbackAndReturn(txId, primary, "", walManager, qe, nil, fmt.Errorf("findAndUpdate Failed: %s", err), "failed")
 	}
 
-	err = walManager.CommitTransaction(txId)
-	if err != nil {
-		return rollbackAndReturn(txId, primary, "", walManager, qe, fmt.Errorf("CommitTransaction Failed: %s", err), "failed")
+	if !transactionOff {
+		err = walManager.CommitTransaction(txId)
+		if err != nil {
+			return rollbackAndReturn(txId, primary, "", walManager, qe, nil, fmt.Errorf("CommitTransaction Failed: %s", err), "failed")
+		}
 	}
 
 	return Result{Msg: "Tuples Inserted"}

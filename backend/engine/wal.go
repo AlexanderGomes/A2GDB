@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -200,7 +201,7 @@ func (wl *WalManager) CommitTransaction(txID string) error {
 	return nil
 }
 
-func (wl *WalManager) AbortTransaction(txID, primary, modifiedColumn string, engine *QueryEngine) error {
+func (wl *WalManager) AbortTransaction(txID, primary, modifiedColumn string, engine *QueryEngine, catalog *Catalog) error {
 	wl.mu.Lock()
 	defer wl.mu.Unlock()
 
@@ -209,7 +210,7 @@ func (wl *WalManager) AbortTransaction(txID, primary, modifiedColumn string, eng
 		return fmt.Errorf("transaction %s not found", txID)
 	}
 
-	if err := wl.Undo(logs, engine, primary, modifiedColumn); err != nil {
+	if err := wl.Undo(logs, engine, catalog, primary, modifiedColumn); err != nil {
 		return fmt.Errorf("undo failed: %w", err)
 	}
 
@@ -241,7 +242,7 @@ func (wl *WalManager) AbortTransaction(txID, primary, modifiedColumn string, eng
 	return nil
 }
 
-func (wl *WalManager) Undo(logs []*LogRecord, engine *QueryEngine, primary, modifiedColumn string) error {
+func (wl *WalManager) Undo(logs []*LogRecord, engine *QueryEngine, catalog *Catalog, primary, modifiedColumn string) error {
 	for i := len(logs) - 1; i >= 0; i-- {
 		log := logs[i]
 		switch log.Type {
@@ -253,14 +254,63 @@ func (wl *WalManager) Undo(logs []*LogRecord, engine *QueryEngine, primary, modi
 		case LogTypeUpdate:
 			err := undoUpdate(log, engine, primary, modifiedColumn)
 			if err != nil {
-				return fmt.Errorf("undoInsert failed: %w", err)
+				return fmt.Errorf("undoUpdate failed: %w", err)
 			}
 		case LogTypeDelete:
+			err := undoDelete(log, engine, catalog)
+			if err != nil {
+				return fmt.Errorf("undoDelete failed: %w", err)
+			}
 		}
 	}
 
 	return nil
 }
+
+func undoDelete(log *LogRecord, engine *QueryEngine, catalog *Catalog) error {
+	oldImage := log.BeforeImage
+	oldRow, err := DecodeRow(oldImage)
+	if err != nil {
+		return fmt.Errorf("DecodeRow failed: %w", err)
+	}
+
+	sql := buildInsertQueryFromMap(log.TableID, oldRow.Values, catalog)
+	fmt.Println("sql: ", sql)
+
+	encodedPlan1, err := SendSql(sql)
+	if err != nil {
+		return fmt.Errorf("SendSql failed: %w", err)
+	}
+
+	_, _, result := engine.EngineEntry(encodedPlan1, true, false)
+	if result.Error != nil {
+		return fmt.Errorf("EngineEntry failed: %w", result.Error)
+	}
+
+	return nil
+}
+
+func buildInsertQueryFromMap(tableID string, oldRow map[string]string, catalog *Catalog) string {
+	var columns []string
+	var values []string
+
+	for col, val := range oldRow {
+		schema := catalog.Tables[tableID]
+		schemaObj := schema.Schema[col]
+		columns = append(columns, col)
+
+		if schemaObj.Type == "VARCHAR" {
+			values = append(values, fmt.Sprintf("'%v'", val))
+			continue
+		}
+		values = append(values, val)
+	}
+
+	// need to identify which one is string and which one isn't
+	query := fmt.Sprintf("INSERT INTO `%s` (%s) VALUES (%s)\n", tableID, strings.Join(columns, ", "), strings.Join(values, ", "))
+	return query
+}
+
 func undoUpdate(log *LogRecord, engine *QueryEngine, primary, modifiedColumn string) error {
 	oldRow, err := DecodeRow(log.BeforeImage)
 	if err != nil {

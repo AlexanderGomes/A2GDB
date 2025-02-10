@@ -11,7 +11,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func prepareRows(plan map[string]interface{}, selectedCols []interface{}, primary, tableName, txID string, wal *WalManager) (uint16, [][]byte, error) {
+func prepareRows(plan map[string]interface{}, selectedCols []interface{}, primary, tableName, txID string, wal *WalManager, transactionOff bool) (uint16, [][]byte, error) {
 	var bytesNeeded uint16
 	var encodedRows [][]byte
 
@@ -37,9 +37,11 @@ func prepareRows(plan map[string]interface{}, selectedCols []interface{}, primar
 			return 0, nil, fmt.Errorf("encodeRow failed: %w", err)
 		}
 
-		err = wal.Log(txID, LogTypeInsert, tableName, newRow.ID, nil, encodedRow)
-		if err != nil {
-			return 0, nil, fmt.Errorf("wal.log failed: %w", err)
+		if !transactionOff {
+			err = wal.Log(txID, LogTypeInsert, tableName, newRow.ID, nil, encodedRow)
+			if err != nil {
+				return 0, nil, fmt.Errorf("wal.log failed: %w", err)
+			}
 		}
 
 		bytesNeeded += uint16(len(encodedRow))
