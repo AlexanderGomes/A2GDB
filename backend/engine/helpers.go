@@ -199,7 +199,6 @@ func processPagesForDeletion(ctx context.Context, pages chan *PageV2, updateInfo
 		pageObj.Mu.Unlock()
 		if freeSpacePage != nil {
 			updateInfo.FreeSpaceMapping = freeSpacePage
-			fmt.Printf("sent updateInfo: %+v\n", freeSpacePage)
 			updateInfoChan <- updateInfo
 		}
 

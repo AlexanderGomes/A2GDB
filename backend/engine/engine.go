@@ -13,9 +13,9 @@ func (qe *QueryEngine) EngineEntry(queryPlan interface{}, transactionOff, induce
 	var groupByMap map[string]int
 	var result Result
 
-	plan := queryPlan.(map[string]interface{})
+	plan, isMap := queryPlan.(map[string]interface{})
 	frontendErr, ok := plan["message"].(string)
-	if ok {
+	if ok || !isMap {
 		result.Error = fmt.Errorf("frontend failed: %s", frontendErr)
 		result.Msg = "failed"
 		return nil, nil, &result
@@ -25,7 +25,7 @@ func (qe *QueryEngine) EngineEntry(queryPlan interface{}, transactionOff, induce
 	case "CREATE_TABLE":
 		result = qe.handleCreate(plan)
 	case "INSERT":
-		result = qe.handleInsert(plan, transactionOff)
+		result = qe.handleInsert(plan, transactionOff, induceErr)
 	case "SELECT":
 		rows, groupByMap, result = qe.handleSelect(plan)
 	case "DELETE":

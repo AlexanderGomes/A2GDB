@@ -34,12 +34,11 @@ type LogRecord struct {
 }
 
 type WalManager struct {
-	CurrentLSN  uint64
-	writer      *bufio.Writer
-	file        *os.File
-	flushTicker *time.Ticker
-	mu          sync.Mutex
-	activeTx    map[string][]*LogRecord
+	CurrentLSN uint64
+	writer     *bufio.Writer
+	file       *os.File
+	mu         sync.Mutex
+	activeTx   map[string][]*LogRecord
 }
 
 func NewWalManager(logFile string) (*WalManager, error) {
@@ -275,7 +274,6 @@ func undoDelete(log *LogRecord, engine *QueryEngine, catalog *Catalog) error {
 	}
 
 	sql := buildInsertQueryFromMap(log.TableID, oldRow.Values, catalog)
-	fmt.Println("sql: ", sql)
 
 	encodedPlan1, err := SendSql(sql)
 	if err != nil {
@@ -306,7 +304,6 @@ func buildInsertQueryFromMap(tableID string, oldRow map[string]string, catalog *
 		values = append(values, val)
 	}
 
-	// need to identify which one is string and which one isn't
 	query := fmt.Sprintf("INSERT INTO `%s` (%s) VALUES (%s)\n", tableID, strings.Join(columns, ", "), strings.Join(values, ", "))
 	return query
 }
@@ -319,7 +316,6 @@ func undoUpdate(log *LogRecord, engine *QueryEngine, primary, modifiedColumn str
 
 	oldVal := oldRow.Values[modifiedColumn]
 	sql := fmt.Sprintf("UPDATE `%s` SET %s = %s WHERE %s = CAST('%d' AS DECIMAL(20,0))\n", log.TableID, modifiedColumn, oldVal, primary, log.RowID)
-	fmt.Println("SQL: ", sql)
 
 	encodedPlan1, err := SendSql(sql)
 	if err != nil {

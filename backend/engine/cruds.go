@@ -253,7 +253,7 @@ func (qe *QueryEngine) handleCreate(plan map[string]interface{}) Result {
 	return result
 }
 
-func (qe *QueryEngine) handleInsert(plan map[string]interface{}, transactionOff bool) Result {
+func (qe *QueryEngine) handleInsert(plan map[string]interface{}, transactionOff, induceErr bool) Result {
 	logger.Log.Info("Insertion Started")
 
 	manager := qe.BufferPoolManager.DiskManager
@@ -293,6 +293,10 @@ func (qe *QueryEngine) handleInsert(plan map[string]interface{}, transactionOff 
 
 	err = findAndUpdate(qe.BufferPoolManager, tableobj, tableStats, bytesNeeded, tableName, encodedRows)
 	if err != nil {
+		return rollbackAndReturn(txId, primary, "", walManager, qe, nil, fmt.Errorf("findAndUpdate Failed: %s", err), "failed")
+	}
+
+	if induceErr {
 		return rollbackAndReturn(txId, primary, "", walManager, qe, nil, fmt.Errorf("findAndUpdate Failed: %s", err), "failed")
 	}
 
