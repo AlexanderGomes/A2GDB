@@ -758,3 +758,20 @@ func readBytes(buf *bytes.Buffer) ([]byte, error) {
 	}
 	return bytes, nil
 }
+
+func DecodeReq(data []byte) (uint8, []byte, error) {
+	var operation uint8
+
+	buf := bytes.NewReader(data)
+
+	if err := binary.Read(buf, binary.LittleEndian, &operation); err != nil {
+		return 0, nil, err
+	}
+
+	remainingData := make([]byte, buf.Len())
+	if _, err := buf.Read(remainingData); err != nil {
+		return 0, nil, err
+	}
+
+	return operation, remainingData, nil
+}

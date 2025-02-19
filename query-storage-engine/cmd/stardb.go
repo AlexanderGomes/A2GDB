@@ -17,6 +17,26 @@ func InitDatabase(k int, dirName string) (*engines.QueryEngine, error) {
 		BufferPoolManager: bufferPool,
 	}
 
+	if err := CreateDefaultTable(queryEngine); err != nil {
+		return nil, fmt.Errorf("CreateDefaultTable failed: %w", err)
+	}
+
 	logger.Log.Info("Database initialized successfully")
 	return queryEngine, nil
+}
+
+func CreateDefaultTable(queryEngine *engines.QueryEngine) error {
+	sql := "CREATE TABLE `User`(Email VARCHAR, Password VARCHAR, DbPath VARCHAR)\n"
+	encodedPlan1, err := engines.SendSql(sql)
+	if err != nil {
+		return fmt.Errorf("SendSql failed: %w", err)
+	}
+
+	_, _, result := queryEngine.QueryProcessingEntry(encodedPlan1, false, false)
+
+	if result.Error != nil {
+		return fmt.Errorf("QueryProcessingEntry failed: %w", err)
+	}
+
+	return nil
 }

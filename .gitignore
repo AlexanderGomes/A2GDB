@@ -1,9 +1,9 @@
-A2G_DB
-tests/Testing_DB
-performance/bin
-Frontend/target
+A2G_DB_OS
+query-storage-engine/tests/Testing_DB
+query-storage-engine/performance/bin
+planner/target
 .vscode
 *.json
 *.md
 *.prof
-frontend/src/main/java/resources
+planner/src/main/java/resources

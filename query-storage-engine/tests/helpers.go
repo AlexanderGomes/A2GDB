@@ -100,7 +100,7 @@ func insertMany(t *testing.T, x int) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, _, res := sharedDB.EngineEntry(encodedPlan1, false, false)
+		_, _, res := sharedDB.QueryProcessingEntry(encodedPlan1, false, false)
 		if res.Error != nil {
 			t.Fatal("InsertMany Failed: ", res.Error)
 		}
@@ -116,7 +116,7 @@ func selectFilter(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rows, _, _ := sharedDB.EngineEntry(encodedPlan1, false, false)
+	rows, _, _ := sharedDB.QueryProcessingEntry(encodedPlan1, false, false)
 	if len(rows) != expectedStressNumber {
 		t.Fatalf("incorrect number of rows returned")
 	}
@@ -141,7 +141,7 @@ func selectStart(t *testing.T) *engines.RowV2 {
 		t.Fatal(err)
 	}
 
-	rows, _, _ := sharedDB.EngineEntry(encodedPlan1, false, false)
+	rows, _, _ := sharedDB.QueryProcessingEntry(encodedPlan1, false, false)
 	if len(rows) != expectedStressNumber {
 		t.Fatalf("incorrect number of rows returned")
 	}
@@ -167,7 +167,7 @@ func selectWhere(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		rows, _, _ := sharedDB.EngineEntry(encodedPlan1, false, false)
+		rows, _, _ := sharedDB.QueryProcessingEntry(encodedPlan1, false, false)
 		for _, row := range rows {
 			if len(row.Values) != expectedColumns.Size() {
 				t.Fatalf("incorrect number of columns returned")
@@ -214,7 +214,7 @@ func selectWhereAnd(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rows, _, _ := sharedDB.EngineEntry(encodedPlan1, false, false)
+	rows, _, _ := sharedDB.QueryProcessingEntry(encodedPlan1, false, false)
 
 	for _, row := range rows {
 		if len(row.Values) != expectedColumns.Size() {
@@ -247,7 +247,7 @@ func findByPrimary(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rows, _, _ := sharedDB.EngineEntry(encodedPlan1, false, false)
+	rows, _, _ := sharedDB.QueryProcessingEntry(encodedPlan1, false, false)
 	user := rows[0]
 	if len(rows) != 1 {
 		t.Fatalf("Returned %d users instead of one", len(rows))

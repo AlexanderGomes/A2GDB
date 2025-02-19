@@ -383,3 +383,45 @@ func getPrimary(tableName string, catalog *Catalog) (string, error) {
 
 	return primary, nil
 }
+
+func ParsingRegistration(stringfied string) map[string]string {
+	var currKey []rune
+	var currVal []rune
+	fields := make(map[string]string)
+
+	var collectingKey bool
+	var collectingVal bool
+
+	for _, char := range stringfied {
+		if char == '&' {
+			if len(currKey) > 0 && len(currVal) > 0 {
+				key := string(currKey)
+				val := string(currVal)
+
+				fields[key] = val
+				currKey = []rune{}
+				currVal = []rune{}
+			}
+
+			collectingKey = true
+			collectingVal = false
+			continue
+		}
+
+		if char == '=' {
+			collectingKey = false
+			collectingVal = true
+			continue
+		}
+
+		if collectingKey {
+			currKey = append(currKey, char)
+		}
+
+		if collectingVal {
+			currVal = append(currVal, char)
+		}
+	}
+
+	return fields
+}

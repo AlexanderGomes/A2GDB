@@ -15,7 +15,7 @@ type CustomTCP struct {
 }
 
 func Register(email, password, dbName string) error {
-	body := "email=" + email + "&password=" + password + "&dbname" + dbName
+	body := "&email=" + email + "&password=" + password + "&dbname=" + dbName + "&"
 	message := CustomTCP{
 		MessageType: REGISTER,
 		MessageBody: []byte(body),

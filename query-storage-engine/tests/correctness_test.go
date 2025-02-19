@@ -57,7 +57,7 @@ func TestCreateTable(t *testing.T) {
 		t.Fatal("Error getting query plan: ", err)
 	}
 
-	sharedDB.EngineEntry(encodedPlan1, false, false)
+	sharedDB.QueryProcessingEntry(encodedPlan1, false, false)
 
 	dbPath := "./A2G_DB"
 
@@ -122,7 +122,7 @@ func TestOrderBy(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		rows, _, res := sharedDB.EngineEntry(encodedPlan1, false, false)
+		rows, _, res := sharedDB.QueryProcessingEntry(encodedPlan1, false, false)
 		if res.Error != nil {
 			t.Fatal(res.Error)
 		}
@@ -171,7 +171,7 @@ func TestGroupBy(t *testing.T) {
 		}
 
 		expectedCity := "Los Angeles"
-		_, groupMap, _ := sharedDB.EngineEntry(encodedPlan1, false, false)
+		_, groupMap, _ := sharedDB.QueryProcessingEntry(encodedPlan1, false, false)
 		for k, v := range groupMap {
 			if k != expectedCity {
 				t.Fatalf("expected city: %s, received city: %s", expectedCity, k)
@@ -209,7 +209,7 @@ func TestUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, res := sharedDB.EngineEntry(encodedPlan1, false, false)
+	_, _, res := sharedDB.QueryProcessingEntry(encodedPlan1, false, false)
 
 	if res.Error != nil {
 		t.Fatal(res.Error)
@@ -249,7 +249,7 @@ func TestDelete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sharedDB.EngineEntry(encodedPlan1, false, false)
+	sharedDB.QueryProcessingEntry(encodedPlan1, false, false)
 
 	manager := sharedDB.BufferPoolManager.DiskManager
 	tableObj, err := engines.GetTableObj(tableName, manager)
@@ -315,7 +315,7 @@ func UndoInsert(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sharedDB.EngineEntry(encodedPlan1, false, true)
+	sharedDB.QueryProcessingEntry(encodedPlan1, false, true)
 
 	sql2 := "SELECT * FROM `User` WHERE Username = 'JaneSmith99282'\n"
 	encodedPlan2, err := engines.SendSql(sql2)
@@ -323,7 +323,7 @@ func UndoInsert(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, _, results := sharedDB.EngineEntry(encodedPlan2, false, false)
+	_, _, results := sharedDB.QueryProcessingEntry(encodedPlan2, false, false)
 	if len(results.Rows) != 0 {
 		t.Fatalf("UndoInsert failed, user was inserted")
 	}
@@ -337,7 +337,7 @@ func UndoUpdate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, _, result := sharedDB.EngineEntry(encodedPlan1, false, false)
+	_, _, result := sharedDB.QueryProcessingEntry(encodedPlan1, false, false)
 	if result.Error != nil {
 		t.Fatal(result.Error)
 	}
@@ -347,7 +347,7 @@ func UndoUpdate(t *testing.T) {
 	// make a update query
 	// cause an error
 	sql = fmt.Sprintf("UPDATE `User` SET Age = 121209  WHERE UserId = CAST('%d' AS DECIMAL(20,0))\n", id)
-	sharedDB.EngineEntry(sql, false, true)
+	sharedDB.QueryProcessingEntry(sql, false, true)
 
 	// check if the age was updated // shouldn't had been
 	sql = fmt.Sprintf(" SELECT * FROM `User` WHERE UserId = CAST('%d' AS DECIMAL(20,0))\n", id)
@@ -356,7 +356,7 @@ func UndoUpdate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, _, results := sharedDB.EngineEntry(encodedPlan2, false, false)
+	_, _, results := sharedDB.QueryProcessingEntry(encodedPlan2, false, false)
 	if results.Error != nil {
 		t.Fatal(results.Error)
 	}
@@ -379,7 +379,7 @@ func UndoDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, _, result := sharedDB.EngineEntry(encodedPlan1, false, false)
+	_, _, result := sharedDB.QueryProcessingEntry(encodedPlan1, false, false)
 	if result.Error != nil {
 		t.Fatal(result.Error)
 	}
@@ -389,7 +389,7 @@ func UndoDelete(t *testing.T) {
 	// make a delete query
 	// cause an error
 	sql = fmt.Sprintf("DELETE FROM `User` WHERE UserId = CAST('%d' AS DECIMAL(20,0))\n", id)
-	sharedDB.EngineEntry(sql, false, true)
+	sharedDB.QueryProcessingEntry(sql, false, true)
 
 	// check if the user still exists
 	sql = fmt.Sprintf("SELECT * FROM `User` WHERE UserId = CAST('%d' AS DECIMAL(20,0))\n", id)
@@ -398,7 +398,7 @@ func UndoDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, _, results := sharedDB.EngineEntry(encodedPlan2, false, false)
+	_, _, results := sharedDB.QueryProcessingEntry(encodedPlan2, false, false)
 	if results.Error != nil {
 		t.Fatal(results.Error)
 	}

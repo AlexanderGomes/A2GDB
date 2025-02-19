@@ -18,7 +18,7 @@ func BenchmarkInsert(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		engineDB.EngineEntry(encodedPlan1, false, false)
+		engineDB.QueryProcessingEntry(encodedPlan1, false, false)
 	}
 	b.StopTimer()
 }
@@ -34,7 +34,7 @@ func BenchmarkDelete(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		engineDB.EngineEntry(encodedPlan1, false, false)
+		engineDB.QueryProcessingEntry(encodedPlan1, false, false)
 	}
 	b.StopTimer()
 }
@@ -50,7 +50,7 @@ func BenchmarkUpdate(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		engineDB.EngineEntry(encodedPlan1, false, false)
+		engineDB.QueryProcessingEntry(encodedPlan1, false, false)
 	}
 	b.StopTimer()
 }
@@ -66,7 +66,7 @@ func BenchmarkSelectWheres(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		engineDB.EngineEntry(encodedPlan1, false, false)
+		engineDB.QueryProcessingEntry(encodedPlan1, false, false)
 	}
 	b.StopTimer()
 }
@@ -82,7 +82,7 @@ func BenchmarkSelectWheresRange(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		engineDB.EngineEntry(encodedPlan1, false, false)
+		engineDB.QueryProcessingEntry(encodedPlan1, false, false)
 	}
 	b.StopTimer()
 }
@@ -98,7 +98,7 @@ func BenchmarkSelectSortingAsc(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		engineDB.EngineEntry(encodedPlan1, false, false)
+		engineDB.QueryProcessingEntry(encodedPlan1, false, false)
 	}
 	b.StopTimer()
 }
@@ -114,7 +114,7 @@ func BenchmarkSelectSortingLimit(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		engineDB.EngineEntry(encodedPlan1, false, false)
+		engineDB.QueryProcessingEntry(encodedPlan1, false, false)
 	}
 	b.StopTimer()
 }
@@ -126,7 +126,7 @@ func InsertSample(N int, engineDB *engines.QueryEngine) {
 		if err != nil {
 			log.Fatal(err)
 		}
-		engineDB.EngineEntry(encodedPlan1, false, false)
+		engineDB.QueryProcessingEntry(encodedPlan1, false, false)
 	}
 }
 
@@ -147,5 +147,5 @@ func CreateTable(engineDB *engines.QueryEngine) {
 		log.Fatal("Error getting query plan: ", err)
 	}
 
-	engineDB.EngineEntry(encodedPlan1, false, false)
+	engineDB.QueryProcessingEntry(encodedPlan1, false, false)
 }

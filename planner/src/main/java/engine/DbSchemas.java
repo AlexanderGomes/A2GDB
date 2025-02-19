@@ -3,10 +3,10 @@ package engine;
 import java.util.concurrent.ConcurrentMap;
 import org.mapdb.*;
 
-public class Schemas {
+public class DbSchemas {
     private static ConcurrentMap<String, String> schemasMap;
     private static DB db;
-    private static final String BASE_PATH = "/Users/alexsandergomes/Documents/A2G_startup/frontend/src/main/java/resources/";
+    private static final String BASE_PATH = "/Users/alexsandergomes/Documents/A2G_startup/planner/src/main/java/resources/";
     private static final Object LOCK = new Object();
 
     static {

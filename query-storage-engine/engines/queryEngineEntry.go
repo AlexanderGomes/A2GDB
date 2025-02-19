@@ -4,11 +4,16 @@ import (
 	"fmt"
 )
 
+const (
+	REGISTER = iota + 1
+	LOGIN
+)
+
 type QueryEngine struct {
 	BufferPoolManager *BufferPoolManager
 }
 
-func (qe *QueryEngine) EngineEntry(queryPlan interface{}, transactionOff, induceErr bool) ([]*RowV2, map[string]int, *Result) {
+func (qe *QueryEngine) QueryProcessingEntry(queryPlan interface{}, transactionOff, induceErr bool) ([]*RowV2, map[string]int, *Result) {
 	var rows []*RowV2
 	var groupByMap map[string]int
 	var result Result
@@ -92,4 +97,20 @@ func (qe *QueryEngine) handleSelect(plan map[string]interface{}) ([]*RowV2, map[
 	result.Rows = rows
 
 	return rows, groupByMap, result
+}
+
+func OperationDecider(req []byte, server *Server) error {
+	operation, data, err := DecodeReq(req)
+	if err != nil {
+		return fmt.Errorf("DecodeReq failed: %w", err)
+	}
+
+	switch operation {
+	case REGISTER:
+		if err := server.HandleRegistration(data); err != nil {
+			return fmt.Errorf("HandleRegistration Failed: %w", err)
+		}
+	}
+
+	return nil
 }

@@ -1,8 +1,6 @@
 package engines
 
 import (
-	"bytes"
-	"encoding/binary"
 	"fmt"
 	"io"
 	"log"
@@ -10,8 +8,9 @@ import (
 )
 
 type Server struct {
-	host string
-	port string
+	host        string
+	port        string
+	queryEngine *QueryEngine
 }
 
 type Client struct {
@@ -19,14 +18,16 @@ type Client struct {
 }
 
 type Config struct {
-	Host string
-	Port string
+	Host        string
+	Port        string
+	QueryEngine *QueryEngine
 }
 
 func NewServer(config *Config) *Server {
 	return &Server{
-		host: config.Host,
-		port: config.Port,
+		host:        config.Host,
+		port:        config.Port,
+		queryEngine: config.QueryEngine,
 	}
 }
 
@@ -46,11 +47,11 @@ func (server *Server) Run() {
 		client := &Client{
 			conn: conn,
 		}
-		go client.handleRequest()
+		go client.handleRequest(server)
 	}
 }
 
-func (client *Client) handleRequest() {
+func (client *Client) handleRequest(server *Server) {
 	defer client.conn.Close()
 
 	var rawData []byte
@@ -66,26 +67,39 @@ func (client *Client) handleRequest() {
 		rawData = append(rawData, buffer[:n]...)
 	}
 
-	if err := Decode(rawData); err != nil {
-		fmt.Printf("Deconding failed when handling request: %s", err)
+	err := OperationDecider(rawData, server)
+	if err != nil {
+		fmt.Println("OperationDecider Failed: %w", err)
 	}
 }
 
-func Decode(data []byte) error {
-	var operation uint8
+func (server *Server) HandleRegistration(data []byte) error {
+	fields := ParsingRegistration(string(data))
+	dbName := fields["dbname"]
+	futureFilePath := fmt.Sprintf("A2G_DB_OS/Dbs/%s", dbName)
 
-	buf := bytes.NewReader(data)
-
-	if err := binary.Read(buf, binary.LittleEndian, &operation); err != nil {
-		return err
+	if _, err := CreatDefaultManager(futureFilePath); err != nil {
+		return fmt.Errorf("CreatDefaultManager failed: %w", err)
 	}
 
-	remainingData := make([]byte, buf.Len())
-	if _, err := buf.Read(remainingData); err != nil {
-		return err
+	email := fields["email"]
+	pass := fields["password"]
+
+	sql := fmt.Sprintf("INSERT INTO `User`(Email, Password, DbPath) VALUES ('%s', '%s', '%s')\n", email, pass, futureFilePath)
+	fmt.Println("sql: ", sql)
+	encodedPlan, err := SendSql(sql)
+	if err != nil {
+		return fmt.Errorf("SendSql failed: %w", err)
 	}
 
-	fmt.Printf("Operation: %d, Data: %s", operation, string(remainingData))
+	fmt.Println("encodedPlan: ", encodedPlan)
+
+	_, _, result := server.queryEngine.QueryProcessingEntry(encodedPlan, false, false)
+
+	fmt.Println("Result: ", result)
+	if result.Error != nil {
+		return fmt.Errorf("QueryProcessingEntry failed: %w", err)
+	}
 
 	return nil
 }

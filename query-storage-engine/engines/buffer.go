@@ -12,7 +12,6 @@ import (
 
 const (
 	MaxPoolSize = 30
-	WalPath     = "A2G_DB/wal_logs"
 )
 
 type FrameID int
@@ -234,7 +233,7 @@ func NewBufferPoolManager(k int, fileName string) (*BufferPoolManager, error) {
 		return nil, err
 	}
 
-	wal, err := NewWalManager(WalPath)
+	wal, err := NewWalManager(fileName + "/wal_logs")
 	if err != nil {
 		return nil, fmt.Errorf("NewWalManager failed initialization: %w", err)
 	}

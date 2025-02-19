@@ -84,7 +84,6 @@ public class QueryPlanner {
 
     try {
       SqlNode sqlNode = planner.parse(query);
-
       if (sqlNode instanceof SqlCreateTable) {
         jsonPlan = handleCreate(sqlNode);
       } else if (sqlNode instanceof SqlSelect) {
@@ -428,7 +427,7 @@ public class QueryPlanner {
   private List<Pair<String, String>> getSchema(String tableName) {
     List<Pair<String, String>> columns = new ArrayList<>();
 
-    String jsonColumns = Schemas.get(tableName);
+    String jsonColumns = DbSchemas.get(tableName);
     if (jsonColumns == null) {
       throw new IllegalArgumentException("Table schema not found for: " + tableName);
     }
@@ -458,7 +457,7 @@ public class QueryPlanner {
       columnsArray.put(tempJsonObject);
     }
 
-    Schemas.put(tableName, columnsArray.toString());
+    DbSchemas.put(tableName, columnsArray.toString());
 
     jsonObj.put("columns", columnsArray);
 
