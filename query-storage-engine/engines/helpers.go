@@ -425,3 +425,20 @@ func ParsingRegistration(stringfied string) map[string]string {
 
 	return fields
 }
+
+func handleError(err error, msg string) Result {
+	return Result{
+		Error: err,
+		Msg:   msg,
+	}
+}
+
+func rollbackAndReturn(txId, primary, modifiedColumn string, walManager *WalManager, engine *QueryEngine, catalog *Catalog, err error, msg string) Result {
+	if rollbackErr := walManager.AbortTransaction(txId, primary, modifiedColumn, engine, catalog); rollbackErr != nil {
+		err = fmt.Errorf("AbortTransaction failed: %w", rollbackErr)
+	}
+	return Result{
+		Error: err,
+		Msg:   msg,
+	}
+}

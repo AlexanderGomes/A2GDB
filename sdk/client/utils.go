@@ -7,7 +7,7 @@ import (
 	"net"
 )
 
-const SERVER = ":8080"
+const SERVER = ":8090"
 
 func SendBytes(bytes []byte) error {
 	conn, err := net.Dial("tcp", SERVER)

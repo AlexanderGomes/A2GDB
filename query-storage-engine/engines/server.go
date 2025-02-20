@@ -1,6 +1,7 @@
 package engines
 
 import (
+	"a2gdb/utils"
 	"fmt"
 	"io"
 	"log"
@@ -73,6 +74,22 @@ func (client *Client) handleRequest(server *Server) {
 	}
 }
 
+func OperationDecider(req []byte, server *Server) error {
+	operation, data, err := DecodeReq(req)
+	if err != nil {
+		return fmt.Errorf("DecodeReq failed: %w", err)
+	}
+
+	switch operation {
+	case REGISTER:
+		if err := server.HandleRegistration(data); err != nil {
+			return fmt.Errorf("HandleRegistration Failed: %w", err)
+		}
+	}
+
+	return nil
+}
+
 func (server *Server) HandleRegistration(data []byte) error {
 	fields := ParsingRegistration(string(data))
 	dbName := fields["dbname"]
@@ -86,19 +103,14 @@ func (server *Server) HandleRegistration(data []byte) error {
 	pass := fields["password"]
 
 	sql := fmt.Sprintf("INSERT INTO `User`(Email, Password, DbPath) VALUES ('%s', '%s', '%s')\n", email, pass, futureFilePath)
-	fmt.Println("sql: ", sql)
-	encodedPlan, err := SendSql(sql)
+	encodedPlan, err := utils.SendSql(sql) // no connection is being made
 	if err != nil {
 		return fmt.Errorf("SendSql failed: %w", err)
 	}
 
-	fmt.Println("encodedPlan: ", encodedPlan)
-
 	_, _, result := server.queryEngine.QueryProcessingEntry(encodedPlan, false, false)
-
-	fmt.Println("Result: ", result)
 	if result.Error != nil {
-		return fmt.Errorf("QueryProcessingEntry failed: %w", err)
+		return fmt.Errorf("QueryProcessingEntry failed: %w", result.Error)
 	}
 
 	return nil

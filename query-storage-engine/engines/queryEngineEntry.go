@@ -98,19 +98,3 @@ func (qe *QueryEngine) handleSelect(plan map[string]interface{}) ([]*RowV2, map[
 
 	return rows, groupByMap, result
 }
-
-func OperationDecider(req []byte, server *Server) error {
-	operation, data, err := DecodeReq(req)
-	if err != nil {
-		return fmt.Errorf("DecodeReq failed: %w", err)
-	}
-
-	switch operation {
-	case REGISTER:
-		if err := server.HandleRegistration(data); err != nil {
-			return fmt.Errorf("HandleRegistration Failed: %w", err)
-		}
-	}
-
-	return nil
-}

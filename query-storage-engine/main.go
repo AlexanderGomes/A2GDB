@@ -12,7 +12,7 @@ func main() {
 		log.Fatal("DB init failed: ", err)
 	}
 
-	config := engines.Config{Host: "localhost", Port: "8080", QueryEngine: engine}
+	config := engines.Config{Host: "localhost", Port: "8090", QueryEngine: engine}
 	server := engines.NewServer(&config)
 	server.Run()
 }

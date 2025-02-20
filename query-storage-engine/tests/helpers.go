@@ -2,6 +2,7 @@ package tests
 
 import (
 	"a2gdb/engines"
+	"a2gdb/utils"
 	"fmt"
 	"strconv"
 	"testing"
@@ -96,7 +97,7 @@ func checkTupleNumber(t *testing.T, expectedNumber int) {
 func insertMany(t *testing.T, x int) {
 	for i := range x {
 		sql1 := fmt.Sprintf("INSERT INTO `User` (Username, Age, City) VALUES ('JaneSmith', %d, 'Los Angeles')\n", i+1)
-		encodedPlan1, err := engines.SendSql(sql1)
+		encodedPlan1, err := utils.SendSql(sql1)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -111,7 +112,7 @@ func selectFilter(t *testing.T) {
 	expectedColumns := strset.New("Username", "Age")
 
 	sql1 := fmt.Sprintf("SELECT Username, Age FROM `%s`\n", tableName)
-	encodedPlan1, err := engines.SendSql(sql1)
+	encodedPlan1, err := utils.SendSql(sql1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +137,7 @@ func selectFilter(t *testing.T) {
 
 func selectStart(t *testing.T) *engines.RowV2 {
 	sql1 := fmt.Sprintf("SELECT * FROM `%s`\n", tableName)
-	encodedPlan1, err := engines.SendSql(sql1)
+	encodedPlan1, err := utils.SendSql(sql1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +163,7 @@ func selectWhere(t *testing.T) {
 
 	for _, condition := range conditions {
 		sql1 := fmt.Sprintf("SELECT Username, Age, City FROM `%s` WHERE Age %s 20\n", tableName, condition)
-		encodedPlan1, err := engines.SendSql(sql1)
+		encodedPlan1, err := utils.SendSql(sql1)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -209,7 +210,7 @@ func selectWhereAnd(t *testing.T) {
 	compValRight := 30
 
 	sql1 := "SELECT Username, Age, City FROM `User` WHERE Age BETWEEN 20 AND 30\n"
-	encodedPlan1, err := engines.SendSql(sql1)
+	encodedPlan1, err := utils.SendSql(sql1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +243,7 @@ func findByPrimary(t *testing.T) {
 	row := selectStart(t)
 
 	sql1 := fmt.Sprintf("SELECT * FROM `%s` WHERE UserId = CAST('%d' AS DECIMAL(20,0))\n", tableName, row.ID)
-	encodedPlan1, err := engines.SendSql(sql1)
+	encodedPlan1, err := utils.SendSql(sql1)
 	if err != nil {
 		t.Fatal(err)
 	}

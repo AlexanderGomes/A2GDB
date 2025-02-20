@@ -309,3 +309,4 @@ func (qe *QueryEngine) handleInsert(plan map[string]interface{}, transactionOff,
 
 	return Result{Msg: "Tuples Inserted"}
 }
+

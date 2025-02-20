@@ -3,6 +3,7 @@ package tests
 import (
 	"a2gdb/cmd"
 	"a2gdb/engines"
+	"a2gdb/utils"
 	"fmt"
 	"log"
 	"testing"
@@ -14,7 +15,7 @@ func BenchmarkInsert(b *testing.B) {
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
 		sql1 := fmt.Sprintf("INSERT INTO `User` (Username, Age, City) VALUES ('JaneSmith', %d, 'Los Angeles')\n", i+1)
-		encodedPlan1, err := engines.SendSql(sql1)
+		encodedPlan1, err := utils.SendSql(sql1)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -30,7 +31,7 @@ func BenchmarkDelete(b *testing.B) {
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
 		sql1 := "DELETE FROM `User` WHERE Username = 'JaneSmith'\n"
-		encodedPlan1, err := engines.SendSql(sql1)
+		encodedPlan1, err := utils.SendSql(sql1)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -46,7 +47,7 @@ func BenchmarkUpdate(b *testing.B) {
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
 		sql1 := " UPDATE `User` SET Age = 121209 WHERE Username = 'JaneSmith'\n"
-		encodedPlan1, err := engines.SendSql(sql1)
+		encodedPlan1, err := utils.SendSql(sql1)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -62,7 +63,7 @@ func BenchmarkSelectWheres(b *testing.B) {
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
 		sql1 := "SELECT Username, Age, City FROM `User` WHERE Age > 20\n"
-		encodedPlan1, err := engines.SendSql(sql1)
+		encodedPlan1, err := utils.SendSql(sql1)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -78,7 +79,7 @@ func BenchmarkSelectWheresRange(b *testing.B) {
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
 		sql1 := "SELECT Username, Age, City FROM `User` WHERE Age BETWEEN 20 AND 30\n"
-		encodedPlan1, err := engines.SendSql(sql1)
+		encodedPlan1, err := utils.SendSql(sql1)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -94,7 +95,7 @@ func BenchmarkSelectSortingAsc(b *testing.B) {
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
 		sql1 := "SELECT Username, Age, City FROM `User` ORDER BY Age ASC\n"
-		encodedPlan1, err := engines.SendSql(sql1)
+		encodedPlan1, err := utils.SendSql(sql1)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -110,7 +111,7 @@ func BenchmarkSelectSortingLimit(b *testing.B) {
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
 		sql1 := "SELECT Username, Age, City FROM `User` ORDER BY Age DESC LIMIT 1\n"
-		encodedPlan1, err := engines.SendSql(sql1)
+		encodedPlan1, err := utils.SendSql(sql1)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -122,7 +123,7 @@ func BenchmarkSelectSortingLimit(b *testing.B) {
 func InsertSample(N int, engineDB *engines.QueryEngine) {
 	for i := 0; i < N; i++ {
 		sql1 := fmt.Sprintf("INSERT INTO `User` (Username, Age, City) VALUES ('JaneSmith', %d, 'Los Angeles')\n", i+1)
-		encodedPlan1, err := engines.SendSql(sql1)
+		encodedPlan1, err := utils.SendSql(sql1)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -142,7 +143,7 @@ func InitDB(testName string) *engines.QueryEngine {
 
 func CreateTable(engineDB *engines.QueryEngine) {
 	sql := "CREATE TABLE `User`(PRIMARY KEY(UserId), Username VARCHAR, Age INT, City VARCHAR)\n"
-	encodedPlan1, err := engines.SendSql(sql)
+	encodedPlan1, err := utils.SendSql(sql)
 	if err != nil {
 		log.Fatal("Error getting query plan: ", err)
 	}

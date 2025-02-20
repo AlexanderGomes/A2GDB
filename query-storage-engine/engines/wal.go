@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"a2gdb/utils"
 )
 
 type LogType uint8
@@ -275,9 +276,9 @@ func undoDelete(log *LogRecord, engine *QueryEngine, catalog *Catalog) error {
 
 	sql := buildInsertQueryFromMap(log.TableID, oldRow.Values, catalog)
 
-	encodedPlan1, err := SendSql(sql)
+	encodedPlan1, err := utils.SendSql(sql)
 	if err != nil {
-		return fmt.Errorf("SendSql failed: %w", err)
+		return fmt.Errorf("SendSqls failed: %w", err)
 	}
 
 	_, _, result := engine.QueryProcessingEntry(encodedPlan1, true, false)
@@ -317,7 +318,7 @@ func undoUpdate(log *LogRecord, engine *QueryEngine, primary, modifiedColumn str
 	oldVal := oldRow.Values[modifiedColumn]
 	sql := fmt.Sprintf("UPDATE `%s` SET %s = %s WHERE %s = CAST('%d' AS DECIMAL(20,0))\n", log.TableID, modifiedColumn, oldVal, primary, log.RowID)
 
-	encodedPlan1, err := SendSql(sql)
+	encodedPlan1, err := utils.SendSql(sql)
 	if err != nil {
 		return fmt.Errorf("SendSql failed: %w", err)
 	}
@@ -333,7 +334,7 @@ func undoUpdate(log *LogRecord, engine *QueryEngine, primary, modifiedColumn str
 func undoInsert(log *LogRecord, engine *QueryEngine, primary string) error {
 	sql := fmt.Sprintf("DELETE FROM `%s` WHERE %s = CAST('%d' AS DECIMAL(20,0))\n", log.TableID, primary, log.RowID)
 
-	encodedPlan1, err := SendSql(sql)
+	encodedPlan1, err := utils.SendSql(sql)
 	if err != nil {
 		return fmt.Errorf("SendSql failed: %w", err)
 	}

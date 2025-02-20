@@ -3,6 +3,7 @@ package tests
 import (
 	"a2gdb/cmd"
 	"a2gdb/engines"
+	"a2gdb/utils"
 	"fmt"
 	"log"
 	"os"
@@ -52,7 +53,7 @@ func TestInitDB(t *testing.T) {
 
 func TestCreateTable(t *testing.T) {
 	sql := "CREATE TABLE `User`(PRIMARY KEY(UserId), Username VARCHAR, Age INT, City VARCHAR)\n"
-	encodedPlan1, err := engines.SendSql(sql)
+	encodedPlan1, err := utils.SendSql(sql)
 	if err != nil {
 		t.Fatal("Error getting query plan: ", err)
 	}
@@ -117,7 +118,7 @@ func TestOrderBy(t *testing.T) {
 
 	expectedColumns := strset.New("Username", "Age", "City")
 	for identity, query := range queryMap {
-		encodedPlan1, err := engines.SendSql(query)
+		encodedPlan1, err := utils.SendSql(query)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -165,7 +166,7 @@ func TestGroupBy(t *testing.T) {
 	}
 
 	for identity, query := range queryMap {
-		encodedPlan1, err := engines.SendSql(query)
+		encodedPlan1, err := utils.SendSql(query)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -205,7 +206,7 @@ func TestGroupBy(t *testing.T) {
 
 func TestUpdate(t *testing.T) {
 	sql1 := fmt.Sprintf("UPDATE `User` SET %s = %s WHERE Username = 'JaneSmith'\n", modifiedField, modifiedValue)
-	encodedPlan1, err := engines.SendSql(sql1)
+	encodedPlan1, err := utils.SendSql(sql1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +246,7 @@ func TestInsertAfterUpdate(t *testing.T) {
 
 func TestDelete(t *testing.T) {
 	sql1 := fmt.Sprintf("DELETE FROM `%s` WHERE %s = '%s'\n", tableName, checkKey, checkVal)
-	encodedPlan1, err := engines.SendSql(sql1)
+	encodedPlan1, err := utils.SendSql(sql1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -310,7 +311,7 @@ func TestUndos(t *testing.T) {
 
 func UndoInsert(t *testing.T) {
 	sql := "INSERT INTO `User` (Username, Age, City) VALUES ('JaneSmith99282', 25, 'Los Angeles')\n"
-	encodedPlan1, err := engines.SendSql(sql)
+	encodedPlan1, err := utils.SendSql(sql)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -318,7 +319,7 @@ func UndoInsert(t *testing.T) {
 	sharedDB.QueryProcessingEntry(encodedPlan1, false, true)
 
 	sql2 := "SELECT * FROM `User` WHERE Username = 'JaneSmith99282'\n"
-	encodedPlan2, err := engines.SendSql(sql2)
+	encodedPlan2, err := utils.SendSql(sql2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -332,7 +333,7 @@ func UndoInsert(t *testing.T) {
 func UndoUpdate(t *testing.T) {
 	// get the id of one user
 	sql := "SELECT * FROM `User` WHERE Username = 'JaneSmith'\n"
-	encodedPlan1, err := engines.SendSql(sql)
+	encodedPlan1, err := utils.SendSql(sql)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -351,7 +352,7 @@ func UndoUpdate(t *testing.T) {
 
 	// check if the age was updated // shouldn't had been
 	sql = fmt.Sprintf(" SELECT * FROM `User` WHERE UserId = CAST('%d' AS DECIMAL(20,0))\n", id)
-	encodedPlan2, err := engines.SendSql(sql)
+	encodedPlan2, err := utils.SendSql(sql)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -374,7 +375,7 @@ func UndoUpdate(t *testing.T) {
 func UndoDelete(t *testing.T) {
 	// get the id of one user
 	sql := "SELECT * FROM `User` WHERE Username = 'JaneSmith'\n"
-	encodedPlan1, err := engines.SendSql(sql)
+	encodedPlan1, err := utils.SendSql(sql)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -393,7 +394,7 @@ func UndoDelete(t *testing.T) {
 
 	// check if the user still exists
 	sql = fmt.Sprintf("SELECT * FROM `User` WHERE UserId = CAST('%d' AS DECIMAL(20,0))\n", id)
-	encodedPlan2, err := engines.SendSql(sql)
+	encodedPlan2, err := utils.SendSql(sql)
 	if err != nil {
 		t.Fatal(err)
 	}

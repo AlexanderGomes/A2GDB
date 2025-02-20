@@ -1,4 +1,4 @@
-package engines
+package utils
 
 import (
 	"encoding/json"
@@ -18,21 +18,34 @@ const (
 )
 
 func SendSql(sql string) (interface{}, error) {
-	conn, err := net.Dial("tcp", FRONT_SERVER)
+	timeout := 2 * time.Second
+	conn, err := net.DialTimeout("tcp", FRONT_SERVER, timeout)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't stablish connection: %s", err)
 	}
 	defer conn.Close()
+
+	writeDeadLine := time.Now().Add(4 * time.Second)
+	err = conn.SetWriteDeadline(writeDeadLine)
+	if err != nil {
+		return nil, fmt.Errorf("SetReadDeadline failed: %w", err)
+	}
 
 	_, err = conn.Write([]byte(sql))
 	if err != nil {
 		return nil, fmt.Errorf("couldn't write message: %s", err)
 	}
 
+	readDeadLine := time.Now().Add(4 * time.Second)
+	err = conn.SetReadDeadline(readDeadLine)
+	if err != nil {
+		return nil, fmt.Errorf("SetReadDeadline failed: %w", err)
+	}
+
 	var rawData []byte
 	for {
 		buffer := make([]byte, 1024)
-		n, err := conn.Read(buffer)
+		n, err := conn.Read(buffer) // blocked
 		if err != nil {
 			if err == io.EOF {
 				break
@@ -41,6 +54,10 @@ func SendSql(sql string) (interface{}, error) {
 		}
 
 		rawData = append(rawData, buffer[:n]...)
+	}
+
+	if len(rawData) == 0 {
+		return nil, fmt.Errorf("no data returned")
 	}
 
 	var jsonPlan interface{}
@@ -105,21 +122,4 @@ func (p *Profiler) writeProfile(profileName, fileName string) {
 func GenerateRandomNumber() int {
 	randGen := rand.New(rand.NewSource(time.Now().UnixNano()))
 	return randGen.Intn(1000) + 1
-}
-
-func handleError(err error, msg string) Result {
-	return Result{
-		Error: err,
-		Msg:   msg,
-	}
-}
-
-func rollbackAndReturn(txId, primary, modifiedColumn string, walManager *WalManager, engine *QueryEngine, catalog *Catalog, err error, msg string) Result {
-	if rollbackErr := walManager.AbortTransaction(txId, primary, modifiedColumn, engine, catalog); rollbackErr != nil {
-		err = fmt.Errorf("AbortTransaction failed: %w", rollbackErr)
-	}
-	return Result{
-		Error: err,
-		Msg:   msg,
-	}
 }
