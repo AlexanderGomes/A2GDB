@@ -42,18 +42,9 @@ func SendSql(sql string) (interface{}, error) {
 		return nil, fmt.Errorf("SetReadDeadline failed: %w", err)
 	}
 
-	var rawData []byte
-	for {
-		buffer := make([]byte, 1024)
-		n, err := conn.Read(buffer) // blocked
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			return nil, fmt.Errorf("error reading response: %s", err)
-		}
-
-		rawData = append(rawData, buffer[:n]...)
+	rawData, err := io.ReadAll(conn)
+	if err != nil {
+		return nil, fmt.Errorf("io.ReadAll failed: %w", err)
 	}
 
 	if len(rawData) == 0 {

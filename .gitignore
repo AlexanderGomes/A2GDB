@@ -7,3 +7,4 @@ planner/target
 *.md
 *.prof
 planner/src/main/java/resources
+.env

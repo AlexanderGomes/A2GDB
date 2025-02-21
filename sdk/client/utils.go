@@ -5,23 +5,35 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
+	"time"
 )
 
-const SERVER = ":8090"
+const SERVER = ":3404"
 
-func SendBytes(bytes []byte) error {
-	conn, err := net.Dial("tcp", SERVER)
+func SendBytes(bytes []byte) (net.Conn, error) {
+	timeout := 2 * time.Second
+	conn, err := net.DialTimeout("tcp", SERVER, timeout)
 	if err != nil {
-		return fmt.Errorf("couldn't stablish connection: %s", err)
+		return nil, fmt.Errorf("couldn't stablish connection: %s", err)
 	}
-	defer conn.Close()
+
+	writeDeadLine := time.Now().Add(4 * time.Second)
+	err = conn.SetWriteDeadline(writeDeadLine)
+	if err != nil {
+		return nil, fmt.Errorf("SetReadDeadline failed: %w", err)
+	}
 
 	_, err = conn.Write(bytes)
 	if err != nil {
-		return fmt.Errorf("couldn't write message: %s", err)
+		return nil, fmt.Errorf("couldn't write message: %s", err)
 	}
 
-	return nil
+	tcpConn, ok := conn.(*net.TCPConn)
+	if ok {
+		tcpConn.CloseWrite()
+	}
+
+	return conn, nil
 }
 
 func (ctcp *CustomTCP) Encode() ([]byte, error) {

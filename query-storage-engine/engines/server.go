@@ -2,10 +2,15 @@ package engines
 
 import (
 	"a2gdb/utils"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net"
+	"os"
+	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 type Server struct {
@@ -15,7 +20,8 @@ type Server struct {
 }
 
 type Client struct {
-	conn net.Conn
+	conn        net.Conn
+	queryEngine *QueryEngine
 }
 
 type Config struct {
@@ -39,6 +45,7 @@ func (server *Server) Run() {
 	}
 	defer listener.Close()
 
+	fmt.Printf("Server Running On Port: %s\n", server.port)
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
@@ -46,18 +53,19 @@ func (server *Server) Run() {
 		}
 
 		client := &Client{
-			conn: conn,
+			conn:        conn,
+			queryEngine: server.queryEngine,
 		}
-		go client.handleRequest(server)
+		go client.handleRequest()
 	}
 }
 
-func (client *Client) handleRequest(server *Server) {
+func (client *Client) handleRequest() {
 	defer client.conn.Close()
 
 	var rawData []byte
 	for {
-		buffer := make([]byte, 500)
+		buffer := make([]byte, 1096)
 		n, err := client.conn.Read(buffer)
 		if err != nil {
 			if err == io.EOF {
@@ -68,13 +76,13 @@ func (client *Client) handleRequest(server *Server) {
 		rawData = append(rawData, buffer[:n]...)
 	}
 
-	err := OperationDecider(rawData, server)
+	err := OperationDecider(rawData, client.queryEngine, client.conn)
 	if err != nil {
 		fmt.Println("OperationDecider Failed: %w", err)
 	}
 }
 
-func OperationDecider(req []byte, server *Server) error {
+func OperationDecider(req []byte, queryEngine *QueryEngine, conn net.Conn) error {
 	operation, data, err := DecodeReq(req)
 	if err != nil {
 		return fmt.Errorf("DecodeReq failed: %w", err)
@@ -82,7 +90,7 @@ func OperationDecider(req []byte, server *Server) error {
 
 	switch operation {
 	case REGISTER:
-		if err := server.HandleRegistration(data); err != nil {
+		if err := HandleRegistration(data, queryEngine, conn); err != nil {
 			return fmt.Errorf("HandleRegistration Failed: %w", err)
 		}
 	}
@@ -90,28 +98,91 @@ func OperationDecider(req []byte, server *Server) error {
 	return nil
 }
 
-func (server *Server) HandleRegistration(data []byte) error {
+func HandleRegistration(data []byte, queryEngine *QueryEngine, conn net.Conn) error {
+	fmt.Println("called HandleRegistration")
 	fields := ParsingRegistration(string(data))
 	dbName := fields["dbname"]
-	futureFilePath := fmt.Sprintf("A2G_DB_OS/Dbs/%s", dbName)
-
-	if _, err := CreatDefaultManager(futureFilePath); err != nil {
-		return fmt.Errorf("CreatDefaultManager failed: %w", err)
-	}
 
 	email := fields["email"]
 	pass := fields["password"]
 
-	sql := fmt.Sprintf("INSERT INTO `User`(Email, Password, DbPath) VALUES ('%s', '%s', '%s')\n", email, pass, futureFilePath)
-	encodedPlan, err := utils.SendSql(sql) // no connection is being made
+	row, err := Bookkeeping(email, pass, dbName, queryEngine)
 	if err != nil {
-		return fmt.Errorf("SendSql failed: %w", err)
+		return fmt.Errorf("HandleRegistration failed: %w", err)
 	}
 
-	_, _, result := server.queryEngine.QueryProcessingEntry(encodedPlan, false, false)
-	if result.Error != nil {
-		return fmt.Errorf("QueryProcessingEntry failed: %w", result.Error)
+	token, err := Authenticate(row, dbName)
+	if err != nil {
+		return fmt.Errorf("Authenticate failed: %w", err)
+	}
+
+	writeDeadLine := time.Now().Add(5 * time.Second)
+	err = conn.SetWriteDeadline(writeDeadLine)
+	if err != nil {
+		return fmt.Errorf("SetReadDeadline failed: %w", err)
+	}
+
+	n, err := conn.Write([]byte(token)) // blocks until somebody reads or a timeout occurs
+	if err != nil {
+		return fmt.Errorf("conn.Write failed: %w", err)
+	}
+
+	if n == 0 {
+		return errors.New("network write failed, O bytes written")
 	}
 
 	return nil
+}
+
+func Authenticate(row *RowV2, dbName string) (string, error) {
+	secretKey := []byte(os.Getenv("JWT_SECRET"))
+	if len(secretKey) == 0 {
+		log.Fatal("JWT_SECRET_KEY environment variable not set or is empty")
+	}
+
+	ttl := time.Hour * 1
+	expirationTime := time.Now().Add(ttl).Unix()
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"userId": fmt.Sprintf("%d", row.ID),
+		"dbName": dbName,
+		"exp":    fmt.Sprintf("%d", expirationTime),
+	})
+
+	tokenString, err := token.SignedString(secretKey)
+	if err != nil {
+		return "", fmt.Errorf("SignedString Failed: %w", err)
+	}
+
+	return tokenString, nil
+}
+
+func Bookkeeping(email, pass, dbName string, queryEngine *QueryEngine) (*RowV2, error) {
+	findSql := fmt.Sprintf("SELECT * FROM `User` WHERE Email = '%s'\n", email)
+	encodedPlan, err := utils.SendSql(findSql)
+	if err != nil {
+		return nil, fmt.Errorf("SendSql failed: %w", err)
+	}
+
+	_, _, result := queryEngine.QueryProcessingEntry(encodedPlan, false, false)
+	if result.Error != nil {
+		return nil, fmt.Errorf("QueryProcessingEntry failed: %w", result.Error)
+	}
+
+	if len(result.Rows) > 0 {
+		return nil, fmt.Errorf("user already exists")
+	}
+
+	sql := fmt.Sprintf("INSERT INTO `User`(Email, Password, DbName) VALUES ('%s', '%s', '%s')\n", email, pass, dbName)
+	encodedPlan, err = utils.SendSql(sql)
+	if err != nil {
+		return nil, fmt.Errorf("SendSql failed: %w", err)
+	}
+
+	_, _, result = queryEngine.QueryProcessingEntry(encodedPlan, false, false)
+	if result.Error != nil {
+		return nil, fmt.Errorf("QueryProcessingEntry failed: %w", result.Error)
+	}
+
+	return result.Rows[0], nil
 }

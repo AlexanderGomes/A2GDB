@@ -307,6 +307,27 @@ func (qe *QueryEngine) handleInsert(plan map[string]interface{}, transactionOff,
 		}
 	}
 
-	return Result{Msg: "Tuples Inserted"}
+	res, err := ReturnPrimaryIds(encodedRows)
+	if err != nil {
+		return handleError(fmt.Errorf("ReturnPrimaryIds failed: %w", err), "failed query")
+	}
+
+	return *res
 }
 
+func ReturnPrimaryIds(encodedRows [][]byte) (*Result, error) {
+	var res Result
+
+	for _, encodedRow := range encodedRows {
+		row, err := DecodeRow(encodedRow)
+		if err != nil {
+			return nil, fmt.Errorf("DecodeRow failed: %w", err)
+		}
+
+		res.Rows = append(res.Rows, row)
+	}
+
+	res.Msg = "successful query"
+
+	return &res, nil
+}

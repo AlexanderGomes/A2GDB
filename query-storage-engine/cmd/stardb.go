@@ -27,7 +27,7 @@ func InitDatabase(k int, dirName string) (*engines.QueryEngine, error) {
 }
 
 func CreateDefaultTable(queryEngine *engines.QueryEngine) error {
-	sql := "CREATE TABLE `User`(PRIMARY KEY(UserId),Email VARCHAR, Password VARCHAR, DbPath VARCHAR)\n"
+	sql := "CREATE TABLE `User`(PRIMARY KEY(UserId), Email VARCHAR, Password VARCHAR, DbName VARCHAR)\n"
 	encodedPlan1, err := utils.SendSql(sql)
 	if err != nil {
 		return fmt.Errorf("SendSql failed: %w", err)
