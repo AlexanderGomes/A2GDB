@@ -384,6 +384,17 @@ func getPrimary(tableName string, catalog *Catalog) (string, error) {
 	return primary, nil
 }
 
+// &name=User&schema=[&Email=VARCHAR&Password=VARCHAR&UserId=PRIMARY KEY&Name=VARCHAR]&auth=[&userId=12244126150183881992&dbName=NEWDB]
+
+// steps
+// 5. why do we need "&" at the end ? [x]
+// 6. develop proper initialization and ending of a body request. [x]
+
+// 1. initiaze and close the collection of slices
+// 2. collect the value inside of the slices as normal already implemented key:val
+// 3. change return value to map[string][]string
+// 4. change how key:val are being collected in the case that slice collection is on.
+
 func ParsingRegistration(stringfied string) map[string]string {
 	var currKey []rune
 	var currVal []rune
@@ -393,7 +404,7 @@ func ParsingRegistration(stringfied string) map[string]string {
 	var collectingVal bool
 
 	for _, char := range stringfied {
-		if char == '&' {
+		if char == '&' { // only collect previous &key=val when a & is seen again.
 			if len(currKey) > 0 && len(currVal) > 0 {
 				key := string(currKey)
 				val := string(currVal)

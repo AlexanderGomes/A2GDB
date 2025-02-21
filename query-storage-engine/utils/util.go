@@ -28,7 +28,7 @@ func SendSql(sql string) (interface{}, error) {
 	writeDeadLine := time.Now().Add(4 * time.Second)
 	err = conn.SetWriteDeadline(writeDeadLine)
 	if err != nil {
-		return nil, fmt.Errorf("SetReadDeadline failed: %w", err)
+		return nil, fmt.Errorf("SetWriteDeadline failed: %w", err)
 	}
 
 	_, err = conn.Write([]byte(sql))

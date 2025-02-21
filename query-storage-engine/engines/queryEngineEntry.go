@@ -5,8 +5,8 @@ import (
 )
 
 const (
-	REGISTER = iota + 1
-	LOGIN
+	AUTH = iota + 1
+	CREATE_TABLE
 )
 
 type QueryEngine struct {

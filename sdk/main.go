@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"sdk/client"
 
@@ -13,9 +14,12 @@ func main() {
 		log.Fatal("Error loading .env file")
 	}
 
-	credentials, err := client.Register("sander@gmail.com", "81377662", "akaksk")
+	cred, err := client.Auth("sander@gmail.com", "81377662", "NEWDB")
 	if err != nil {
-		panic(err)
+		fmt.Println(err)
 	}
 
+	fmt.Println(cred)
+	// schema := map[string]string{"UserId": "PRIMARY KEY", "Name": "VARCHAR", "Email": "VARCHAR", "Password": "VARCHAR"}
+	// cred.CreateTable("User", schema)
 }

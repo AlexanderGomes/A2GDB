@@ -56,6 +56,7 @@ func (server *Server) Run() {
 			conn:        conn,
 			queryEngine: server.queryEngine,
 		}
+
 		go client.handleRequest()
 	}
 }
@@ -78,7 +79,15 @@ func (client *Client) handleRequest() {
 
 	err := OperationDecider(rawData, client.queryEngine, client.conn)
 	if err != nil {
-		fmt.Println("OperationDecider Failed: %w", err)
+		_, err = client.conn.Write([]byte(err.Error()))
+		if err != nil {
+			fmt.Printf("couldn't write message: %s\n", err)
+		}
+
+		tcpConn, ok := client.conn.(*net.TCPConn)
+		if ok {
+			tcpConn.CloseWrite()
+		}
 	}
 }
 
@@ -89,18 +98,28 @@ func OperationDecider(req []byte, queryEngine *QueryEngine, conn net.Conn) error
 	}
 
 	switch operation {
-	case REGISTER:
-		if err := HandleRegistration(data, queryEngine, conn); err != nil {
-			return fmt.Errorf("HandleRegistration Failed: %w", err)
+	case AUTH:
+		if err := HandleAuth(data, queryEngine, conn); err != nil {
+			return fmt.Errorf("HandleAuth Failed: %w", err)
+		}
+	case CREATE_TABLE:
+		if err := HandleCreateTable(data, queryEngine, conn); err != nil {
+			return fmt.Errorf("HandleAuth Failed: %w", err)
 		}
 	}
 
 	return nil
 }
 
-func HandleRegistration(data []byte, queryEngine *QueryEngine, conn net.Conn) error {
-	fmt.Println("called HandleRegistration")
+func HandleCreateTable(data []byte, queryEngine *QueryEngine, conn net.Conn) error {
+
+	fmt.Println(string(data))
+	return nil
+}
+
+func HandleAuth(data []byte, queryEngine *QueryEngine, conn net.Conn) error {
 	fields := ParsingRegistration(string(data))
+	fmt.Printf("fields: %+v", fields)
 	dbName := fields["dbname"]
 
 	email := fields["email"]
@@ -108,7 +127,7 @@ func HandleRegistration(data []byte, queryEngine *QueryEngine, conn net.Conn) er
 
 	row, err := Bookkeeping(email, pass, dbName, queryEngine)
 	if err != nil {
-		return fmt.Errorf("HandleRegistration failed: %w", err)
+		return fmt.Errorf("Bookkeeping failed: %w", err)
 	}
 
 	token, err := Authenticate(row, dbName)
@@ -122,7 +141,7 @@ func HandleRegistration(data []byte, queryEngine *QueryEngine, conn net.Conn) er
 		return fmt.Errorf("SetReadDeadline failed: %w", err)
 	}
 
-	n, err := conn.Write([]byte(token)) // blocks until somebody reads or a timeout occurs
+	n, err := conn.Write([]byte(token))
 	if err != nil {
 		return fmt.Errorf("conn.Write failed: %w", err)
 	}
@@ -146,7 +165,7 @@ func Authenticate(row *RowV2, dbName string) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"userId": fmt.Sprintf("%d", row.ID),
 		"dbName": dbName,
-		"exp":    fmt.Sprintf("%d", expirationTime),
+		"exp":    expirationTime,
 	})
 
 	tokenString, err := token.SignedString(secretKey)
@@ -170,7 +189,15 @@ func Bookkeeping(email, pass, dbName string, queryEngine *QueryEngine) (*RowV2, 
 	}
 
 	if len(result.Rows) > 0 {
-		return nil, fmt.Errorf("user already exists")
+		row := result.Rows[0]
+		stored_password := row.Values["Password"]
+		stored_dbName := row.Values["DbName"]
+
+		if pass != stored_password || dbName != stored_dbName {
+			return nil, errors.New("incorrect credentials")
+		}
+
+		return row, nil
 	}
 
 	sql := fmt.Sprintf("INSERT INTO `User`(Email, Password, DbName) VALUES ('%s', '%s', '%s')\n", email, pass, dbName)

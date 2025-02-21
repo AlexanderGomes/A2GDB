@@ -1,19 +1,14 @@
 package client
 
 import (
-	"errors"
 	"fmt"
 	"io"
-	"os"
-	"strconv"
 	"time"
-
-	"github.com/golang-jwt/jwt/v5"
 )
 
 const (
-	REGISTER = iota + 1
-	LOGIN
+	AUTH = iota + 1
+	CREATE_TABLE
 )
 
 type CustomTCP struct {
@@ -24,14 +19,13 @@ type CustomTCP struct {
 type UserCred struct {
 	UserId uint64
 	DbName string
-	TTL    int64
 }
 
-func Register(email, password, dbName string) (*UserCred, error) {
-	body := "&email=" + email + "&password=" + password + "&dbname=" + dbName + "&"
+func Auth(email, password, dbName string) (*UserCred, error) {
+	reqBody := "&email=" + email + "&password=" + password + "&dbname=" + dbName
 	message := CustomTCP{
-		MessageType: REGISTER,
-		MessageBody: []byte(body),
+		MessageType: AUTH,
+		MessageBody: []byte(reqBody),
 	}
 
 	bytes, err := message.Encode()
@@ -45,8 +39,6 @@ func Register(email, password, dbName string) (*UserCred, error) {
 
 	}
 	defer conn.Close()
-
-	fmt.Println("sent bytes, waiting for response...")
 
 	readDeadLine := time.Now().Add(4 * time.Second)
 	err = conn.SetReadDeadline(readDeadLine)
@@ -67,56 +59,35 @@ func Register(email, password, dbName string) (*UserCred, error) {
 	return credentials, nil
 }
 
-func ParseToken(tokenBytes []byte) (*UserCred, error) {
-	token, err := jwt.Parse(string(tokenBytes), func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		}
-		return []byte(os.Getenv("JWT_SECRET")), nil
-	})
+func (cred *UserCred) CreateTable(tableName string, schema map[string]string) error {
+	reqBody := fmt.Sprintf("&name=%s", tableName)
 
+	schemaStr := "["
+	for key, val := range schema {
+		schemaStr += fmt.Sprintf("&%s=%s", key, val)
+	}
+
+	schemaStr += "]"
+	reqBody += "&schema=" + schemaStr
+	reqBody += "&auth=[" + fmt.Sprintf("&userId=%d&dbName=%s", cred.UserId, cred.DbName)
+	reqBody += "]"
+
+	message := CustomTCP{
+		MessageType: CREATE_TABLE,
+		MessageBody: []byte(reqBody),
+	}
+
+	bytes, err := message.Encode()
 	if err != nil {
-		return nil, fmt.Errorf("parsing token failed: %w", err)
+		return fmt.Errorf("encoding tcp failed: %w", err)
 	}
 
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok && !token.Valid {
-		return nil, errors.New("JWT token invalid")
-	}
-
-	userCred, err := GetClaims(claims)
+	conn, err := SendBytes(bytes)
 	if err != nil {
-		return nil, fmt.Errorf("GetClaims failed: %w", err)
+		return fmt.Errorf("SendBytes Failed: %w", err)
+
 	}
+	defer conn.Close()
 
-	return userCred, nil
-}
-
-func GetClaims(claims jwt.MapClaims) (*UserCred, error) {
-	userIDStr, ok := claims["userId"].(string)
-	if !ok {
-		return nil, fmt.Errorf("userId is missing or not a string")
-	}
-
-	userID, err := strconv.ParseUint(userIDStr, 10, 64)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse userId: %w", err)
-	}
-
-	dbName, ok := claims["dbName"].(string)
-	if !ok {
-		return nil, fmt.Errorf("dbName is missing or not a string")
-	}
-
-	expStr, ok := claims["exp"].(string)
-	if !ok {
-		return nil, fmt.Errorf("exp is missing or not a string")
-	}
-
-	exp, err := strconv.ParseInt(expStr, 10, 64)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse exp: %w", err)
-	}
-
-	return &UserCred{UserId: userID, DbName: dbName, TTL: exp}, nil
+	return nil
 }
