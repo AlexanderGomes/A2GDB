@@ -5,6 +5,7 @@ import (
 	"a2gdb/logger"
 	"a2gdb/utils"
 	"fmt"
+	"strings"
 )
 
 func InitDatabase(k int, dirName string) (*engines.QueryEngine, error) {
@@ -19,7 +20,9 @@ func InitDatabase(k int, dirName string) (*engines.QueryEngine, error) {
 	}
 
 	if err := CreateDefaultTable(queryEngine); err != nil {
-		return nil, fmt.Errorf("CreateDefaultTable failed: %w", err)
+		if !strings.Contains(err.Error(), "table already exists") {
+			return nil, fmt.Errorf("unexpected Error: %w", err)
+		}
 	}
 
 	logger.Log.Info("Database initialized successfully")
@@ -34,9 +37,8 @@ func CreateDefaultTable(queryEngine *engines.QueryEngine) error {
 	}
 
 	_, _, result := queryEngine.QueryProcessingEntry(encodedPlan1, false, false)
-
 	if result.Error != nil {
-		return fmt.Errorf("QueryProcessingEntry failed: %w", err)
+		return fmt.Errorf("QueryProcessingEntry failed: %w", result.Error)
 	}
 
 	return nil

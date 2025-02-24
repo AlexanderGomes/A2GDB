@@ -2,9 +2,11 @@ package engines
 
 import (
 	"a2gdb/logger"
+	"a2gdb/utils"
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -384,24 +386,45 @@ func getPrimary(tableName string, catalog *Catalog) (string, error) {
 	return primary, nil
 }
 
-// &name=User&schema=[&Email=VARCHAR&Password=VARCHAR&UserId=PRIMARY KEY&Name=VARCHAR]&auth=[&userId=12244126150183881992&dbName=NEWDB]
+func ParsingTableMetadata(stringfied string) (string, map[string]map[string]string) {
+	fields := make(map[string]map[string]string)
 
-// steps
-// 5. why do we need "&" at the end ? [x]
-// 6. develop proper initialization and ending of a body request. [x]
+	tableName := ""
+	parts := strings.SplitN(strings.Trim(stringfied, "&"), "&", 2)
+	if len(parts) > 1 {
+		tableNameParts := strings.SplitN(parts[0], "=", 2)
+		if len(tableNameParts) == 2 {
+			tableName = tableNameParts[1]
+		}
+	}
 
-// 1. initiaze and close the collection of slices
-// 2. collect the value inside of the slices as normal already implemented key:val
-// 3. change return value to map[string][]string
-// 4. change how key:val are being collected in the case that slice collection is on.
+	re := regexp.MustCompile(`&(schema|auth)=\[([^\]]+)\]`)
+
+	matches := re.FindAllStringSubmatch(stringfied, -1)
+
+	for _, match := range matches {
+		if len(match) > 2 {
+			key := match[1]
+			value := match[2]
+
+			fields[key] = CollectKV(value)
+		}
+	}
+
+	return tableName, fields
+}
 
 func ParsingRegistration(stringfied string) map[string]string {
+	return CollectKV(stringfied)
+}
+
+func CollectKV(stringfied string) map[string]string {
 	var currKey []rune
 	var currVal []rune
-	fields := make(map[string]string)
-
 	var collectingKey bool
 	var collectingVal bool
+
+	fields := make(map[string]string)
 
 	for _, char := range stringfied {
 		if char == '&' { // only collect previous &key=val when a & is seen again.
@@ -452,4 +475,40 @@ func rollbackAndReturn(txId, primary, modifiedColumn string, walManager *WalMana
 		Error: err,
 		Msg:   msg,
 	}
+}
+
+func CreateSchemaString(schemaMap map[string]string) string {
+	var schemaStr string
+
+	for k, v := range schemaMap {
+		if v == "PRIMARY KEY" {
+			schemaStr += fmt.Sprintf("%s(%s),", v, k)
+			continue
+		}
+		schemaStr += k + " " + v + ","
+	}
+
+	schemaStr = removeTrailing(schemaStr, ',')
+	return schemaStr
+}
+
+func removeTrailing(s string, remove rune) string {
+	if len(s) > 0 && rune(s[len(s)-1]) == remove {
+		return s[:len(s)-1]
+	}
+	return s
+}
+
+func ExecuteQuery(sql string, queryEngine *QueryEngine) (*Result, error) {
+	encodedPlan1, err := utils.SendSql(sql)
+	if err != nil {
+		return nil, fmt.Errorf("SendSql Failed: %w", err)
+	}
+
+	_, _, res := queryEngine.QueryProcessingEntry(encodedPlan1, false, false)
+	if res.Error != nil {
+		return nil, fmt.Errorf("QueryProcessingEntry Failed: %w", err)
+	}
+
+	return res, nil
 }

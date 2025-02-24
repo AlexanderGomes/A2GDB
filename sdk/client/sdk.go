@@ -22,7 +22,7 @@ type UserCred struct {
 }
 
 func Auth(email, password, dbName string) (*UserCred, error) {
-	reqBody := "&email=" + email + "&password=" + password + "&dbname=" + dbName
+	reqBody := "&email=" + email + "&password=" + password + "&dbname=" + dbName + "&"
 	message := CustomTCP{
 		MessageType: AUTH,
 		MessageBody: []byte(reqBody),
@@ -59,18 +59,18 @@ func Auth(email, password, dbName string) (*UserCred, error) {
 	return credentials, nil
 }
 
-func (cred *UserCred) CreateTable(tableName string, schema map[string]string) error {
-	reqBody := fmt.Sprintf("&name=%s", tableName)
+func (cred *UserCred) CreateTable(table string, schema map[string]string) error {
+	reqBody := fmt.Sprintf("&tableName=%s", table)
 
 	schemaStr := "["
 	for key, val := range schema {
 		schemaStr += fmt.Sprintf("&%s=%s", key, val)
 	}
+	schemaStr += "&]"
 
-	schemaStr += "]"
 	reqBody += "&schema=" + schemaStr
 	reqBody += "&auth=[" + fmt.Sprintf("&userId=%d&dbName=%s", cred.UserId, cred.DbName)
-	reqBody += "]"
+	reqBody += "&]"
 
 	message := CustomTCP{
 		MessageType: CREATE_TABLE,
@@ -88,6 +88,19 @@ func (cred *UserCred) CreateTable(tableName string, schema map[string]string) er
 
 	}
 	defer conn.Close()
+
+	readDeadLine := time.Now().Add(4 * time.Second)
+	err = conn.SetReadDeadline(readDeadLine)
+	if err != nil {
+		return fmt.Errorf("SetReadDeadline failed: %w", err)
+	}
+
+	rawData, err := io.ReadAll(conn)
+	if err != nil {
+		return fmt.Errorf("io.ReadAll Failed: %w", err)
+	}
+
+	fmt.Println(string(rawData))
 
 	return nil
 }

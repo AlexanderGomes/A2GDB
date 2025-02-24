@@ -81,12 +81,7 @@ func (client *Client) handleRequest() {
 	if err != nil {
 		_, err = client.conn.Write([]byte(err.Error()))
 		if err != nil {
-			fmt.Printf("couldn't write message: %s\n", err)
-		}
-
-		tcpConn, ok := client.conn.(*net.TCPConn)
-		if ok {
-			tcpConn.CloseWrite()
+			fmt.Printf("couldn't network error message: %s\n", err)
 		}
 	}
 }
@@ -112,16 +107,44 @@ func OperationDecider(req []byte, queryEngine *QueryEngine, conn net.Conn) error
 }
 
 func HandleCreateTable(data []byte, queryEngine *QueryEngine, conn net.Conn) error {
+	tableName, fields := ParsingTableMetadata(string(data))
+	authMap := fields["auth"]
+	schemaMap := fields["schema"]
 
-	fmt.Println(string(data))
+	dbName := authMap["dbName"]
+	userId := authMap["userId"]
+
+	officialTableName := tableName + "-" + dbName + "-" + userId
+
+	schemaStr := CreateSchemaString(schemaMap)
+	sql := fmt.Sprintf("CREATE TABLE `%s`(%s)\n", officialTableName, schemaStr)
+	res, err := ExecuteQuery(sql, queryEngine)
+	if err != nil {
+		return fmt.Errorf("ExecuteQuery Failed: %w", err)
+	}
+
+	writeDeadLine := time.Now().Add(5 * time.Second)
+	err = conn.SetWriteDeadline(writeDeadLine)
+	if err != nil {
+		return fmt.Errorf("SetWriteDeadline failed: %w", err)
+	}
+
+	n, err := conn.Write([]byte(res.Msg))
+	if err != nil {
+		return fmt.Errorf("conn.Write failed: %w", err)
+	}
+
+	if n == 0 {
+		return errors.New("network write failed, O bytes written")
+	}
+
 	return nil
 }
 
 func HandleAuth(data []byte, queryEngine *QueryEngine, conn net.Conn) error {
 	fields := ParsingRegistration(string(data))
-	fmt.Printf("fields: %+v", fields)
-	dbName := fields["dbname"]
 
+	dbName := fields["dbname"]
 	email := fields["email"]
 	pass := fields["password"]
 
@@ -156,7 +179,7 @@ func HandleAuth(data []byte, queryEngine *QueryEngine, conn net.Conn) error {
 func Authenticate(row *RowV2, dbName string) (string, error) {
 	secretKey := []byte(os.Getenv("JWT_SECRET"))
 	if len(secretKey) == 0 {
-		log.Fatal("JWT_SECRET_KEY environment variable not set or is empty")
+		log.Fatal("JWT_SECRET environment variable not set or is empty")
 	}
 
 	ttl := time.Hour * 1
