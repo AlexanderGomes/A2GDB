@@ -6,10 +6,8 @@ import (
 	"io"
 	"os"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
-	"a2gdb/utils"
 )
 
 type LogType uint8
@@ -210,7 +208,7 @@ func (wl *WalManager) AbortTransaction(txID, primary, modifiedColumn string, eng
 		return fmt.Errorf("transaction %s not found", txID)
 	}
 
-	if err := wl.Undo(logs, engine, catalog, primary, modifiedColumn); err != nil {
+	if err := Undo(logs, engine, catalog, primary, modifiedColumn); err != nil {
 		return fmt.Errorf("undo failed: %w", err)
 	}
 
@@ -242,7 +240,7 @@ func (wl *WalManager) AbortTransaction(txID, primary, modifiedColumn string, eng
 	return nil
 }
 
-func (wl *WalManager) Undo(logs []*LogRecord, engine *QueryEngine, catalog *Catalog, primary, modifiedColumn string) error {
+func Undo(logs []*LogRecord, engine *QueryEngine, catalog *Catalog, primary, modifiedColumn string) error {
 	for i := len(logs) - 1; i >= 0; i-- {
 		log := logs[i]
 		switch log.Type {
@@ -267,81 +265,25 @@ func (wl *WalManager) Undo(logs []*LogRecord, engine *QueryEngine, catalog *Cata
 	return nil
 }
 
-func undoDelete(log *LogRecord, engine *QueryEngine, catalog *Catalog) error {
-	oldImage := log.BeforeImage
-	oldRow, err := DecodeRow(oldImage)
-	if err != nil {
-		return fmt.Errorf("DecodeRow failed: %w", err)
-	}
-
-	sql := buildInsertQueryFromMap(log.TableID, oldRow.Values, catalog)
-
-	encodedPlan1, err := utils.SendSql(sql)
-	if err != nil {
-		return fmt.Errorf("SendSqls failed: %w", err)
-	}
-
-	_, _, result := engine.QueryProcessingEntry(encodedPlan1, true, false)
-	if result.Error != nil {
-		return fmt.Errorf("QueryProcessingEntry failed: %w", result.Error)
-	}
-
-	return nil
-}
-
-func buildInsertQueryFromMap(tableID string, oldRow map[string]string, catalog *Catalog) string {
-	var columns []string
-	var values []string
-
-	for col, val := range oldRow {
-		schema := catalog.Tables[tableID]
-		schemaObj := schema.Schema[col]
-		columns = append(columns, col)
-
-		if schemaObj.Type == "VARCHAR" {
-			values = append(values, fmt.Sprintf("'%v'", val))
-			continue
+func Redo(logs []*LogRecord, engine *QueryEngine, catalog *Catalog, primary, modifiedColumn string) error {
+	for _, log := range logs {
+		switch log.Type {
+		case LogTypeInsert:
+			err := redoInsert(log, engine)
+			if err != nil {
+				return fmt.Errorf("redoInsert failed: %w", err)
+			}
+		case LogTypeUpdate:
+			err := redoUpdate(log, engine)
+			if err != nil {
+				return fmt.Errorf("redoUpdate failed: %w", err)
+			}
+		case LogTypeDelete:
+			err := redoDelete(log, engine, catalog)
+			if err != nil {
+				return fmt.Errorf("redoDelete failed: %w", err)
+			}
 		}
-		values = append(values, val)
-	}
-
-	query := fmt.Sprintf("INSERT INTO `%s` (%s) VALUES (%s)\n", tableID, strings.Join(columns, ", "), strings.Join(values, ", "))
-	return query
-}
-
-func undoUpdate(log *LogRecord, engine *QueryEngine, primary, modifiedColumn string) error {
-	oldRow, err := DecodeRow(log.BeforeImage)
-	if err != nil {
-		return fmt.Errorf("DecodeRow failed: %w", err)
-	}
-
-	oldVal := oldRow.Values[modifiedColumn]
-	sql := fmt.Sprintf("UPDATE `%s` SET %s = %s WHERE %s = CAST('%d' AS DECIMAL(20,0))\n", log.TableID, modifiedColumn, oldVal, primary, log.RowID)
-
-	encodedPlan1, err := utils.SendSql(sql)
-	if err != nil {
-		return fmt.Errorf("SendSql failed: %w", err)
-	}
-
-	_, _, result := engine.QueryProcessingEntry(encodedPlan1, true, false)
-	if result.Error != nil {
-		return fmt.Errorf("QueryProcessingEntry failed: %w", result.Error)
-	}
-
-	return nil
-}
-
-func undoInsert(log *LogRecord, engine *QueryEngine, primary string) error {
-	sql := fmt.Sprintf("DELETE FROM `%s` WHERE %s = CAST('%d' AS DECIMAL(20,0))\n", log.TableID, primary, log.RowID)
-
-	encodedPlan1, err := utils.SendSql(sql)
-	if err != nil {
-		return fmt.Errorf("SendSql failed: %w", err)
-	}
-
-	_, _, result := engine.QueryProcessingEntry(encodedPlan1, true, false)
-	if result.Error != nil {
-		return fmt.Errorf("QueryProcessingEntry failed: %w", result.Error)
 	}
 
 	return nil

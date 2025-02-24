@@ -19,6 +19,11 @@ func main() {
 		fmt.Println(err)
 	}
 
-	sql := "INSERT INTO `User` (Name, Email, Password) VALUES ('JaneSmith', 'sander@gmail.com', '199191928182')\n"
-	cred.ExecuteQuery(sql)
+	schema := map[string]string{"UserId": "PRIMARY KEY", "Name": "VARCHAR", "Email": "VARCHAR", "Password": "VARCHAR"}
+	cred.CreateTable("User", schema)
+
+	for {
+		sql := "INSERT INTO `User` (Name, Email, Password) VALUES ('JaneSmith', 'sander@gmail.com', '199191928182')\n"
+		cred.ExecuteQuery(sql)
+	}
 }

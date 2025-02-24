@@ -597,3 +597,98 @@ func Bookkeeping(email, pass, dbName string, queryEngine *QueryEngine) (*RowV2, 
 
 	return result.Rows[0], nil
 }
+
+func undoDelete(log *LogRecord, engine *QueryEngine, catalog *Catalog) error {
+	oldImage := log.BeforeImage
+	oldRow, err := DecodeRow(oldImage)
+	if err != nil {
+		return fmt.Errorf("DecodeRow failed: %w", err)
+	}
+
+	sql := buildInsertQueryFromMap(log.TableID, oldRow.Values, catalog)
+
+	encodedPlan1, err := utils.SendSql(sql)
+	if err != nil {
+		return fmt.Errorf("SendSqls failed: %w", err)
+	}
+
+	_, _, result := engine.QueryProcessingEntry(encodedPlan1, true, false)
+	if result.Error != nil {
+		return fmt.Errorf("QueryProcessingEntry failed: %w", result.Error)
+	}
+
+	return nil
+}
+
+func buildInsertQueryFromMap(tableID string, oldRow map[string]string, catalog *Catalog) string {
+	var columns []string
+	var values []string
+
+	for col, val := range oldRow {
+		schema := catalog.Tables[tableID]
+		schemaObj := schema.Schema[col]
+		columns = append(columns, col)
+
+		if schemaObj.Type == "VARCHAR" {
+			values = append(values, fmt.Sprintf("'%v'", val))
+			continue
+		}
+		values = append(values, val)
+	}
+
+	query := fmt.Sprintf("INSERT INTO `%s` (%s) VALUES (%s)\n", tableID, strings.Join(columns, ", "), strings.Join(values, ", "))
+	return query
+}
+
+func undoUpdate(log *LogRecord, engine *QueryEngine, primary, modifiedColumn string) error {
+	oldRow, err := DecodeRow(log.BeforeImage)
+	if err != nil {
+		return fmt.Errorf("DecodeRow failed: %w", err)
+	}
+
+	oldVal := oldRow.Values[modifiedColumn]
+	sql := fmt.Sprintf("UPDATE `%s` SET %s = %s WHERE %s = CAST('%d' AS DECIMAL(20,0))\n", log.TableID, modifiedColumn, oldVal, primary, log.RowID)
+
+	encodedPlan1, err := utils.SendSql(sql)
+	if err != nil {
+		return fmt.Errorf("SendSql failed: %w", err)
+	}
+
+	_, _, result := engine.QueryProcessingEntry(encodedPlan1, true, false)
+	if result.Error != nil {
+		return fmt.Errorf("QueryProcessingEntry failed: %w", result.Error)
+	}
+
+	return nil
+}
+
+func undoInsert(log *LogRecord, engine *QueryEngine, primary string) error {
+	sql := fmt.Sprintf("DELETE FROM `%s` WHERE %s = CAST('%d' AS DECIMAL(20,0))\n", log.TableID, primary, log.RowID)
+
+	encodedPlan1, err := utils.SendSql(sql)
+	if err != nil {
+		return fmt.Errorf("SendSql failed: %w", err)
+	}
+
+	_, _, result := engine.QueryProcessingEntry(encodedPlan1, true, false)
+	if result.Error != nil {
+		return fmt.Errorf("QueryProcessingEntry failed: %w", result.Error)
+	}
+
+	return nil
+}
+
+func redoInsert(log *LogRecord, engine *QueryEngine) error {
+
+	return nil
+}
+
+func redoDelete(log *LogRecord, engine *QueryEngine, catalog *Catalog) error {
+
+	return nil
+}
+
+func redoUpdate(log *LogRecord, engine *QueryEngine) error {
+
+	return nil
+}
