@@ -3,12 +3,14 @@ package client
 import (
 	"fmt"
 	"io"
+	"regexp"
 	"time"
 )
 
 const (
 	AUTH = iota + 1
 	CREATE_TABLE
+	QUERY
 )
 
 type CustomTCP struct {
@@ -89,18 +91,55 @@ func (cred *UserCred) CreateTable(table string, schema map[string]string) error 
 	}
 	defer conn.Close()
 
-	readDeadLine := time.Now().Add(4 * time.Second)
-	err = conn.SetReadDeadline(readDeadLine)
+	msg, err := ReadResponse(conn)
 	if err != nil {
-		return fmt.Errorf("SetReadDeadline failed: %w", err)
+		return fmt.Errorf("ReadResponse Failed: %w", err)
 	}
 
-	rawData, err := io.ReadAll(conn)
-	if err != nil {
-		return fmt.Errorf("io.ReadAll Failed: %w", err)
+	fmt.Println(msg)
+
+	return nil
+}
+
+func (cred *UserCred) GetOfficialTableName(tableName string) string {
+	return tableName + "-" + cred.DbName + "-" + fmt.Sprintf("%d", cred.UserId)
+}
+
+func (cred *UserCred) ExecuteQuery(sql string) error {
+	var tableName string
+	re := regexp.MustCompile("`(.*?)`")
+	match := re.FindStringSubmatch(sql)
+	if len(match) > 1 {
+		tableName = match[1]
 	}
 
-	fmt.Println(string(rawData))
+	internalTableName := cred.GetOfficialTableName(tableName)
 
+	updatedQuery := re.ReplaceAllString(sql, "`"+internalTableName+"`")
+	reqBody := fmt.Sprintf("&sql=%s&", updatedQuery)
+
+	message := CustomTCP{
+		MessageType: QUERY,
+		MessageBody: []byte(reqBody),
+	}
+
+	bytes, err := message.Encode()
+	if err != nil {
+		return fmt.Errorf("encoding tcp failed: %w", err)
+	}
+
+	conn, err := SendBytes(bytes)
+	if err != nil {
+		return fmt.Errorf("SendBytes Failed: %w", err)
+
+	}
+	defer conn.Close()
+
+	msg, err := ReadResponse(conn)
+	if err != nil {
+		return fmt.Errorf("ReadResponse Failed: %w", err)
+	}
+
+	fmt.Println(msg)
 	return nil
 }

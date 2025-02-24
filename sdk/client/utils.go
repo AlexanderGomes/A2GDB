@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strconv"
@@ -105,4 +106,19 @@ func GetClaims(claims jwt.MapClaims) (*UserCred, error) {
 	}
 
 	return &UserCred{UserId: userID, DbName: dbName}, nil
+}
+
+func ReadResponse(conn net.Conn) (string, error) {
+	readDeadLine := time.Now().Add(4 * time.Second)
+	err := conn.SetReadDeadline(readDeadLine)
+	if err != nil {
+		return "", fmt.Errorf("SetReadDeadline failed: %w", err)
+	}
+
+	rawData, err := io.ReadAll(conn)
+	if err != nil {
+		return "", fmt.Errorf("io.ReadAll Failed: %w", err)
+	}
+
+	return string(rawData), nil
 }

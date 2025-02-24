@@ -1,16 +1,12 @@
 package engines
 
 import (
-	"a2gdb/utils"
 	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net"
-	"os"
-	"time"
-
-	"github.com/golang-jwt/jwt/v5"
+	"regexp"
 )
 
 type Server struct {
@@ -99,8 +95,35 @@ func OperationDecider(req []byte, queryEngine *QueryEngine, conn net.Conn) error
 		}
 	case CREATE_TABLE:
 		if err := HandleCreateTable(data, queryEngine, conn); err != nil {
-			return fmt.Errorf("HandleAuth Failed: %w", err)
+			return fmt.Errorf("HandleCreateTable Failed: %w", err)
 		}
+	case QUERY:
+		if err := HandleQueries(data, queryEngine, conn); err != nil {
+			return fmt.Errorf("HandleQueries Failed: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func HandleQueries(data []byte, queryEngine *QueryEngine, conn net.Conn) error {
+	re := regexp.MustCompile(`=([^&]*)`)
+	match := re.FindStringSubmatch(string(data))
+
+	if len(match) > 1 {
+		sql := match[1]
+		res, err := ExecuteQuery(sql, queryEngine)
+		if err != nil {
+			return fmt.Errorf("ExecuteQuery Failed: %w", err)
+		}
+
+		err = SendResponse(res.Msg, conn)
+		if err != nil {
+			return fmt.Errorf("SendResponse Failed: %w", err)
+		}
+
+	} else {
+		return errors.New("request body format incorrect")
 	}
 
 	return nil
@@ -123,19 +146,9 @@ func HandleCreateTable(data []byte, queryEngine *QueryEngine, conn net.Conn) err
 		return fmt.Errorf("ExecuteQuery Failed: %w", err)
 	}
 
-	writeDeadLine := time.Now().Add(5 * time.Second)
-	err = conn.SetWriteDeadline(writeDeadLine)
+	err = SendResponse(res.Msg, conn)
 	if err != nil {
-		return fmt.Errorf("SetWriteDeadline failed: %w", err)
-	}
-
-	n, err := conn.Write([]byte(res.Msg))
-	if err != nil {
-		return fmt.Errorf("conn.Write failed: %w", err)
-	}
-
-	if n == 0 {
-		return errors.New("network write failed, O bytes written")
+		return fmt.Errorf("SendResponse Failed: %w", err)
 	}
 
 	return nil
@@ -158,81 +171,10 @@ func HandleAuth(data []byte, queryEngine *QueryEngine, conn net.Conn) error {
 		return fmt.Errorf("Authenticate failed: %w", err)
 	}
 
-	writeDeadLine := time.Now().Add(5 * time.Second)
-	err = conn.SetWriteDeadline(writeDeadLine)
+	err = SendResponse(token, conn)
 	if err != nil {
-		return fmt.Errorf("SetReadDeadline failed: %w", err)
-	}
-
-	n, err := conn.Write([]byte(token))
-	if err != nil {
-		return fmt.Errorf("conn.Write failed: %w", err)
-	}
-
-	if n == 0 {
-		return errors.New("network write failed, O bytes written")
+		return fmt.Errorf("SendResponse Failed: %w", err)
 	}
 
 	return nil
-}
-
-func Authenticate(row *RowV2, dbName string) (string, error) {
-	secretKey := []byte(os.Getenv("JWT_SECRET"))
-	if len(secretKey) == 0 {
-		log.Fatal("JWT_SECRET environment variable not set or is empty")
-	}
-
-	ttl := time.Hour * 1
-	expirationTime := time.Now().Add(ttl).Unix()
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"userId": fmt.Sprintf("%d", row.ID),
-		"dbName": dbName,
-		"exp":    expirationTime,
-	})
-
-	tokenString, err := token.SignedString(secretKey)
-	if err != nil {
-		return "", fmt.Errorf("SignedString Failed: %w", err)
-	}
-
-	return tokenString, nil
-}
-
-func Bookkeeping(email, pass, dbName string, queryEngine *QueryEngine) (*RowV2, error) {
-	findSql := fmt.Sprintf("SELECT * FROM `User` WHERE Email = '%s'\n", email)
-	encodedPlan, err := utils.SendSql(findSql)
-	if err != nil {
-		return nil, fmt.Errorf("SendSql failed: %w", err)
-	}
-
-	_, _, result := queryEngine.QueryProcessingEntry(encodedPlan, false, false)
-	if result.Error != nil {
-		return nil, fmt.Errorf("QueryProcessingEntry failed: %w", result.Error)
-	}
-
-	if len(result.Rows) > 0 {
-		row := result.Rows[0]
-		stored_password := row.Values["Password"]
-		stored_dbName := row.Values["DbName"]
-
-		if pass != stored_password || dbName != stored_dbName {
-			return nil, errors.New("incorrect credentials")
-		}
-
-		return row, nil
-	}
-
-	sql := fmt.Sprintf("INSERT INTO `User`(Email, Password, DbName) VALUES ('%s', '%s', '%s')\n", email, pass, dbName)
-	encodedPlan, err = utils.SendSql(sql)
-	if err != nil {
-		return nil, fmt.Errorf("SendSql failed: %w", err)
-	}
-
-	_, _, result = queryEngine.QueryProcessingEntry(encodedPlan, false, false)
-	if result.Error != nil {
-		return nil, fmt.Errorf("QueryProcessingEntry failed: %w", result.Error)
-	}
-
-	return result.Rows[0], nil
 }

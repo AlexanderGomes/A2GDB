@@ -7,6 +7,7 @@ import (
 const (
 	AUTH = iota + 1
 	CREATE_TABLE
+	QUERY
 )
 
 type QueryEngine struct {

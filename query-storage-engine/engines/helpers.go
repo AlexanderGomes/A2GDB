@@ -6,10 +6,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
+	"net"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/sirupsen/logrus"
 )
 
@@ -507,8 +512,88 @@ func ExecuteQuery(sql string, queryEngine *QueryEngine) (*Result, error) {
 
 	_, _, res := queryEngine.QueryProcessingEntry(encodedPlan1, false, false)
 	if res.Error != nil {
-		return nil, fmt.Errorf("QueryProcessingEntry Failed: %w", err)
+		return nil, fmt.Errorf("QueryProcessingEntry Failed: %w", res.Error)
 	}
 
 	return res, nil
+}
+
+func SendResponse(msg string, conn net.Conn) error {
+	writeDeadLine := time.Now().Add(5 * time.Second)
+	err := conn.SetWriteDeadline(writeDeadLine)
+	if err != nil {
+		return fmt.Errorf("SetWriteDeadline failed: %w", err)
+	}
+
+	n, err := conn.Write([]byte(msg))
+	if err != nil {
+		return fmt.Errorf("conn.Write failed: %w", err)
+	}
+
+	if n == 0 {
+		return errors.New("network write failed, O bytes written")
+	}
+
+	return nil
+}
+
+func Authenticate(row *RowV2, dbName string) (string, error) {
+	secretKey := []byte(os.Getenv("JWT_SECRET"))
+	if len(secretKey) == 0 {
+		log.Fatal("JWT_SECRET environment variable not set or is empty")
+	}
+
+	ttl := time.Hour * 1
+	expirationTime := time.Now().Add(ttl).Unix()
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"userId": fmt.Sprintf("%d", row.ID),
+		"dbName": dbName,
+		"exp":    expirationTime,
+	})
+
+	tokenString, err := token.SignedString(secretKey)
+	if err != nil {
+		return "", fmt.Errorf("SignedString Failed: %w", err)
+	}
+
+	return tokenString, nil
+}
+
+func Bookkeeping(email, pass, dbName string, queryEngine *QueryEngine) (*RowV2, error) {
+	findSql := fmt.Sprintf("SELECT * FROM `User` WHERE Email = '%s'\n", email)
+	encodedPlan, err := utils.SendSql(findSql)
+	if err != nil {
+		return nil, fmt.Errorf("SendSql failed: %w", err)
+	}
+
+	_, _, result := queryEngine.QueryProcessingEntry(encodedPlan, false, false)
+	if result.Error != nil {
+		return nil, fmt.Errorf("QueryProcessingEntry failed: %w", result.Error)
+	}
+
+	if len(result.Rows) > 0 {
+		row := result.Rows[0]
+		stored_password := row.Values["Password"]
+		stored_dbName := row.Values["DbName"]
+
+		if pass != stored_password || dbName != stored_dbName {
+			return nil, errors.New("incorrect credentials")
+		}
+
+		return row, nil
+	}
+
+	sql := fmt.Sprintf("INSERT INTO `User`(Email, Password, DbName) VALUES ('%s', '%s', '%s')\n", email, pass, dbName)
+	encodedPlan, err = utils.SendSql(sql)
+	if err != nil {
+		return nil, fmt.Errorf("SendSql failed: %w", err)
+	}
+
+	_, _, result = queryEngine.QueryProcessingEntry(encodedPlan, false, false)
+	if result.Error != nil {
+		return nil, fmt.Errorf("QueryProcessingEntry failed: %w", result.Error)
+	}
+
+	return result.Rows[0], nil
 }
