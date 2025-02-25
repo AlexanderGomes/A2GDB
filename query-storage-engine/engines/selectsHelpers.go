@@ -3,60 +3,29 @@ package engines
 import (
 	"errors"
 	"fmt"
-	"log"
 	"math"
-	"sort"
 	"strconv"
-	"strings"
-
-	"github.com/scylladb/go-set/strset"
 )
 
-func groupBy(innerMap map[string]interface{}, colName string, rows *[]*RowV2, selectedCols []interface{}) (map[string]int, error) {
-	var resMap map[string]int
-	groupMap := map[string][]*RowV2{}
+type LargeComparisons struct {
+	Left    int
+	Right   int
+	UserVal int
+}
 
-	customFieldSlice := innerMap["selected_columns"].([]interface{})
-	//customField := customFieldSlice[len(customFieldSlice)-1].(string)
-	groupByField := customFieldSlice[0].(string)
-
-	for _, row := range *rows {
-		groupKey := row.Values[groupByField]
-		groupMap[groupKey] = append(groupMap[groupKey], row)
-	}
-
-	aggInfoMap := innerMap["aggregates"].(map[string]interface{})
-	argsSlice := aggInfoMap["args"].([]interface{})
-
-	functionName := aggInfoMap["function"].(string)
-
-	var argName string
-	if functionName != "COUNT" {
-		argCode := int(argsSlice[0].(float64))
-		argName = selectedCols[argCode].(string)
-	}
-
-	var err error
-	switch functionName {
-	case "COUNT":
-		resMap = uniqueCount(groupMap)
-	case "MAX":
-		resMap, err = maxCount(groupMap, argName)
-	case "MIN":
-		resMap, err = minCount(groupMap, argName)
-	case "AVG":
-		resMap, err = avgCount(groupMap, colName)
-	case "SUM":
-		resMap, err = sumCount(groupMap, colName)
+func compare(a, b int64, operator string, largeComp *LargeComparisons) bool {
+	switch operator {
+	case "GREATER_THAN":
+		return a > b
+	case "LESS_THAN":
+		return a < b
+	case "EQUALS":
+		return a == b
+	case "AND":
+		return largeComp.UserVal >= largeComp.Left && largeComp.UserVal <= largeComp.Right
 	default:
-		err = fmt.Errorf("unsupported type: %s", functionName)
+		return false
 	}
-
-	if err != nil {
-		return nil, fmt.Errorf("sql function failed: %w", err)
-	}
-
-	return resMap, nil
 }
 
 func sumCount(groupMap map[string][]*RowV2, colName string) (map[string]int, error) {
@@ -152,134 +121,6 @@ func uniqueCount(groupMap map[string][]*RowV2) map[string]int {
 	}
 
 	return countMap
-}
-
-func sortAscDesc(innerMap map[string]interface{}, rows *[]*RowV2) {
-	column := innerMap["column"].(string)
-	direction := innerMap["sortDirection"].(string)
-
-	limitPassed := true
-	limit, err := strconv.Atoi(innerMap["limit"].(string))
-	if err != nil {
-		limitPassed = false
-	}
-
-	sort.SliceStable(*rows, func(i, j int) bool {
-		valI, errI := strconv.Atoi((*rows)[i].Values[column])
-		valJ, errJ := strconv.Atoi((*rows)[j].Values[column])
-
-		if errI != nil || errJ != nil {
-			log.Fatalf("Error converting string to int (SliceStable): %s, %s", errI, errJ)
-			return false
-		}
-
-		if direction == "ASC" {
-			return valI < valJ
-		} else if direction == "DESC" {
-			return valI > valJ
-		}
-
-		return false
-	})
-
-	if limitPassed {
-		*rows = (*rows)[:limit]
-	}
-}
-
-func filterByColumn(innerMap, refList map[string]interface{}, rows *[]*RowV2) error {
-	conditionObj := innerMap["condition"].(map[string]interface{})
-	operation := conditionObj["op"].(map[string]interface{})
-
-	switch kind := operation["kind"]; kind {
-	case "GREATER_THAN", "LESS_THAN":
-		err := intComparison(conditionObj["operands"], refList, rows, kind.(string))
-		if err != nil {
-			return fmt.Errorf("intComparison failed: %w", err)
-		}
-	case "EQUALS":
-		err := equals(conditionObj["operands"], refList, rows, kind.(string))
-		if err != nil {
-			return fmt.Errorf("equals failed: %w", err)
-		}
-	case "AND":
-		err := rangeComparison(conditionObj["operands"], refList, rows, kind.(string))
-		if err != nil {
-			return fmt.Errorf("rangeComparison failed: %w", err)
-		}
-	default:
-		return fmt.Errorf("kind %s not supported", kind)
-	}
-
-	return nil
-}
-
-type LargeComparisons struct {
-	Left    int
-	Right   int
-	UserVal int
-}
-
-func compare(a, b int64, operator string, largeComp *LargeComparisons) bool {
-	switch operator {
-	case "GREATER_THAN":
-		return a > b
-	case "LESS_THAN":
-		return a < b
-	case "EQUALS":
-		return a == b
-	case "AND":
-		return largeComp.UserVal >= largeComp.Left && largeComp.UserVal <= largeComp.Right
-	default:
-		return false
-	}
-}
-
-func rangeComparison(conditionObj interface{}, reflist map[string]interface{}, rows *[]*RowV2, kind string) error {
-	maps := conditionObj.([]interface{})
-
-	leftObjOp := maps[0].(map[string]interface{})
-	leftObj := leftObjOp["operands"].([]interface{})
-	leftNameMaps := leftObj[0].(map[string]interface{})
-	leftNameSliceMap := leftNameMaps["operands"].([]interface{})
-	leftNameMap := leftNameSliceMap[0].(map[string]interface{})
-	colCode := leftNameMap["name"].(string)
-	leftValMap := leftObj[1].(map[string]interface{})
-
-	rightObjOp := maps[1].(map[string]interface{})
-	rightValSlice := rightObjOp["operands"].([]interface{})
-	rightValMap := rightValSlice[1].(map[string]interface{})
-
-	columnName := reflist[colCode].(string)
-	leftVal := int(leftValMap["literal"].(float64))
-	rightVal := int(rightValMap["literal"].(float64))
-
-	var filteredRows []*RowV2
-	for _, row := range *rows {
-		userValStr, ok := row.Values[columnName]
-		if !ok {
-			return errors.New("row value not present")
-		}
-
-		userValInt, err := strconv.Atoi(userValStr)
-		if err != nil {
-			return fmt.Errorf("parsing int failed: %w", err)
-		}
-
-		largeComp := LargeComparisons{
-			Left:    leftVal,
-			Right:   rightVal,
-			UserVal: userValInt,
-		}
-
-		matched := compare(0, 0, kind, &largeComp)
-		if matched {
-			filteredRows = append(filteredRows, row)
-		}
-	}
-
-	*rows = filteredRows
-	return nil
 }
 
 func equals(conditionObj interface{}, reflist map[string]interface{}, rows *[]*RowV2, kind string) error {
@@ -404,40 +245,49 @@ func intComparison(conditionObj interface{}, reflist map[string]interface{}, row
 	return nil
 }
 
-func columnSelect(nodeMap, refList map[string]interface{}, rows []*RowV2) ([]interface{}, string) {
-	var colName string
+func rangeComparison(conditionObj interface{}, reflist map[string]interface{}, rows *[]*RowV2, kind string) error {
+	maps := conditionObj.([]interface{})
 
-	columns, ok := nodeMap["selected_columns"].([]interface{})
-	if !ok {
-		columns = nodeMap["fields"].([]interface{})
-	}
+	leftObjOp := maps[0].(map[string]interface{})
+	leftObj := leftObjOp["operands"].([]interface{})
+	leftNameMaps := leftObj[0].(map[string]interface{})
+	leftNameSliceMap := leftNameMaps["operands"].([]interface{})
+	leftNameMap := leftNameSliceMap[0].(map[string]interface{})
+	colCode := leftNameMap["name"].(string)
+	leftValMap := leftObj[1].(map[string]interface{})
 
-	set := strset.New()
-	for _, column := range columns {
-		columnStr := column.(string)
+	rightObjOp := maps[1].(map[string]interface{})
+	rightValSlice := rightObjOp["operands"].([]interface{})
+	rightValMap := rightValSlice[1].(map[string]interface{})
 
-		if strings.Contains(columnStr, "$") {
-			mapExpSlice := nodeMap["exprs"].([]interface{})
-			opObj := mapExpSlice[1].(map[string]interface{})
-			opSlice := opObj["operands"].([]interface{})
-			opMap := opSlice[0].(map[string]interface{})
-			colCode := opMap["name"].(string)
+	columnName := reflist[colCode].(string)
+	leftVal := int(leftValMap["literal"].(float64))
+	rightVal := int(rightValMap["literal"].(float64))
 
-			colName = refList[colCode].(string)
-			columnStr = colName
+	var filteredRows []*RowV2
+	for _, row := range *rows {
+		userValStr, ok := row.Values[columnName]
+		if !ok {
+			return errors.New("row value not present")
 		}
 
-		cleanedColumn := strings.ReplaceAll(columnStr, "`", "")
-		set.Add(cleanedColumn)
-	}
+		userValInt, err := strconv.Atoi(userValStr)
+		if err != nil {
+			return fmt.Errorf("parsing int failed: %w", err)
+		}
 
-	for _, row := range rows {
-		for field := range row.Values {
-			if !set.Has(field) {
-				delete(row.Values, field)
-			}
+		largeComp := LargeComparisons{
+			Left:    leftVal,
+			Right:   rightVal,
+			UserVal: userValInt,
+		}
+
+		matched := compare(0, 0, kind, &largeComp)
+		if matched {
+			filteredRows = append(filteredRows, row)
 		}
 	}
 
-	return columns, colName
+	*rows = filteredRows
+	return nil
 }

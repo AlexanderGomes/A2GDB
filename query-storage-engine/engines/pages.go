@@ -3,7 +3,6 @@ package engines
 import (
 	"bytes"
 	"crypto/rand"
-	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -281,43 +280,4 @@ func UpdatePageInfo(pageFound *PageV2, tableObj *TableObj, tableStats *TableInfo
 	}
 
 	return nil
-}
-
-func GetAllRows(tableName string, manager *DiskManagerV2) ([]*RowV2, error) {
-	var rows []*RowV2
-
-	tableObj, err := GetTableObj(tableName, manager)
-	if err != nil {
-		return nil, fmt.Errorf("GetTableObj failed: %w", err)
-	}
-
-	directoryMap := tableObj.DirectoryPage.Value
-	pages, err := GetTablePagesFromDiskTest(tableObj.DataFile)
-	if err != nil {
-		return nil, fmt.Errorf("GetTablePagesFromDisk failed: %w", err)
-	}
-
-	for _, page := range pages {
-		pageId := PageID(page.Header.ID)
-		pageObj, ok := directoryMap[pageId]
-		if !ok {
-			return nil, errors.New("pageObj not found")
-		}
-
-		for _, location := range pageObj.PointerArray {
-			if location.Free {
-				continue
-			}
-
-			rowBytes := page.Data[location.Offset : location.Offset+location.Length]
-			row, err := DecodeRow(rowBytes)
-			if err != nil {
-				return nil, fmt.Errorf("DecodeRow failed: %w", err)
-			}
-
-			rows = append(rows, row)
-		}
-	}
-
-	return rows, nil
 }

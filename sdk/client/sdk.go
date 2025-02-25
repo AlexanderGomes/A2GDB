@@ -141,5 +141,6 @@ func (cred *UserCred) ExecuteQuery(sql string) error {
 	}
 
 	fmt.Println(msg)
+	
 	return nil
 }

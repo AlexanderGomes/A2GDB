@@ -17,7 +17,7 @@ const (
 	BUFFER_SIZE    = 25
 	NUM_DECODERS   = 10
 	PAGES_PER_READ = 20
-	MAX_FILE_SIZE  = 1 * 1024
+	MAX_FILE_SIZE  = 20 * 1024
 )
 
 type TableObj struct {
@@ -364,12 +364,12 @@ func DecoderWorker(ctx context.Context, byteChan chan []byte, pageChan chan *Pag
 }
 
 func GetTablePagesFromDisk(pc chan *PageV2, tableObj *TableObj, pageMemTable map[PageID]FrameID, totalPages uint64) error {
-	// stat, _ := tableObj.DataFile.Stat()
-	// size := stat.Size()
+	stat, _ := tableObj.DataFile.Stat()
+	size := stat.Size()
 
-	// if size >= MAX_FILE_SIZE {
-	// 	return FullTableScanBigFiles(pc, tableObj.DataFile, pageMemTable)
-	// }
+	if size >= MAX_FILE_SIZE {
+		return FullTableScanBigFiles(pc, tableObj.DataFile, pageMemTable)
+	}
 	return FullTableScan(pc, tableObj.DataFile, pageMemTable, totalPages)
 }
 

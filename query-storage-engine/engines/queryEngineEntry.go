@@ -2,6 +2,8 @@ package engines
 
 import (
 	"fmt"
+
+	"github.com/scylladb/go-set/strset"
 )
 
 const (
@@ -33,7 +35,7 @@ func (qe *QueryEngine) QueryProcessingEntry(queryPlan interface{}, transactionOf
 	case "INSERT":
 		result = qe.handleInsert(plan, transactionOff, induceErr)
 	case "SELECT":
-		rows, groupByMap, result = qe.handleSelect(plan)
+		groupByMap, result = qe.handleSelect(plan)
 	case "DELETE":
 		result = qe.handleDelete(plan, transactionOff, induceErr)
 	case "UPDATE":
@@ -48,54 +50,67 @@ func (qe *QueryEngine) QueryProcessingEntry(queryPlan interface{}, transactionOf
 
 // ## return rows, and groupMap for test compatibility
 // ## DBMS fundamentals could be applied, consider vector processing
-func (qe *QueryEngine) handleSelect(plan map[string]interface{}) ([]*RowV2, map[string]int, Result) {
-	var err error
-	var rows []*RowV2
+func (qe *QueryEngine) handleSelect(plan map[string]interface{}) (map[string]int, Result) {
+	var result Result             // result type
+	var groupByMap map[string]int // result type
 	var selectedCols []interface{}
-	var colName string
-	var groupByMap map[string]int
-	var result Result
+	var groupKey string
+	var physicalNodes []Node
+	var set *strset.Set
 
-	nodes := plan["rels"].([]interface{})
+	logicalNodes := plan["rels"].([]interface{})
 	referenceList := plan["refList"].(map[string]interface{})
-	for _, node := range nodes {
+	for _, node := range logicalNodes {
 		nodeInnerMap := node.(map[string]interface{})
 
 		switch nodeOperation := nodeInnerMap["relOp"]; nodeOperation {
 		case "LogicalTableScan":
 			tableName := nodeInnerMap["table"].([]interface{})[0].(string)
-			rows, err = GetAllRows(tableName, qe.BufferPoolManager.DiskManager)
-			if err != nil {
-				result.Error = fmt.Errorf("LogicalTableScan - GetAllRows failed: %w", err)
-				result.Msg = "failed"
-				return nil, nil, result
+			scanNode := TableScanNode{
+				TableName:  tableName,
+				Dm:         qe.BufferPoolManager.DiskManager,
+				OutputChan: make(chan []*RowV2),
 			}
+
+			physicalNodes = append(physicalNodes, scanNode)
 		case "LogicalProject":
-			selectedCols, colName = columnSelect(nodeInnerMap, referenceList, rows)
+			selectedCols, groupKey, set = GetColInfo(nodeInnerMap, referenceList)
+			projectNode := ProjectionNode{
+				Set:        set,
+				InputChan:  physicalNodes[len(physicalNodes)-1].GetOutputChan(),
+				OutputChan: make(chan []*RowV2),
+			}
+			physicalNodes = append(physicalNodes, projectNode)
 		case "LogicalFilter":
-			err := filterByColumn(nodeInnerMap, referenceList, &rows)
-			if err != nil {
-				result.Error = fmt.Errorf("LogicalFilter - filterByColumn failed: %w", err)
-				result.Msg = "failed"
-				return nil, nil, result
+			filterNode := FilterNode{
+				InnerMap:   nodeInnerMap,
+				RefList:    referenceList,
+				InputChan:  physicalNodes[len(physicalNodes)-1].GetOutputChan(),
+				OutputChan: make(chan []*RowV2),
 			}
+
+			physicalNodes = append(physicalNodes, filterNode)
 		case "LogicalSort":
-			sortAscDesc(nodeInnerMap, &rows)
-		case "LogicalAggregate":
-			groupByMap, err = groupBy(nodeInnerMap, colName, &rows, selectedCols)
-			if err != nil {
-				result.Error = fmt.Errorf("LogicalAggregate - groupBy failed: %w", err)
-				result.Msg = "failed"
-				return nil, nil, result
+			sortNode := SortNode{
+				InnerMap:  nodeInnerMap,
+				InputChan: physicalNodes[len(physicalNodes)-1].GetOutputChan(),
 			}
-			result.groupBy = groupByMap
+
+			physicalNodes = append(physicalNodes, sortNode)
+		case "LogicalAggregate":
+			aggregateNode := AggregateNode{
+				InnerMap:     nodeInnerMap,
+				GroupKey:     groupKey,
+				SelectedCols: selectedCols,
+				InputChan:    physicalNodes[len(physicalNodes)-1].GetOutputChan(),
+				OutputChan:   make(chan []*RowV2),
+			}
+
+			physicalNodes = append(physicalNodes, aggregateNode)
 		default:
-			result.Error = fmt.Errorf("unsupported type: %s", nodeOperation)
-			return nil, nil, result
+			return nil, handleError(fmt.Errorf("unsupported type: %s", nodeOperation), "failed")
 		}
 	}
 
-	result.Rows = rows
-
-	return rows, groupByMap, result
+	return groupByMap, result
 }
