@@ -255,6 +255,7 @@ func UpdatePageInfo(pageFound *PageV2, tableObj *TableObj, tableStats *TableInfo
 		dirPage.Value[pageID] = pageObj
 
 		tableStats.NumOfPages++
+		fmt.Println("NumOfPages: ", tableStats.NumOfPages)
 		err = manager.UpdateCatalog()
 		if err != nil {
 			return fmt.Errorf("UpdateCatalog Failed: %w", err)

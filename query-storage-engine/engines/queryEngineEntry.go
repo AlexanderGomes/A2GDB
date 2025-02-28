@@ -1,7 +1,9 @@
 package engines
 
 import (
+	"context"
 	"fmt"
+	"sync"
 
 	"github.com/scylladb/go-set/strset"
 )
@@ -53,6 +55,40 @@ func (qe *QueryEngine) QueryProcessingEntry(queryPlan interface{}, transactionOf
 func (qe *QueryEngine) handleSelect(plan map[string]interface{}) (map[string]int, Result) {
 	var result Result             // result type
 	var groupByMap map[string]int // result type
+
+	nodes, err := ComputeNodes(plan, qe)
+	if err != nil {
+		return nil, handleError(fmt.Errorf("ComputeNodes Failed: %w", err), "failed")
+	}
+
+	var wg sync.WaitGroup
+	errChan := make(chan error, len(nodes))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	for _, node := range nodes {
+		wg.Add(1)
+		go func(node Node) {
+			defer wg.Done()
+			if err := node.initialization(ctx); err != nil {
+				errChan <- err
+				cancel()
+			}
+		}(node)
+	}
+
+	wg.Wait()
+	close(errChan)
+
+	firstError := <-errChan
+	if firstError != nil {
+		fmt.Println("Error: ", firstError)
+	}
+
+	return groupByMap, result
+}
+
+func ComputeNodes(plan map[string]interface{}, qn *QueryEngine) ([]Node, error) {
 	var selectedCols []interface{}
 	var groupKey string
 	var physicalNodes []Node
@@ -68,8 +104,8 @@ func (qe *QueryEngine) handleSelect(plan map[string]interface{}) (map[string]int
 			tableName := nodeInnerMap["table"].([]interface{})[0].(string)
 			scanNode := TableScanNode{
 				TableName:  tableName,
-				Dm:         qe.BufferPoolManager.DiskManager,
-				OutputChan: make(chan []*RowV2),
+				Dm:         qn.BufferPoolManager,
+				OutputChan: make(chan []*RowV2, 500),
 			}
 
 			physicalNodes = append(physicalNodes, scanNode)
@@ -78,7 +114,7 @@ func (qe *QueryEngine) handleSelect(plan map[string]interface{}) (map[string]int
 			projectNode := ProjectionNode{
 				Set:        set,
 				InputChan:  physicalNodes[len(physicalNodes)-1].GetOutputChan(),
-				OutputChan: make(chan []*RowV2),
+				OutputChan: make(chan []*RowV2, 5),
 			}
 			physicalNodes = append(physicalNodes, projectNode)
 		case "LogicalFilter":
@@ -86,14 +122,15 @@ func (qe *QueryEngine) handleSelect(plan map[string]interface{}) (map[string]int
 				InnerMap:   nodeInnerMap,
 				RefList:    referenceList,
 				InputChan:  physicalNodes[len(physicalNodes)-1].GetOutputChan(),
-				OutputChan: make(chan []*RowV2),
+				OutputChan: make(chan []*RowV2, 500),
 			}
 
 			physicalNodes = append(physicalNodes, filterNode)
 		case "LogicalSort":
 			sortNode := SortNode{
-				InnerMap:  nodeInnerMap,
-				InputChan: physicalNodes[len(physicalNodes)-1].GetOutputChan(),
+				InnerMap:   nodeInnerMap,
+				OutputChan: make(chan []*RowV2, 500),
+				InputChan:  physicalNodes[len(physicalNodes)-1].GetOutputChan(),
 			}
 
 			physicalNodes = append(physicalNodes, sortNode)
@@ -103,14 +140,20 @@ func (qe *QueryEngine) handleSelect(plan map[string]interface{}) (map[string]int
 				GroupKey:     groupKey,
 				SelectedCols: selectedCols,
 				InputChan:    physicalNodes[len(physicalNodes)-1].GetOutputChan(),
-				OutputChan:   make(chan []*RowV2),
+				OutputChan:   make(chan []*RowV2, 500),
 			}
 
 			physicalNodes = append(physicalNodes, aggregateNode)
 		default:
-			return nil, handleError(fmt.Errorf("unsupported type: %s", nodeOperation), "failed")
+			return []Node{}, fmt.Errorf("unsupported type: %s", nodeOperation)
 		}
 	}
 
-	return groupByMap, result
+	collector := CollectorNode{
+		InputChan: physicalNodes[len(physicalNodes)-1].GetOutputChan(),
+	}
+
+	physicalNodes = append(physicalNodes, collector)
+
+	return physicalNodes, nil
 }

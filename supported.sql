@@ -1,6 +1,7 @@
 -- basic queries
 [x] INSERT INTO `User` (Username, Age, City) VALUES ('JaneSmith', 25, 'Los Angeles'), ('AliceBrown', 28, 'Chicago'), ('BobWhite', 35, 'Houston')--[x]
 [x] CREATE TABLE `User`(PRIMARY KEY(UserId), Username VARCHAR, Age INT, City VARCHAR) --[x]
+[x] CREATE TABLE `User`(PRIMARY KEY(UserId), Email VARCHAR, Password VARCHAR, DbName VARCHAR)
 [x] DELETE FROM `User` WHERE Username = 'JaneSmith' --[x]
 [x] UPDATE `User` SET Age = 121209 WHERE Username = 'JaneSmith' --[x]
 

@@ -48,7 +48,6 @@ func CreatDefaultManager(dbDirectory string) (DiskManagerV2, error) {
 		return DiskManagerV2{}, fmt.Errorf("CreatDefaultManager (create table dir error): %w", err)
 	}
 
-
 	catalogFilePtr, err := os.Create(dbDirectory + "/catalog")
 	if err != nil {
 		return DiskManagerV2{}, fmt.Errorf("CreatDefaultManager (create catalog file error): %w", err)

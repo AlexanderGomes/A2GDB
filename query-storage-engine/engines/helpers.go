@@ -235,6 +235,10 @@ func processPagesForUpdate(ctx context.Context, pageChan chan *PageV2, updateInf
 	defer close(updateInfoChan)
 
 	for page := range pageChan {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
 		var freeSpacePage *FreeSpace
 		var updateInfo ModifiedInfo
 		var nonAddedRows NonAddedRows
@@ -299,13 +303,6 @@ func processPagesForUpdate(ctx context.Context, pageChan chan *PageV2, updateInf
 		}
 
 		logger.Log.WithFields(logrus.Fields{"Memlevel": pageObj.Level, "exactFreeMem": pageObj.ExactFreeMem, "offset": pageObj.Offset}).Info("After Modification (PageObj)")
-
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			continue
-		}
 	}
 
 	logger.Log.Info("processPagesForUpdate (end)")
@@ -316,6 +313,10 @@ func handleLikeInsert(ctx context.Context, nonAddedRows chan *NonAddedRows, tabl
 	logger.Log.Info("handleLikeInsert(update) Started")
 
 	for nonAddedRow := range nonAddedRows {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
 		if nonAddedRow.BytesNeeded >= AVAIL_DATA {
 			chunkedRows := ChunkRows(nonAddedRow)
 
@@ -331,13 +332,6 @@ func handleLikeInsert(ctx context.Context, nonAddedRows chan *NonAddedRows, tabl
 		err := findAndUpdate(bpm, tableObj, tableStats, nonAddedRow.BytesNeeded, tableName, nonAddedRow.Rows)
 		if err != nil {
 			return fmt.Errorf("findAndUpdate failed: %w", err)
-		}
-
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			continue
 		}
 	}
 

@@ -479,6 +479,7 @@ func DeserializeCatalog(data []byte) (*Catalog, error) {
 			if err := binary.Read(&buf, binary.LittleEndian, &colNameLen); err != nil {
 				return nil, err
 			}
+			
 			colName := make([]byte, colNameLen)
 			if _, err := buf.Read(colName); err != nil {
 				return nil, err

@@ -33,6 +33,10 @@ func cleanOrgnize(ctx context.Context, updateInfoChan chan ModifiedInfo, insertC
 	}
 
 	for updateInfo := range updateInfoChan {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		
 		space := updateInfo.FreeSpaceMapping
 
 		newPage, err := RearrangePAGE(space.TempPagePtr, tableObj, tableObj.TableName)
@@ -83,13 +87,6 @@ func cleanOrgnize(ctx context.Context, updateInfoChan chan ModifiedInfo, insertC
 
 		if insertChan != nil {
 			insertChan <- updateInfo.NonAddedRow
-		}
-
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			continue
 		}
 	}
 
