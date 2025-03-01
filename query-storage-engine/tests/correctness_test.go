@@ -123,12 +123,12 @@ func TestOrderBy(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		rows, _, res := sharedDB.QueryProcessingEntry(encodedPlan1, false, false)
+		res := sharedDB.QueryProcessingEntry(encodedPlan1, false, false)
 		if res.Error != nil {
 			t.Fatal(res.Error)
 		}
 
-		for _, row := range rows {
+		for _, row := range res.Rows {
 			if len(row.Values) != expectedColumns.Size() {
 				t.Fatalf("incorrect number of columns returned")
 			}
@@ -140,19 +140,19 @@ func TestOrderBy(t *testing.T) {
 			}
 		}
 
-		first := rows[0]
+		first := res.Rows[0]
 		firstAge, err := strconv.ParseInt(first.Values[compKey], 10, 64)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		last := rows[len(rows)-1]
+		last := res.Rows[len(res.Rows)-1]
 		lastAge, err := strconv.ParseInt(last.Values[compKey], 10, 64)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		validateResults(t, identity, len(rows), int(firstAge), int(lastAge), smallest, biggest, expectedStressNumber)
+		validateResults(t, identity, len(res.Rows), int(firstAge), int(lastAge), smallest, biggest, expectedStressNumber)
 	}
 }
 
@@ -172,32 +172,39 @@ func TestGroupBy(t *testing.T) {
 		}
 
 		expectedCity := "Los Angeles"
-		_, groupMap, _ := sharedDB.QueryProcessingEntry(encodedPlan1, false, false)
-		for k, v := range groupMap {
+		res := sharedDB.QueryProcessingEntry(encodedPlan1, false, false)
+
+		for k, v := range res.Rows[0].Values {
 			if k != expectedCity {
 				t.Fatalf("expected city: %s, received city: %s", expectedCity, k)
 			}
 
+			num, err := strconv.Atoi(v)
+			if err != nil {
+				fmt.Println("Error:", err)
+				return
+			}
+
 			switch identity {
 			case "COUNT":
-				if v != expectedStressNumber {
-					t.Fatalf("expected count: %d, received count: %d", expectedStressNumber, v)
+				if num != expectedStressNumber {
+					t.Fatalf("expected count: %d, received count: %d", expectedStressNumber, num)
 				}
 			case "MAX":
-				if v != biggest {
-					t.Fatalf("expected count: %d, received count: %d", biggest, v)
+				if num != biggest {
+					t.Fatalf("expected count: %d, received count: %d", biggest, num)
 				}
 			case "MIN":
-				if v != smallest {
-					t.Fatalf("expected count: %d, received count: %d", smallest, v)
+				if num != smallest {
+					t.Fatalf("expected count: %d, received count: %d", smallest, num)
 				}
 			case "AVG":
-				if v != AVG_EXPECTED {
-					t.Fatalf("expected count: %d, received count: %d", AVG_EXPECTED, v)
+				if num != AVG_EXPECTED {
+					t.Fatalf("expected count: %d, received count: %d", AVG_EXPECTED, num)
 				}
 			case "SUM":
-				if v != SUM_EXPECTED {
-					t.Fatalf("expected count: %d, received count: %d", SUM_EXPECTED, v)
+				if num != SUM_EXPECTED {
+					t.Fatalf("expected count: %d, received count: %d", SUM_EXPECTED, num)
 				}
 			}
 		}
@@ -210,7 +217,7 @@ func TestUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, res := sharedDB.QueryProcessingEntry(encodedPlan1, false, false)
+	res := sharedDB.QueryProcessingEntry(encodedPlan1, false, false)
 
 	if res.Error != nil {
 		t.Fatal(res.Error)
@@ -324,7 +331,7 @@ func UndoInsert(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, _, results := sharedDB.QueryProcessingEntry(encodedPlan2, false, false)
+	results := sharedDB.QueryProcessingEntry(encodedPlan2, false, false)
 	if len(results.Rows) != 0 {
 		t.Fatalf("UndoInsert failed, user was inserted")
 	}
@@ -338,7 +345,7 @@ func UndoUpdate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, _, result := sharedDB.QueryProcessingEntry(encodedPlan1, false, false)
+	result := sharedDB.QueryProcessingEntry(encodedPlan1, false, false)
 	if result.Error != nil {
 		t.Fatal(result.Error)
 	}
@@ -357,7 +364,7 @@ func UndoUpdate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, _, results := sharedDB.QueryProcessingEntry(encodedPlan2, false, false)
+	results := sharedDB.QueryProcessingEntry(encodedPlan2, false, false)
 	if results.Error != nil {
 		t.Fatal(results.Error)
 	}
@@ -380,7 +387,7 @@ func UndoDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, _, result := sharedDB.QueryProcessingEntry(encodedPlan1, false, false)
+	result := sharedDB.QueryProcessingEntry(encodedPlan1, false, false)
 	if result.Error != nil {
 		t.Fatal(result.Error)
 	}
@@ -399,7 +406,7 @@ func UndoDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, _, results := sharedDB.QueryProcessingEntry(encodedPlan2, false, false)
+	results := sharedDB.QueryProcessingEntry(encodedPlan2, false, false)
 	if results.Error != nil {
 		t.Fatal(results.Error)
 	}

@@ -101,7 +101,7 @@ func insertMany(t *testing.T, x int) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, _, res := sharedDB.QueryProcessingEntry(encodedPlan1, false, false)
+		res := sharedDB.QueryProcessingEntry(encodedPlan1, false, false)
 		if res.Error != nil {
 			t.Fatal("InsertMany Failed: ", res.Error)
 		}
@@ -117,12 +117,12 @@ func selectFilter(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rows, _, _ := sharedDB.QueryProcessingEntry(encodedPlan1, false, false)
-	if len(rows) != expectedStressNumber {
+	res := sharedDB.QueryProcessingEntry(encodedPlan1, false, false)
+	if len(res.Rows) != expectedStressNumber {
 		t.Fatalf("incorrect number of rows returned")
 	}
 
-	for _, row := range rows {
+	for _, row := range res.Rows {
 		if len(row.Values) != expectedColumns.Size() {
 			t.Fatalf("incorrect number of columns returned")
 		}
@@ -142,17 +142,17 @@ func selectStart(t *testing.T) *engines.RowV2 {
 		t.Fatal(err)
 	}
 
-	rows, _, _ := sharedDB.QueryProcessingEntry(encodedPlan1, false, false)
-	if len(rows) != expectedStressNumber {
+	res := sharedDB.QueryProcessingEntry(encodedPlan1, false, false)
+	if len(res.Rows) != expectedStressNumber {
 		t.Fatalf("incorrect number of rows returned")
 	}
 
 	tableInfo := sharedDB.BufferPoolManager.DiskManager.PageCatalog.Tables[tableName]
-	if len(rows[4].Values) != len(tableInfo.Schema) {
+	if len(res.Rows[4].Values) != len(tableInfo.Schema) {
 		t.Fatalf("wrong number of columns returned")
 	}
 
-	return rows[0]
+	return res.Rows[0]
 }
 
 func selectWhere(t *testing.T) {
@@ -168,8 +168,8 @@ func selectWhere(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		rows, _, _ := sharedDB.QueryProcessingEntry(encodedPlan1, false, false)
-		for _, row := range rows {
+		res := sharedDB.QueryProcessingEntry(encodedPlan1, false, false)
+		for _, row := range res.Rows {
 			if len(row.Values) != expectedColumns.Size() {
 				t.Fatalf("incorrect number of columns returned")
 			}
@@ -215,9 +215,9 @@ func selectWhereAnd(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rows, _, _ := sharedDB.QueryProcessingEntry(encodedPlan1, false, false)
+	res := sharedDB.QueryProcessingEntry(encodedPlan1, false, false)
 
-	for _, row := range rows {
+	for _, row := range res.Rows {
 		if len(row.Values) != expectedColumns.Size() {
 			t.Fatalf("incorrect number of columns returned")
 		}
@@ -248,10 +248,10 @@ func findByPrimary(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rows, _, _ := sharedDB.QueryProcessingEntry(encodedPlan1, false, false)
-	user := rows[0]
-	if len(rows) != 1 {
-		t.Fatalf("Returned %d users instead of one", len(rows))
+	res := sharedDB.QueryProcessingEntry(encodedPlan1, false, false)
+	user := res.Rows[0]
+	if len(res.Rows) != 1 {
+		t.Fatalf("Returned %d users instead of one", len(res.Rows))
 	}
 
 	if user.ID != row.ID {
@@ -259,7 +259,7 @@ func findByPrimary(t *testing.T) {
 	}
 
 	tableInfo := sharedDB.BufferPoolManager.DiskManager.PageCatalog.Tables[tableName]
-	if len(rows[0].Values) != len(tableInfo.Schema) {
+	if len(res.Rows[0].Values) != len(tableInfo.Schema) {
 		t.Fatalf("wrong number of columns returned")
 	}
 }

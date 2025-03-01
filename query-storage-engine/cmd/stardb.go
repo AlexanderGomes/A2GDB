@@ -36,7 +36,7 @@ func CreateDefaultTable(queryEngine *engines.QueryEngine) error {
 		return fmt.Errorf("SendSql failed: %w", err)
 	}
 
-	_, _, result := queryEngine.QueryProcessingEntry(encodedPlan1, false, false)
+	result := queryEngine.QueryProcessingEntry(encodedPlan1, false, false)
 	if result.Error != nil {
 		return fmt.Errorf("QueryProcessingEntry failed: %w", result.Error)
 	}

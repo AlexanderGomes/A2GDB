@@ -504,7 +504,7 @@ func ExecuteQuery(sql string, queryEngine *QueryEngine) (*Result, error) {
 		return nil, fmt.Errorf("SendSql Failed: %w", err)
 	}
 
-	_, _, res := queryEngine.QueryProcessingEntry(encodedPlan1, false, false)
+	res := queryEngine.QueryProcessingEntry(encodedPlan1, false, false)
 	if res.Error != nil {
 		return nil, fmt.Errorf("QueryProcessingEntry Failed: %w", res.Error)
 	}
@@ -561,7 +561,7 @@ func Bookkeeping(email, pass, dbName string, queryEngine *QueryEngine) (*RowV2, 
 		return nil, fmt.Errorf("SendSql failed: %w", err)
 	}
 
-	_, _, result := queryEngine.QueryProcessingEntry(encodedPlan, false, false)
+	result := queryEngine.QueryProcessingEntry(encodedPlan, false, false)
 	if result.Error != nil {
 		return nil, fmt.Errorf("QueryProcessingEntry failed: %w", result.Error)
 	}
@@ -584,7 +584,7 @@ func Bookkeeping(email, pass, dbName string, queryEngine *QueryEngine) (*RowV2, 
 		return nil, fmt.Errorf("SendSql failed: %w", err)
 	}
 
-	_, _, result = queryEngine.QueryProcessingEntry(encodedPlan, false, false)
+	result = queryEngine.QueryProcessingEntry(encodedPlan, false, false)
 	if result.Error != nil {
 		return nil, fmt.Errorf("QueryProcessingEntry failed: %w", result.Error)
 	}
@@ -606,7 +606,7 @@ func undoDelete(log *LogRecord, engine *QueryEngine, catalog *Catalog) error {
 		return fmt.Errorf("SendSqls failed: %w", err)
 	}
 
-	_, _, result := engine.QueryProcessingEntry(encodedPlan1, true, false)
+	result := engine.QueryProcessingEntry(encodedPlan1, true, false)
 	if result.Error != nil {
 		return fmt.Errorf("QueryProcessingEntry failed: %w", result.Error)
 	}
@@ -648,7 +648,7 @@ func undoUpdate(log *LogRecord, engine *QueryEngine, primary, modifiedColumn str
 		return fmt.Errorf("SendSql failed: %w", err)
 	}
 
-	_, _, result := engine.QueryProcessingEntry(encodedPlan1, true, false)
+	result := engine.QueryProcessingEntry(encodedPlan1, true, false)
 	if result.Error != nil {
 		return fmt.Errorf("QueryProcessingEntry failed: %w", result.Error)
 	}
@@ -664,7 +664,7 @@ func undoInsert(log *LogRecord, engine *QueryEngine, primary string) error {
 		return fmt.Errorf("SendSql failed: %w", err)
 	}
 
-	_, _, result := engine.QueryProcessingEntry(encodedPlan1, true, false)
+	result := engine.QueryProcessingEntry(encodedPlan1, true, false)
 	if result.Error != nil {
 		return fmt.Errorf("QueryProcessingEntry failed: %w", result.Error)
 	}

@@ -44,10 +44,10 @@ func (bpm *BufferPoolManager) FullTableScan(ctx context.Context, pageChan chan *
 
 	go func() {
 		// not receiving the context cancelation
-		defer wg.Done()
-		if err := GetTablePagesFromDisk(ctx, pageChan, tableObj, bpm.PageTable, staticNumPages); err != nil {
-			errChan <- fmt.Errorf("GetTablePagesFromDisk Failed: %w", err)
-		}
+		// defer wg.Done()
+		// if err := GetTablePagesFromDisk(ctx, pageChan, tableObj, bpm.PageTable, staticNumPages); err != nil {
+		// 	errChan <- fmt.Errorf("GetTablePagesFromDisk Failed: %w", err)
+		// }
 	}()
 
 	wg.Wait()

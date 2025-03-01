@@ -129,7 +129,7 @@ func uniqueCount(groupMap map[string][]*RowV2) map[string]int {
 	return countMap
 }
 
-func equals(ctx context.Context, conditionObj interface{}, reflist map[string]interface{}, kind string, inputChan, outputChan chan []*RowV2) error {
+func equals(outerCtx, innerCtx context.Context, conditionObj interface{}, reflist map[string]interface{}, kind string, inputChan, outputChan chan []*RowV2) error {
 	maps := conditionObj.([]interface{})
 
 	typeObj := maps[1].(map[string]interface{})
@@ -138,17 +138,17 @@ func equals(ctx context.Context, conditionObj interface{}, reflist map[string]in
 
 	switch typeName {
 	case "INTEGER", "BIGINT":
-		err := intComparison(ctx, conditionObj, reflist, kind, inputChan, outputChan)
+		err := intComparison(outerCtx, innerCtx, conditionObj, reflist, kind, inputChan, outputChan)
 		if err != nil {
 			return fmt.Errorf("intComparison failed: %w", err)
 		}
 	case "VARCHAR":
-		err := charComparison(ctx, maps, reflist, inputChan, outputChan)
+		err := charComparison(outerCtx, innerCtx, maps, reflist, inputChan, outputChan)
 		if err != nil {
 			return fmt.Errorf("charComparison failed: %w", err)
 		}
 	case "DECIMAL":
-		err := decimalComparison(ctx, maps, reflist, inputChan, outputChan)
+		err := decimalComparison(outerCtx, innerCtx, maps, reflist, inputChan, outputChan)
 		if err != nil {
 			return fmt.Errorf("decimalComparison failed: %w", err)
 		}
@@ -157,7 +157,7 @@ func equals(ctx context.Context, conditionObj interface{}, reflist map[string]in
 	return nil
 }
 
-func decimalComparison(ctx context.Context, maps []interface{}, reflist map[string]interface{}, inputChan, outputChan chan []*RowV2) error {
+func decimalComparison(outerCtx, innerCtx context.Context, maps []interface{}, reflist map[string]interface{}, inputChan, outputChan chan []*RowV2) error {
 	colNameObj := maps[0].(map[string]interface{})
 	colNameMapSlice := colNameObj["operands"].([]interface{})
 	colNameMap := colNameMapSlice[0].(map[string]interface{})
@@ -175,10 +175,15 @@ func decimalComparison(ctx context.Context, maps []interface{}, reflist map[stri
 	var matchedRows []*RowV2
 	for {
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
+		case <-outerCtx.Done():
+			return outerCtx.Err()
+		case <-innerCtx.Done():
+			return innerCtx.Err()
 		case rows, ok := <-inputChan:
 			if !ok {
+				if len(matchedRows) > 0 {
+					outputChan <- matchedRows
+				}
 				return nil
 			}
 
@@ -197,14 +202,11 @@ func decimalComparison(ctx context.Context, maps []interface{}, reflist map[stri
 					matchedRows = []*RowV2{}
 				}
 			}
-			if len(matchedRows) > 0 {
-				outputChan <- matchedRows
-			}
 		}
 	}
 }
 
-func charComparison(ctx context.Context, maps []interface{}, reflist map[string]interface{}, inputChan, outputChan chan []*RowV2) error {
+func charComparison(outerCtx, innerCtx context.Context, maps []interface{}, reflist map[string]interface{}, inputChan, outputChan chan []*RowV2) error {
 	colNameMap := maps[0].(map[string]interface{})
 	colNameCode := colNameMap["name"].(string)
 	colName := reflist[colNameCode].(string)
@@ -215,10 +217,15 @@ func charComparison(ctx context.Context, maps []interface{}, reflist map[string]
 	var matchedRows []*RowV2
 	for {
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
+		case <-outerCtx.Done():
+			return outerCtx.Err()
+		case <-innerCtx.Done():
+			return innerCtx.Err()
 		case rows, ok := <-inputChan:
 			if !ok {
+				if len(matchedRows) > 0 {
+					outputChan <- matchedRows
+				}
 				return nil
 			}
 
@@ -237,15 +244,11 @@ func charComparison(ctx context.Context, maps []interface{}, reflist map[string]
 					matchedRows = []*RowV2{}
 				}
 			}
-
-			if len(matchedRows) > 0 {
-				outputChan <- matchedRows
-			}
 		}
 	}
 }
 
-func intComparison(ctx context.Context, conditionObj interface{}, reflist map[string]interface{}, kind string, inputChan, outputChan chan []*RowV2) error {
+func intComparison(outerCtx, innerCtx context.Context, conditionObj interface{}, reflist map[string]interface{}, kind string, inputChan, outputChan chan []*RowV2) error {
 	maps := conditionObj.([]interface{})
 
 	colObjMap := maps[0].(map[string]interface{})
@@ -261,10 +264,15 @@ func intComparison(ctx context.Context, conditionObj interface{}, reflist map[st
 	var matchedRows []*RowV2
 	for {
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
+		case <-outerCtx.Done():
+			return outerCtx.Err()
+		case <-innerCtx.Done():
+			return innerCtx.Err()
 		case rows, ok := <-inputChan:
 			if !ok {
+				if len(matchedRows) > 0 {
+					outputChan <- matchedRows
+				}
 				return nil
 			}
 
@@ -289,15 +297,11 @@ func intComparison(ctx context.Context, conditionObj interface{}, reflist map[st
 					matchedRows = []*RowV2{}
 				}
 			}
-
-			if len(rows) > 0 {
-				outputChan <- matchedRows
-			}
 		}
 	}
 }
 
-func rangeComparison(ctx context.Context, conditionObj interface{}, reflist map[string]interface{}, kind string, inputChan, outputChan chan []*RowV2) error {
+func rangeComparison(outerCtx, innerCtx context.Context, conditionObj interface{}, reflist map[string]interface{}, kind string, inputChan, outputChan chan []*RowV2) error {
 	maps := conditionObj.([]interface{})
 
 	leftObjOp := maps[0].(map[string]interface{})
@@ -319,10 +323,15 @@ func rangeComparison(ctx context.Context, conditionObj interface{}, reflist map[
 	var matchedRows []*RowV2
 	for {
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
+		case <-outerCtx.Done():
+			return outerCtx.Err()
+		case <-innerCtx.Done():
+			return innerCtx.Err()
 		case rows, ok := <-inputChan:
 			if !ok {
+				if len(matchedRows) > 0 {
+					outputChan <- matchedRows
+				}
 				return nil
 			}
 
@@ -353,35 +362,41 @@ func rangeComparison(ctx context.Context, conditionObj interface{}, reflist map[
 					matchedRows = []*RowV2{}
 				}
 			}
-			if len(matchedRows) > 0 {
-				outputChan <- matchedRows
-			}
 		}
 	}
 }
 
-func RowCollector(ctx context.Context, pageChan chan *PageV2, outputChan chan []*RowV2, tableObj *TableObj) error {
+func RowCollector(outerCtx, innerCtx context.Context, pageChan chan *PageV2, outputChan chan []*RowV2, tableObj *TableObj) error {
 	var rows []*RowV2
-	var pageObj *PageInfo
 
 	for {
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
+		case <-outerCtx.Done():
+			return outerCtx.Err()
+		case <-innerCtx.Done():
+			return innerCtx.Err()
 		case page, ok := <-pageChan:
 			if !ok {
 				if len(rows) > 0 {
 					outputChan <- rows
 				}
+
 				return nil
 			}
 
 			tableObj.DirectoryPage.Mu.RLock()
-			pageObj = tableObj.DirectoryPage.Value[PageID(page.Header.ID)]
+			pageObj, found := tableObj.DirectoryPage.Value[PageID(page.Header.ID)]
+			if !found {
+				return fmt.Errorf("pageObj not found, pageId: %d", page.Header.ID)
+			}
 			tableObj.DirectoryPage.Mu.RUnlock()
 
 			pageObj.Mu.RLock()
 			for _, location := range pageObj.PointerArray {
+				if location.Free {
+					continue
+				}
+
 				rowBytes := page.Data[location.Offset : location.Offset+location.Length]
 				row, err := DecodeRow(rowBytes)
 				if err != nil {
@@ -391,6 +406,7 @@ func RowCollector(ctx context.Context, pageChan chan *PageV2, outputChan chan []
 
 				rows = append(rows, row)
 				if len(rows) >= BATCH_THRESHOLD {
+
 					outputChan <- rows
 					rows = []*RowV2{}
 				}
@@ -439,6 +455,7 @@ func Projection(ctx context.Context, inputChan chan []*RowV2, outputChan chan []
 			if !ok {
 				return nil
 			}
+
 			for _, row := range rows {
 				for field := range row.Values {
 					if !set.Has(field) {
@@ -446,13 +463,15 @@ func Projection(ctx context.Context, inputChan chan []*RowV2, outputChan chan []
 					}
 				}
 			}
+
 			outputChan <- rows
 		}
 	}
 }
 
 func convertToRow(resMap map[string]int) *RowV2 {
-	var row RowV2
+	row := RowV2{Values: make(map[string]string)}
+
 	for k, v := range resMap {
 		row.Values[k] = fmt.Sprintf("%d", v)
 	}
@@ -460,23 +479,23 @@ func convertToRow(resMap map[string]int) *RowV2 {
 	return &row
 }
 
-func Filter(ctx context.Context, innerMap, refList map[string]interface{}, inputChan, outputChan chan []*RowV2) error {
+func Filter(outerCtx, innerCtx context.Context, innerMap, refList map[string]interface{}, inputChan, outputChan chan []*RowV2) error {
 	conditionObj := innerMap["condition"].(map[string]interface{})
 	operation := conditionObj["op"].(map[string]interface{})
 
 	switch kind := operation["kind"]; kind {
 	case "GREATER_THAN", "LESS_THAN":
-		err := intComparison(ctx, conditionObj["operands"], refList, kind.(string), inputChan, outputChan)
+		err := intComparison(outerCtx, innerCtx, conditionObj["operands"], refList, kind.(string), inputChan, outputChan)
 		if err != nil {
 			return fmt.Errorf("intComparison failed: %w", err)
 		}
 	case "EQUALS":
-		err := equals(ctx, conditionObj["operands"], refList, kind.(string), inputChan, outputChan)
+		err := equals(outerCtx, innerCtx, conditionObj["operands"], refList, kind.(string), inputChan, outputChan)
 		if err != nil {
 			return fmt.Errorf("equals failed: %w", err)
 		}
 	case "AND":
-		err := rangeComparison(ctx, conditionObj["operands"], refList, kind.(string), inputChan, outputChan)
+		err := rangeComparison(outerCtx, innerCtx, conditionObj["operands"], refList, kind.(string), inputChan, outputChan)
 		if err != nil {
 			return fmt.Errorf("rangeComparison failed: %w", err)
 		}
@@ -580,4 +599,81 @@ func Aggregate(ctx context.Context, innerMap map[string]interface{}, colName str
 	}
 
 	return nil
+}
+
+func ComputeNodes(plan map[string]interface{}, qn *QueryEngine) ([]Node, error) {
+	var selectedCols []interface{}
+	var groupKey string
+	var physicalNodes []Node
+	var set *strset.Set
+
+	logicalNodes := plan["rels"].([]interface{})
+	referenceList := plan["refList"].(map[string]interface{})
+	for _, node := range logicalNodes {
+		nodeInnerMap := node.(map[string]interface{})
+
+		switch nodeOperation := nodeInnerMap["relOp"]; nodeOperation {
+		case "LogicalTableScan":
+			tableName := nodeInnerMap["table"].([]interface{})[0].(string)
+			scanNode := TableScanNode{
+				Type:       "TableScanNode",
+				TableName:  tableName,
+				Dm:         qn.BufferPoolManager,
+				OutputChan: make(chan []*RowV2, 10),
+			}
+
+			physicalNodes = append(physicalNodes, scanNode)
+		case "LogicalProject":
+			selectedCols, groupKey, set = GetColInfo(nodeInnerMap, referenceList)
+			projectNode := ProjectionNode{
+				Type:       "ProjectionNode",
+				Set:        set,
+				InputChan:  physicalNodes[len(physicalNodes)-1].GetOutputChan(),
+				OutputChan: make(chan []*RowV2, 10),
+			}
+			physicalNodes = append(physicalNodes, projectNode)
+		case "LogicalFilter":
+			filterNode := FilterNode{
+				Type:       "FilterNode",
+				InnerMap:   nodeInnerMap,
+				RefList:    referenceList,
+				InputChan:  physicalNodes[len(physicalNodes)-1].GetOutputChan(),
+				OutputChan: make(chan []*RowV2, 10),
+			}
+
+			physicalNodes = append(physicalNodes, filterNode)
+		case "LogicalSort":
+			sortNode := SortNode{
+				Type:       "SortNode",
+				InnerMap:   nodeInnerMap,
+				InputChan:  physicalNodes[len(physicalNodes)-1].GetOutputChan(),
+				OutputChan: make(chan []*RowV2, 10),
+			}
+
+			physicalNodes = append(physicalNodes, sortNode)
+		case "LogicalAggregate":
+			aggregateNode := AggregateNode{
+				Type:         "AggregateNode",
+				InnerMap:     nodeInnerMap,
+				GroupKey:     groupKey,
+				SelectedCols: selectedCols,
+				InputChan:    physicalNodes[len(physicalNodes)-1].GetOutputChan(),
+				OutputChan:   make(chan []*RowV2, 10),
+			}
+
+			physicalNodes = append(physicalNodes, aggregateNode)
+		default:
+			return []Node{}, fmt.Errorf("unsupported type: %s", nodeOperation)
+		}
+	}
+
+	collector := CollectorNode{
+		Type:      "CollectorNode",
+		InputChan: physicalNodes[len(physicalNodes)-1].GetOutputChan(),
+		Rows:      &[]*RowV2{},
+	}
+
+	physicalNodes = append(physicalNodes, collector)
+
+	return physicalNodes, nil
 }

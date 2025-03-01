@@ -171,50 +171,51 @@ func (dm *DiskManagerV2) CreateTable(tableName string, info TableInfo) error {
 }
 
 // space for optimization // could decode just the header
-func FullTableScan(ctx context.Context, pc chan *PageV2, file *os.File, pageTable map[PageID]FrameID, tp uint64) error {
+func FullTableScan(outerCtx, innerCtx context.Context, pc chan *PageV2, file *os.File, pageTable map[PageID]FrameID, tp uint64) error {
 	var offset int64
 	var pageCount uint64
 
 	for {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-
-		if pageCount == tp {
-			break
-		}
-
-		buffer := make([]byte, PageSizeV2)
-		_, err := file.ReadAt(buffer, int64(offset))
-		if err != nil && err == io.EOF {
-			if err == io.EOF {
-				logger.Log.Info("FullTableScanNormalFiles (end of file)")
-				break
+		select {
+		case <-outerCtx.Done():
+			return outerCtx.Err()
+		case <-innerCtx.Done():
+			return innerCtx.Err()
+		default:
+			if pageCount == tp {
+				return nil
 			}
 
-			return fmt.Errorf("reading at %d failed", offset)
-		}
+			buffer := make([]byte, PageSizeV2)
+			_, err := file.ReadAt(buffer, int64(offset))
+			if err != nil && err == io.EOF {
+				if err == io.EOF {
+					logger.Log.Info("FullTableScanNormalFiles (end of file)")
+					break
+				}
 
-		page, err := DecodePageV2(buffer)
-		if err != nil {
-			return fmt.Errorf("DecodePageV2 failed: %w", err)
-		}
+				return fmt.Errorf("reading at %d failed", offset)
+			}
 
-		_, ok := pageTable[PageID(page.Header.ID)]
-		if ok {
-			logger.Log.Info("Skipped Page: ", page.Header.ID)
+			page, err := DecodePageV2(buffer)
+			if err != nil {
+				return fmt.Errorf("DecodePageV2 failed: %w", err)
+			}
+
+			_, ok := pageTable[PageID(page.Header.ID)]
+			if ok {
+				logger.Log.Info("Skipped Page: ", page.Header.ID)
+				offset += PageSizeV2
+				continue
+			}
+
+			pc <- page
+
+			logger.Log.WithField("PageId", page.Header.ID).Info("Page from disk")
 			offset += PageSizeV2
-			continue
+			pageCount++
 		}
-
-		pc <- page
-
-		logger.Log.WithField("PageId", page.Header.ID).Info("Page from disk")
-		offset += PageSizeV2
-		pageCount++
 	}
-
-	return nil
 }
 
 type Chunk struct {
@@ -267,11 +268,12 @@ func FullTableScanBigFiles(outerCtx context.Context, pc chan *PageV2, file *os.F
 	wgDecoders.Wait()
 	close(errChan)
 
-	for err := range errChan {
-		return fmt.Errorf("FullTableScanBigFiles failed: %w", err)
+	select {
+	case err := <-errChan:
+		return err
+	default:
+		return nil
 	}
-
-	return nil
 }
 
 func FileCreateChunks(file *os.File, percentage int) []*Chunk {
@@ -375,14 +377,14 @@ func DecoderWorker(innerCtx, outerCtx context.Context, byteChan chan []byte, pag
 	}
 }
 
-func GetTablePagesFromDisk(ctx context.Context, pc chan *PageV2, tableObj *TableObj, pageMemTable map[PageID]FrameID, totalPages uint64) error {
+func GetTablePagesFromDisk(outerCtx, innerCtx context.Context, pc chan *PageV2, tableObj *TableObj, pageMemTable map[PageID]FrameID, totalPages uint64) error {
 	// stat, _ := tableObj.DataFile.Stat()
 	// size := stat.Size()
 
 	// if size >= MAX_FILE_SIZE {
 	// 	return FullTableScanBigFiles(ctx, pc, tableObj.DataFile, pageMemTable, totalPages)
 	// }
-	return FullTableScan(ctx, pc, tableObj.DataFile, pageMemTable, totalPages)
+	return FullTableScan(outerCtx, innerCtx, pc, tableObj.DataFile, pageMemTable, totalPages)
 }
 
 func GetTableObj(tableName string, manager *DiskManagerV2) (*TableObj, error) {
