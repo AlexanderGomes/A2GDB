@@ -172,6 +172,13 @@ func (dm *DiskManagerV2) CreateTable(tableName string, info TableInfo) error {
 
 // space for optimization // could decode just the header
 func FullTableScan(outerCtx, innerCtx context.Context, pc chan *PageV2, file *os.File, pageTable map[PageID]FrameID, tp uint64) error {
+	if outerCtx == nil {
+		outerCtx = context.Background()
+	}
+	if innerCtx == nil {
+		innerCtx = context.Background()
+	}
+
 	var offset int64
 	var pageCount uint64
 

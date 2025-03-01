@@ -12,10 +12,9 @@ import (
 )
 
 type Result struct {
-	Error   error
-	Msg     string
-	Rows    []*RowV2
-	groupBy map[string]int
+	Error error
+	Msg   string
+	Rows  []*RowV2
 }
 
 func (qe *QueryEngine) handleUpdate(plan map[string]interface{}, transactionOff bool, induceErr bool) Result {

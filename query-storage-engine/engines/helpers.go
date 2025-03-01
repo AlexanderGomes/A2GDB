@@ -150,6 +150,10 @@ func processPagesForDeletion(ctx context.Context, pages chan *PageV2, updateInfo
 
 	var foundMatch bool
 	for page := range pages {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
 		if isPrimary && foundMatch {
 			break
 		}
@@ -207,13 +211,6 @@ func processPagesForDeletion(ctx context.Context, pages chan *PageV2, updateInfo
 		if freeSpacePage != nil {
 			updateInfo.FreeSpaceMapping = freeSpacePage
 			updateInfoChan <- updateInfo
-		}
-
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			continue
 		}
 	}
 
