@@ -120,6 +120,7 @@ func (tsn TableScanNode) initialization(outerCtx context.Context) error {
 
 type ProjectionNode struct {
 	Type       string
+	Lm         *LockManager
 	Set        *strset.Set
 	InputChan  chan []*RowV2
 	OutputChan chan []*RowV2
@@ -144,7 +145,7 @@ func (pn ProjectionNode) initialization(ctx context.Context) error {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			Projection(ctx, pn.InputChan, pn.OutputChan, pn.Set)
+			Projection(ctx, pn.Lm, pn.InputChan, pn.OutputChan, pn.Set)
 		}()
 	}
 
@@ -156,6 +157,7 @@ func (pn ProjectionNode) initialization(ctx context.Context) error {
 
 type FilterNode struct {
 	Type       string
+	Lm         *LockManager
 	InnerMap   map[string]interface{}
 	RefList    map[string]interface{}
 	InputChan  chan []*RowV2
@@ -185,7 +187,7 @@ func (fn FilterNode) initialization(outerCtx context.Context) error {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := Filter(outerCtx, innerCtx, fn.InnerMap, fn.RefList, fn.InputChan, fn.OutputChan); err != nil {
+			if err := Filter(outerCtx, innerCtx, fn.Lm, fn.InnerMap, fn.RefList, fn.InputChan, fn.OutputChan); err != nil {
 				errChan <- fmt.Errorf("RowCollector Failed: %w", err)
 				cancel()
 			}
@@ -206,6 +208,7 @@ func (fn FilterNode) initialization(outerCtx context.Context) error {
 
 type SortNode struct {
 	Type       string
+	Lm         *LockManager
 	InnerMap   map[string]interface{}
 	InputChan  chan []*RowV2
 	OutputChan chan []*RowV2
@@ -231,13 +234,14 @@ func (sn SortNode) initialization(ctx context.Context) error {
 		allRows = append(allRows, rows...)
 	}
 
-	Sort(ctx, sn.InnerMap, &allRows, sn.OutputChan)
+	Sort(ctx, sn.Lm, sn.InnerMap, &allRows, sn.OutputChan)
 
 	return nil
 }
 
 type AggregateNode struct {
 	Type         string
+	Lm           *LockManager
 	InnerMap     map[string]interface{}
 	GroupKey     string
 	SelectedCols []interface{}
@@ -266,7 +270,7 @@ func (an AggregateNode) initialization(ctx context.Context) error {
 		allRows = append(allRows, rows...)
 	}
 
-	err := Aggregate(ctx, an.InnerMap, an.GroupKey, &allRows, an.SelectedCols, an.OutputChan)
+	err := Aggregate(ctx, an.Lm, an.InnerMap, an.GroupKey, &allRows, an.SelectedCols, an.OutputChan)
 	if err != nil {
 		return fmt.Errorf("Aggregate failed: %w", err)
 	}

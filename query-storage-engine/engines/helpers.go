@@ -145,7 +145,7 @@ func checkPresenceGetPrimary(selectedCols []interface{}, tableName string, catal
 	return primary, nil
 }
 
-func processPagesForDeletion(ctx context.Context, pages chan *PageV2, updateInfoChan chan ModifiedInfo, deleteKey, deleteVal, txID string, isPrimary bool, tableObj *TableObj, wal *WalManager, txOff bool) error {
+func processPagesForDeletion(ctx context.Context, lm *LockManager, pages chan *PageV2, updateInfoChan chan ModifiedInfo, deleteKey, deleteVal, txID string, isPrimary bool, tableObj *TableObj, wal *WalManager, txOff bool) error {
 	defer close(updateInfoChan)
 
 	var foundMatch bool
@@ -182,7 +182,11 @@ func processPagesForDeletion(ctx context.Context, pages chan *PageV2, updateInfo
 				return fmt.Errorf("DecodeRow failed: %w", err)
 			}
 
-			if row.Values[deleteKey] == deleteVal {
+			lm.Lock(RowId(row.ID), row, R)
+			deleteMatchFound := row.Values[deleteKey] == deleteVal
+			lm.Unlock(RowId(row.ID), row, R)
+
+			if deleteMatchFound {
 				if freeSpacePage == nil {
 					freeSpacePage = &FreeSpace{
 						PageID:      PageID(page.Header.ID),
@@ -227,7 +231,7 @@ type ModifiedInfo struct {
 	NonAddedRow      *NonAddedRows
 }
 
-func processPagesForUpdate(ctx context.Context, pageChan chan *PageV2, updateInfoChan chan ModifiedInfo, updateKey, updateVal, filterKey, filterVal, txID string, tableObj *TableObj, wal *WalManager, txOff bool) error {
+func processPagesForUpdate(ctx context.Context, lm *LockManager, pageChan chan *PageV2, updateInfoChan chan ModifiedInfo, updateKey, updateVal, filterKey, filterVal, txID string, tableObj *TableObj, wal *WalManager, txOff bool) error {
 	logger.Log.Info("processPagesForUpdate (start)")
 	defer close(updateInfoChan)
 
@@ -263,12 +267,19 @@ func processPagesForUpdate(ctx context.Context, pageChan chan *PageV2, updateInf
 				return fmt.Errorf("couldn't decode row, location: %+v, error: %s", location, err)
 			}
 
-			if row.Values[filterKey] == filterVal {
+			lm.Lock(RowId(row.ID), row, R)
+			updateMatch := row.Values[filterKey] == filterVal
+			lm.Unlock(RowId(row.ID), row, R)
+
+			if updateMatch {
 				if freeSpacePage == nil {
 					freeSpacePage = &FreeSpace{PageID: PageID(page.Header.ID), TempPagePtr: page, FreeMemory: pageObj.ExactFreeMem}
 				}
 
+				lm.Lock(RowId(row.ID), row, W)
 				row.Values[updateKey] = updateVal
+				lm.Unlock(RowId(row.ID), row, W)
+
 				newRowBytes, err := EncodeRow(row)
 				if err != nil {
 					return fmt.Errorf("EncodeRow failed: %w", err)

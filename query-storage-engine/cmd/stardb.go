@@ -6,6 +6,7 @@ import (
 	"a2gdb/utils"
 	"fmt"
 	"strings"
+	"sync"
 )
 
 func InitDatabase(k int, dirName string) (*engines.QueryEngine, error) {
@@ -17,6 +18,7 @@ func InitDatabase(k int, dirName string) (*engines.QueryEngine, error) {
 
 	queryEngine := &engines.QueryEngine{
 		BufferPoolManager: bufferPool,
+		Lm:                &engines.LockManager{Mu: sync.RWMutex{}, Rows: map[engines.RowId]*engines.RowInfo{}},
 	}
 
 	if err := CreateDefaultTable(queryEngine); err != nil {

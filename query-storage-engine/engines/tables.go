@@ -232,7 +232,6 @@ type Chunk struct {
 	Size      int64
 }
 
-// needs page counter
 func FullTableScanBigFiles(outerCtx context.Context, pc chan *PageV2, file *os.File, pageTable map[PageID]FrameID, tp uint64) error {
 	logger.Log.Info("FullTableScanBigFiles")
 

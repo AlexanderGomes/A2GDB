@@ -34,13 +34,17 @@ func compare(a, b int64, operator string, largeComp *LargeComparisons) bool {
 	}
 }
 
-func sumCount(groupMap map[string][]*RowV2, colName string) (map[string]int, error) {
+func sumCount(groupMap map[string][]*RowV2, colName string, lm *LockManager) (map[string]int, error) {
 	sumMap := map[string]int{}
 
 	for k, v := range groupMap {
 		var sum int
 		for _, row := range v {
+
+			lm.Lock(RowId(row.ID), row, R)
 			userValStr := row.Values[colName]
+			lm.Unlock(RowId(row.ID), row, R)
+
 			userValInt, err := strconv.Atoi(userValStr)
 			if err != nil {
 				return nil, fmt.Errorf("(sumCount) - Parsing str => int failed: %w", err)
@@ -55,13 +59,16 @@ func sumCount(groupMap map[string][]*RowV2, colName string) (map[string]int, err
 	return sumMap, nil
 }
 
-func avgCount(groupMap map[string][]*RowV2, colName string) (map[string]int, error) {
+func avgCount(groupMap map[string][]*RowV2, colName string, lm *LockManager) (map[string]int, error) {
 	avgMap := map[string]int{}
 
 	for k, v := range groupMap {
 		var sum int
 		for _, row := range v {
+			lm.Lock(RowId(row.ID), row, R)
 			userValStr := row.Values[colName]
+			lm.Unlock(RowId(row.ID), row, R)
+
 			userValInt, err := strconv.Atoi(userValStr)
 			if err != nil {
 				return nil, fmt.Errorf("(avgCount) - Parsing str => int failed: %w", err)
@@ -76,13 +83,16 @@ func avgCount(groupMap map[string][]*RowV2, colName string) (map[string]int, err
 	return avgMap, nil
 }
 
-func minCount(groupMap map[string][]*RowV2, field string) (map[string]int, error) {
+func minCount(groupMap map[string][]*RowV2, field string, lm *LockManager) (map[string]int, error) {
 	minMap := map[string]int{}
 
 	for k, v := range groupMap {
 		minAge := math.MaxInt64
 		for _, row := range v {
+			lm.Lock(RowId(row.ID), row, R)
 			userValStr := row.Values[field]
+			lm.Unlock(RowId(row.ID), row, R)
+
 			userValInt, err := strconv.Atoi(userValStr)
 			if err != nil {
 				return nil, fmt.Errorf("(minCount) - Parsing str => int failed: %w", err)
@@ -97,13 +107,16 @@ func minCount(groupMap map[string][]*RowV2, field string) (map[string]int, error
 	return minMap, nil
 }
 
-func maxCount(groupMap map[string][]*RowV2, field string) (map[string]int, error) {
+func maxCount(groupMap map[string][]*RowV2, field string, lm *LockManager) (map[string]int, error) {
 	minMap := map[string]int{}
 
 	for k, v := range groupMap {
 		var maxAge int
 		for _, row := range v {
+			lm.Lock(RowId(row.ID), row, R)
 			ageStr := row.Values[field]
+			lm.Unlock(RowId(row.ID), row, R)
+
 			ageInt, err := strconv.Atoi(ageStr)
 			if err != nil {
 				return nil, fmt.Errorf("(maxCount) - Parsing str => int failed: %w", err)
@@ -129,7 +142,7 @@ func uniqueCount(groupMap map[string][]*RowV2) map[string]int {
 	return countMap
 }
 
-func equals(outerCtx, innerCtx context.Context, conditionObj interface{}, reflist map[string]interface{}, kind string, inputChan, outputChan chan []*RowV2) error {
+func equals(outerCtx, innerCtx context.Context, lm *LockManager, conditionObj interface{}, reflist map[string]interface{}, kind string, inputChan, outputChan chan []*RowV2) error {
 	maps := conditionObj.([]interface{})
 
 	typeObj := maps[1].(map[string]interface{})
@@ -138,17 +151,17 @@ func equals(outerCtx, innerCtx context.Context, conditionObj interface{}, reflis
 
 	switch typeName {
 	case "INTEGER", "BIGINT":
-		err := intComparison(outerCtx, innerCtx, conditionObj, reflist, kind, inputChan, outputChan)
+		err := intComparison(outerCtx, innerCtx, lm, conditionObj, reflist, kind, inputChan, outputChan)
 		if err != nil {
 			return fmt.Errorf("intComparison failed: %w", err)
 		}
 	case "VARCHAR":
-		err := charComparison(outerCtx, innerCtx, maps, reflist, inputChan, outputChan)
+		err := charComparison(outerCtx, innerCtx, lm, maps, reflist, inputChan, outputChan)
 		if err != nil {
 			return fmt.Errorf("charComparison failed: %w", err)
 		}
 	case "DECIMAL":
-		err := decimalComparison(outerCtx, innerCtx, maps, reflist, inputChan, outputChan)
+		err := decimalComparison(outerCtx, innerCtx, lm, maps, reflist, inputChan, outputChan)
 		if err != nil {
 			return fmt.Errorf("decimalComparison failed: %w", err)
 		}
@@ -157,7 +170,7 @@ func equals(outerCtx, innerCtx context.Context, conditionObj interface{}, reflis
 	return nil
 }
 
-func decimalComparison(outerCtx, innerCtx context.Context, maps []interface{}, reflist map[string]interface{}, inputChan, outputChan chan []*RowV2) error {
+func decimalComparison(outerCtx, innerCtx context.Context, lm *LockManager, maps []interface{}, reflist map[string]interface{}, inputChan, outputChan chan []*RowV2) error {
 	colNameObj := maps[0].(map[string]interface{})
 	colNameMapSlice := colNameObj["operands"].([]interface{})
 	colNameMap := colNameMapSlice[0].(map[string]interface{})
@@ -188,10 +201,13 @@ func decimalComparison(outerCtx, innerCtx context.Context, maps []interface{}, r
 			}
 
 			for _, row := range rows {
+
+				lm.Lock(RowId(row.ID), row, R)
 				fieldVal, ok := row.Values[colName]
 				if !ok {
 					return errors.New("row value not present")
 				}
+				lm.Unlock(RowId(row.ID), row, R)
 
 				if fieldVal == operandVal {
 					matchedRows = append(matchedRows, row)
@@ -206,7 +222,7 @@ func decimalComparison(outerCtx, innerCtx context.Context, maps []interface{}, r
 	}
 }
 
-func charComparison(outerCtx, innerCtx context.Context, maps []interface{}, reflist map[string]interface{}, inputChan, outputChan chan []*RowV2) error {
+func charComparison(outerCtx, innerCtx context.Context, lm *LockManager, maps []interface{}, reflist map[string]interface{}, inputChan, outputChan chan []*RowV2) error {
 	colNameMap := maps[0].(map[string]interface{})
 	colNameCode := colNameMap["name"].(string)
 	colName := reflist[colNameCode].(string)
@@ -230,10 +246,12 @@ func charComparison(outerCtx, innerCtx context.Context, maps []interface{}, refl
 			}
 
 			for _, row := range rows {
+				lm.Lock(RowId(row.ID), row, R)
 				fieldVal, ok := row.Values[colName]
 				if !ok {
 					return errors.New("row value not present")
 				}
+				lm.Unlock(RowId(row.ID), row, R)
 
 				if fieldVal == colComparisonVal {
 					matchedRows = append(matchedRows, row)
@@ -248,7 +266,7 @@ func charComparison(outerCtx, innerCtx context.Context, maps []interface{}, refl
 	}
 }
 
-func intComparison(outerCtx, innerCtx context.Context, conditionObj interface{}, reflist map[string]interface{}, kind string, inputChan, outputChan chan []*RowV2) error {
+func intComparison(outerCtx, innerCtx context.Context, lm *LockManager, conditionObj interface{}, reflist map[string]interface{}, kind string, inputChan, outputChan chan []*RowV2) error {
 	maps := conditionObj.([]interface{})
 
 	colObjMap := maps[0].(map[string]interface{})
@@ -277,10 +295,13 @@ func intComparison(outerCtx, innerCtx context.Context, conditionObj interface{},
 			}
 
 			for _, row := range rows {
+
+				lm.Lock(RowId(row.ID), row, R)
 				fieldVal, ok := row.Values[colName]
 				if !ok {
 					return errors.New("row Value not present")
 				}
+				lm.Unlock(RowId(row.ID), row, R)
 
 				parsedUserVal, err := strconv.ParseInt(fieldVal, 10, 64)
 				if err != nil {
@@ -301,7 +322,7 @@ func intComparison(outerCtx, innerCtx context.Context, conditionObj interface{},
 	}
 }
 
-func rangeComparison(outerCtx, innerCtx context.Context, conditionObj interface{}, reflist map[string]interface{}, kind string, inputChan, outputChan chan []*RowV2) error {
+func rangeComparison(outerCtx, innerCtx context.Context, lm *LockManager, conditionObj interface{}, reflist map[string]interface{}, kind string, inputChan, outputChan chan []*RowV2) error {
 	maps := conditionObj.([]interface{})
 
 	leftObjOp := maps[0].(map[string]interface{})
@@ -336,10 +357,13 @@ func rangeComparison(outerCtx, innerCtx context.Context, conditionObj interface{
 			}
 
 			for _, row := range rows {
+
+				lm.Lock(RowId(row.ID), row, R)
 				userValStr, ok := row.Values[columnName]
 				if !ok {
 					return errors.New("row value not present")
 				}
+				lm.Unlock(RowId(row.ID), row, R)
 
 				userValInt, err := strconv.Atoi(userValStr)
 				if err != nil {
@@ -446,7 +470,7 @@ func GetColInfo(nodeMap, refList map[string]interface{}) ([]interface{}, string,
 	return columns, groupKey, set
 }
 
-func Projection(ctx context.Context, inputChan chan []*RowV2, outputChan chan []*RowV2, set *strset.Set) error {
+func Projection(ctx context.Context, lm *LockManager, inputChan chan []*RowV2, outputChan chan []*RowV2, set *strset.Set) error {
 	for {
 		select {
 		case <-ctx.Done():
@@ -457,11 +481,13 @@ func Projection(ctx context.Context, inputChan chan []*RowV2, outputChan chan []
 			}
 
 			for _, row := range rows {
+				lm.Lock(RowId(row.ID), row, W)
 				for field := range row.Values {
 					if !set.Has(field) {
 						delete(row.Values, field)
 					}
 				}
+				lm.Unlock(RowId(row.ID), row, W)
 			}
 
 			outputChan <- rows
@@ -479,23 +505,23 @@ func convertToRow(resMap map[string]int) *RowV2 {
 	return &row
 }
 
-func Filter(outerCtx, innerCtx context.Context, innerMap, refList map[string]interface{}, inputChan, outputChan chan []*RowV2) error {
+func Filter(outerCtx, innerCtx context.Context, lm *LockManager, innerMap, refList map[string]interface{}, inputChan, outputChan chan []*RowV2) error {
 	conditionObj := innerMap["condition"].(map[string]interface{})
 	operation := conditionObj["op"].(map[string]interface{})
 
 	switch kind := operation["kind"]; kind {
 	case "GREATER_THAN", "LESS_THAN":
-		err := intComparison(outerCtx, innerCtx, conditionObj["operands"], refList, kind.(string), inputChan, outputChan)
+		err := intComparison(outerCtx, innerCtx, lm, conditionObj["operands"], refList, kind.(string), inputChan, outputChan)
 		if err != nil {
 			return fmt.Errorf("intComparison failed: %w", err)
 		}
 	case "EQUALS":
-		err := equals(outerCtx, innerCtx, conditionObj["operands"], refList, kind.(string), inputChan, outputChan)
+		err := equals(outerCtx, innerCtx, lm, conditionObj["operands"], refList, kind.(string), inputChan, outputChan)
 		if err != nil {
 			return fmt.Errorf("equals failed: %w", err)
 		}
 	case "AND":
-		err := rangeComparison(outerCtx, innerCtx, conditionObj["operands"], refList, kind.(string), inputChan, outputChan)
+		err := rangeComparison(outerCtx, innerCtx, lm, conditionObj["operands"], refList, kind.(string), inputChan, outputChan)
 		if err != nil {
 			return fmt.Errorf("rangeComparison failed: %w", err)
 		}
@@ -506,7 +532,7 @@ func Filter(outerCtx, innerCtx context.Context, innerMap, refList map[string]int
 	return nil
 }
 
-func Sort(ctx context.Context, innerMap map[string]interface{}, rows *[]*RowV2, outputChan chan []*RowV2) error {
+func Sort(ctx context.Context, lm *LockManager, innerMap map[string]interface{}, rows *[]*RowV2, outputChan chan []*RowV2) error {
 	column := innerMap["column"].(string)
 	direction := innerMap["sortDirection"].(string)
 
@@ -521,8 +547,16 @@ func Sort(ctx context.Context, innerMap map[string]interface{}, rows *[]*RowV2, 
 		case <-ctx.Done():
 			return false
 		default:
-			valI, errI := strconv.Atoi((*rows)[i].Values[column])
-			valJ, errJ := strconv.Atoi((*rows)[j].Values[column])
+			rowI := (*rows)[i]
+			rowJ := (*rows)[j]
+
+			lm.Lock(RowId(rowI.ID), rowI, R)
+			valI, errI := strconv.Atoi(rowI.Values[column])
+			lm.Unlock(RowId(rowI.ID), rowI, R)
+
+			lm.Lock(RowId(rowJ.ID), rowJ, R)
+			valJ, errJ := strconv.Atoi(rowJ.Values[column])
+			lm.Unlock(RowId(rowJ.ID), rowJ, R)
 
 			if errI != nil || errJ != nil {
 				log.Fatalf("Error converting string to int (SliceStable): %s, %s", errI, errJ)
@@ -546,7 +580,7 @@ func Sort(ctx context.Context, innerMap map[string]interface{}, rows *[]*RowV2, 
 	return nil
 }
 
-func Aggregate(ctx context.Context, innerMap map[string]interface{}, colName string, rows *[]*RowV2, selectedCols []interface{}, outputChan chan []*RowV2) error {
+func Aggregate(ctx context.Context, lm *LockManager, innerMap map[string]interface{}, colName string, rows *[]*RowV2, selectedCols []interface{}, outputChan chan []*RowV2) error {
 	var resMap map[string]int
 	groupMap := map[string][]*RowV2{}
 
@@ -555,7 +589,11 @@ func Aggregate(ctx context.Context, innerMap map[string]interface{}, colName str
 	groupByField := customFieldSlice[0].(string)
 
 	for _, row := range *rows {
+
+		lm.Lock(RowId(row.ID), row, R)
 		groupKey := row.Values[groupByField]
+		lm.Unlock(RowId(row.ID), row, R)
+
 		groupMap[groupKey] = append(groupMap[groupKey], row)
 	}
 
@@ -575,13 +613,13 @@ func Aggregate(ctx context.Context, innerMap map[string]interface{}, colName str
 	case "COUNT":
 		resMap = uniqueCount(groupMap)
 	case "MAX":
-		resMap, err = maxCount(groupMap, argName)
+		resMap, err = maxCount(groupMap, argName, lm)
 	case "MIN":
-		resMap, err = minCount(groupMap, argName)
+		resMap, err = minCount(groupMap, argName, lm)
 	case "AVG":
-		resMap, err = avgCount(groupMap, colName)
+		resMap, err = avgCount(groupMap, colName, lm)
 	case "SUM":
-		resMap, err = sumCount(groupMap, colName)
+		resMap, err = sumCount(groupMap, colName, lm)
 	default:
 		err = fmt.Errorf("unsupported type: %s", functionName)
 	}
@@ -601,7 +639,7 @@ func Aggregate(ctx context.Context, innerMap map[string]interface{}, colName str
 	return nil
 }
 
-func ComputeNodes(plan map[string]interface{}, qn *QueryEngine) ([]Node, error) {
+func ComputeNodes(plan map[string]interface{}, qe *QueryEngine) ([]Node, error) {
 	var selectedCols []interface{}
 	var groupKey string
 	var physicalNodes []Node
@@ -618,7 +656,7 @@ func ComputeNodes(plan map[string]interface{}, qn *QueryEngine) ([]Node, error) 
 			scanNode := TableScanNode{
 				Type:       "TableScanNode",
 				TableName:  tableName,
-				Dm:         qn.BufferPoolManager,
+				Dm:         qe.BufferPoolManager,
 				OutputChan: make(chan []*RowV2, 10),
 			}
 
@@ -627,6 +665,7 @@ func ComputeNodes(plan map[string]interface{}, qn *QueryEngine) ([]Node, error) 
 			selectedCols, groupKey, set = GetColInfo(nodeInnerMap, referenceList)
 			projectNode := ProjectionNode{
 				Type:       "ProjectionNode",
+				Lm:         qe.Lm,
 				Set:        set,
 				InputChan:  physicalNodes[len(physicalNodes)-1].GetOutputChan(),
 				OutputChan: make(chan []*RowV2, 10),
@@ -635,6 +674,7 @@ func ComputeNodes(plan map[string]interface{}, qn *QueryEngine) ([]Node, error) 
 		case "LogicalFilter":
 			filterNode := FilterNode{
 				Type:       "FilterNode",
+				Lm:         qe.Lm,
 				InnerMap:   nodeInnerMap,
 				RefList:    referenceList,
 				InputChan:  physicalNodes[len(physicalNodes)-1].GetOutputChan(),
@@ -645,6 +685,7 @@ func ComputeNodes(plan map[string]interface{}, qn *QueryEngine) ([]Node, error) 
 		case "LogicalSort":
 			sortNode := SortNode{
 				Type:       "SortNode",
+				Lm:         qe.Lm,
 				InnerMap:   nodeInnerMap,
 				InputChan:  physicalNodes[len(physicalNodes)-1].GetOutputChan(),
 				OutputChan: make(chan []*RowV2, 10),
@@ -654,6 +695,7 @@ func ComputeNodes(plan map[string]interface{}, qn *QueryEngine) ([]Node, error) 
 		case "LogicalAggregate":
 			aggregateNode := AggregateNode{
 				Type:         "AggregateNode",
+				Lm:           qe.Lm,
 				InnerMap:     nodeInnerMap,
 				GroupKey:     groupKey,
 				SelectedCols: selectedCols,

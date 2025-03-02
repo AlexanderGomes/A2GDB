@@ -34,9 +34,9 @@ func (bpm *BufferPoolManager) FullTableScan(ctx context.Context, pageChan chan *
 	defer close(errChan)
 
 	wg.Add(2)
-	// not receiving the context cancelation
 	go func() {
 		defer wg.Done()
+		// not receiving the context cancelation
 		if err := bpm.FullBufferScan(pageChan); err != nil {
 			errChan <- fmt.Errorf("FullBufferScan Failed: %w", err)
 		}

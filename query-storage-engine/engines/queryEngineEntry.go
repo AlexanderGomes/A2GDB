@@ -14,6 +14,7 @@ const (
 
 type QueryEngine struct {
 	BufferPoolManager *BufferPoolManager
+	Lm                *LockManager
 }
 
 func (qe *QueryEngine) QueryProcessingEntry(queryPlan interface{}, transactionOff, induceErr bool) *Result {
