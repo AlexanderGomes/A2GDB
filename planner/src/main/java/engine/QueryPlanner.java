@@ -47,6 +47,8 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.logging.Logger;
 import java.io.*;
 import java.net.*;
@@ -466,6 +468,10 @@ public class QueryPlanner {
       throws IOException, SQLException, ValidationException, RelConversionException, SqlParseException, Exception {
 
     int port = 8080;
+    int numCores = Runtime.getRuntime().availableProcessors();
+
+    ExecutorService threadPool = Executors.newFixedThreadPool(numCores);
+
     try (ServerSocket serverSocket = new ServerSocket(port)) {
       logger.info("Server is listening on: " + port);
 
@@ -473,17 +479,19 @@ public class QueryPlanner {
         Socket socket = serverSocket.accept();
         logger.info("New client connected");
         QueryPlanner queryPlanner = QueryPlanner.create();
-        new ClientHandler(socket, queryPlanner).start();
+        threadPool.submit(new ClientHandler(socket, queryPlanner));
       }
 
     } catch (IOException e) {
       System.out.println("Server Initialization Failure: " + e.getMessage());
       e.printStackTrace();
+    } finally {
+      threadPool.shutdown();
     }
   }
 }
 
-class ClientHandler extends Thread {
+class ClientHandler implements Runnable {
   private final Logger logger;
   private final Socket socket;
   private final QueryPlanner planner;
@@ -510,7 +518,9 @@ class ClientHandler extends Thread {
       }
 
       writer.print(encodedPlan);
-
+      writer.flush();
+      socket.close();
+      logger.info("Sent query plan");
     } catch (IOException e) {
       System.out.println("Server exception: " + e.getMessage());
       e.printStackTrace();

@@ -18,25 +18,25 @@ const (
 )
 
 func SendSql(sql string) (interface{}, error) {
-	timeout := 2 * time.Second
+	timeout := 10 * time.Second
 	conn, err := net.DialTimeout("tcp", FRONT_SERVER, timeout)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't stablish connection: %s", err)
 	}
 	defer conn.Close()
 
-	writeDeadLine := time.Now().Add(4 * time.Second)
+	writeDeadLine := time.Now().Add(10 * time.Second)
 	err = conn.SetWriteDeadline(writeDeadLine)
 	if err != nil {
 		return nil, fmt.Errorf("SetWriteDeadline failed: %w", err)
 	}
 
-	_, err = conn.Write([]byte(sql))
+	_, err = conn.Write([]byte(sql + "\n"))
 	if err != nil {
 		return nil, fmt.Errorf("couldn't write message: %s", err)
 	}
 
-	readDeadLine := time.Now().Add(4 * time.Second)
+	readDeadLine := time.Now().Add(10 * time.Second)
 	err = conn.SetReadDeadline(readDeadLine)
 	if err != nil {
 		return nil, fmt.Errorf("SetReadDeadline failed: %w", err)

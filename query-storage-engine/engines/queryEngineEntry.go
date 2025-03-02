@@ -46,8 +46,6 @@ func (qe *QueryEngine) QueryProcessingEntry(queryPlan interface{}, transactionOf
 	return &result
 }
 
-// ## return rows, and groupMap for test compatibility
-// ## DBMS fundamentals could be applied, consider vector processing
 func (qe *QueryEngine) handleSelect(plan map[string]interface{}) Result {
 	var result Result
 
