@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	BATCH_THRESHOLD       = 20
+	BATCH_THRESHOLD       = 1200
 	PROJECTION_WORKERS    = 5
 	ROW_COLLECTOR_WORKERS = 10
 	FILTER_WORKERS
@@ -68,7 +68,7 @@ func (tsn TableScanNode) GetOutputChan() chan []*RowV2 {
 }
 
 func (tsn TableScanNode) initialization(outerCtx context.Context) error {
-	pageChan := make(chan *PageV2, 200)
+	pageChan := make(chan *PageV2, 400)
 	errChan := make(chan error, ROW_COLLECTOR_WORKERS+1)
 
 	tableObj, err := GetTableObj(tsn.TableName, tsn.Dm.DiskManager)
@@ -138,21 +138,33 @@ func (pn ProjectionNode) GetOutputChan() chan []*RowV2 {
 	return pn.OutputChan
 }
 
-func (pn ProjectionNode) initialization(ctx context.Context) error {
+func (pn ProjectionNode) initialization(outerCtx context.Context) error {
 	var wg sync.WaitGroup
+	errChan := make(chan error, PROJECTION_WORKERS)
+	innerCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	for range PROJECTION_WORKERS {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			Projection(ctx, pn.Lm, pn.InputChan, pn.OutputChan, pn.Set)
+			if err := Projection(outerCtx, innerCtx, pn.Lm, pn.InputChan, pn.OutputChan, pn.Set); err != nil {
+				errChan <- fmt.Errorf("Projection Failed: %w", err)
+				cancel()
+			}
 		}()
 	}
 
 	wg.Wait()
 	close(pn.OutputChan)
+	close(errChan)
 
-	return nil
+	select {
+	case err := <-errChan:
+		return err
+	default:
+		return nil
+	}
 }
 
 type FilterNode struct {
@@ -188,7 +200,7 @@ func (fn FilterNode) initialization(outerCtx context.Context) error {
 		go func() {
 			defer wg.Done()
 			if err := Filter(outerCtx, innerCtx, fn.Lm, fn.InnerMap, fn.RefList, fn.InputChan, fn.OutputChan); err != nil {
-				errChan <- fmt.Errorf("RowCollector Failed: %w", err)
+				errChan <- fmt.Errorf("Filter Failed: %w", err)
 				cancel()
 			}
 		}()

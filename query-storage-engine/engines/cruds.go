@@ -107,7 +107,7 @@ func (qe *QueryEngine) handleUpdate(plan map[string]interface{}, transactionOff 
 			return result
 		}
 
-		return rollbackAndReturn(txId, primary, modifyColumn, walManager, qe, nil, fmt.Errorf("error occurred during update: %w", err), "failed")
+		return rollbackAndReturn(txId, primary, modifyColumn, walManager, qe, nil, fmt.Errorf("error occurred during update: %w", firstError), "failed")
 	}
 
 	if !transactionOff {
@@ -205,7 +205,7 @@ func (qe *QueryEngine) handleDelete(plan map[string]interface{}, transactionOff,
 			return result
 		}
 
-		return rollbackAndReturn(txId, primary, "", walManager, qe, catalog, fmt.Errorf("error occurred during delete: %w", err), "failed")
+		return rollbackAndReturn(txId, primary, "", walManager, qe, catalog, fmt.Errorf("error occurred during delete: %w", firstError), "failed")
 	}
 
 	if !transactionOff {

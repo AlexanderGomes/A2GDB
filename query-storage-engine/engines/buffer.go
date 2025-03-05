@@ -222,7 +222,7 @@ func (bpm *BufferPoolManager) Pin(pageID PageID) error {
 func NewBufferPoolManager(k int, fileName string) (*BufferPoolManager, error) {
 	freeList := make([]FrameID, 0)
 	pages := [MaxPoolSize]*PageV2{}
-	for i := 0; i < MaxPoolSize; i++ {
+	for i := range MaxPoolSize {
 		freeList = append(freeList, FrameID(i))
 		pages[FrameID(i)] = nil
 	}

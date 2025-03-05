@@ -182,9 +182,12 @@ func processPagesForDeletion(ctx context.Context, lm *LockManager, pages chan *P
 				return fmt.Errorf("DecodeRow failed: %w", err)
 			}
 
-			lm.Lock(RowId(row.ID), row, R)
+			lm.Lock(row.ID, row, R)
 			deleteMatchFound := row.Values[deleteKey] == deleteVal
-			lm.Unlock(RowId(row.ID), row, R)
+			err = lm.Unlock(row.ID, row, R)
+			if err != nil {
+				return fmt.Errorf("unlock failed: %w", err)
+			}
 
 			if deleteMatchFound {
 				if freeSpacePage == nil {
@@ -267,18 +270,24 @@ func processPagesForUpdate(ctx context.Context, lm *LockManager, pageChan chan *
 				return fmt.Errorf("couldn't decode row, location: %+v, error: %s", location, err)
 			}
 
-			lm.Lock(RowId(row.ID), row, R)
+			lm.Lock(row.ID, row, R)
 			updateMatch := row.Values[filterKey] == filterVal
-			lm.Unlock(RowId(row.ID), row, R)
+			err = lm.Unlock(row.ID, row, R)
+			if err != nil {
+				return fmt.Errorf("unlock failed: %w", err)
+			}
 
 			if updateMatch {
 				if freeSpacePage == nil {
 					freeSpacePage = &FreeSpace{PageID: PageID(page.Header.ID), TempPagePtr: page, FreeMemory: pageObj.ExactFreeMem}
 				}
 
-				lm.Lock(RowId(row.ID), row, W)
+				lm.Lock(row.ID, row, W)
 				row.Values[updateKey] = updateVal
-				lm.Unlock(RowId(row.ID), row, W)
+				err := lm.Unlock(row.ID, row, W)
+				if err != nil {
+					return fmt.Errorf("unlock failed: %w", err)
+				}
 
 				newRowBytes, err := EncodeRow(row)
 				if err != nil {

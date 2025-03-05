@@ -61,7 +61,10 @@ func (dm *DiskManagerV2) InMemoryTableSetUp(tableName string) (*TableObj, error)
 		TableName:     tableName,
 	}
 
+	dm.Mu.Lock()
 	dm.TableObjs[tableName] = tableObj
+	dm.Mu.Unlock()
+
 	return tableObj, nil
 }
 
@@ -175,6 +178,7 @@ func FullTableScan(outerCtx, innerCtx context.Context, pc chan *PageV2, file *os
 	if outerCtx == nil {
 		outerCtx = context.Background()
 	}
+
 	if innerCtx == nil {
 		innerCtx = context.Background()
 	}
@@ -198,7 +202,7 @@ func FullTableScan(outerCtx, innerCtx context.Context, pc chan *PageV2, file *os
 			if err != nil && err == io.EOF {
 				if err == io.EOF {
 					logger.Log.Info("FullTableScanNormalFiles (end of file)")
-					break
+					return nil
 				}
 
 				return fmt.Errorf("reading at %d failed", offset)

@@ -1,66 +1,66 @@
 package engines
 
-import "sync"
+import (
+	"sync"
+)
 
 const (
 	W = "WRITE"
 	R = "READ"
 )
 
-type RowId uint64
 type LockManager struct {
 	Mu   sync.RWMutex
-	Rows map[RowId]*RowInfo
+	Rows map[uint64]*RowInfo
 }
 
 type RowInfo struct {
-	Mu     *sync.RWMutex
+	Mu     sync.RWMutex
 	RowPtr *RowV2
-	Active bool
 }
 
-func (lm *LockManager) Lock(id RowId, row *RowV2, lockType string) {
-	mu, rowInfo := lm.GetOrSetLocker(id, row)
-	rowInfo.Active = true
+func (lm *LockManager) Lock(rowId uint64, row *RowV2, lockType string) {
+	mu := lm.GetOrSetLocker(rowId, row)
 
 	if lockType == R {
 		mu.RLock()
 		return
 	}
+
 	mu.Lock()
 }
 
-func (lm *LockManager) Unlock(id RowId, row *RowV2, lockType string) {
-	mu, rowInfo := lm.GetOrSetLocker(id, row)
-	rowInfo.Active = false
+func (lm *LockManager) Unlock(rowId uint64, row *RowV2, lockType string) error {
+	mu := lm.GetOrSetLocker(rowId, row)
 
 	if lockType == R {
 		mu.RUnlock()
-		return
+		return nil
 	}
+
 	mu.Unlock()
+	return nil
 }
 
-func (lm *LockManager) GetOrSetLocker(id RowId, row *RowV2) (*sync.RWMutex, *RowInfo) {
-	rowInfo := lm.GetRowInfo(id)
-	if rowInfo == nil {
-		rowInfo = &RowInfo{Mu: &sync.RWMutex{}, RowPtr: row}
-		lm.SetRow(id, rowInfo)
-	}
-
-	return rowInfo.Mu, rowInfo
-}
-
-func (lm *LockManager) SetRow(id RowId, row *RowInfo) {
+func (lm *LockManager) GetOrSetLocker(rowId uint64, row *RowV2) *sync.RWMutex {
 	lm.Mu.Lock()
 	defer lm.Mu.Unlock()
-	lm.Rows[id] = row
+
+	rowInfo := lm.GetRowInfo(rowId)
+	if rowInfo == nil {
+		rowInfo = &RowInfo{Mu: sync.RWMutex{}, RowPtr: row}
+		lm.SetRow(rowId, rowInfo)
+	}
+
+	return &rowInfo.Mu
 }
 
-func (lm *LockManager) GetRowInfo(id RowId) *RowInfo {
-	lm.Mu.RLock()
-	defer lm.Mu.RUnlock()
-	if row, ok := lm.Rows[id]; ok {
+func (lm *LockManager) SetRow(rowId uint64, row *RowInfo) {
+	lm.Rows[rowId] = row
+}
+
+func (lm *LockManager) GetRowInfo(rowId uint64) *RowInfo {
+	if row, ok := lm.Rows[rowId]; ok {
 		return row
 	}
 	return nil

@@ -19,18 +19,18 @@ type LargeComparisons struct {
 	UserVal int
 }
 
-func compare(a, b int64, operator string, largeComp *LargeComparisons) bool {
+func compare(a, b int64, operator string, largeComp *LargeComparisons) (bool, error) {
 	switch operator {
 	case "GREATER_THAN":
-		return a > b
+		return a > b, nil
 	case "LESS_THAN":
-		return a < b
+		return a < b, nil
 	case "EQUALS":
-		return a == b
+		return a == b, nil
 	case "AND":
-		return largeComp.UserVal >= largeComp.Left && largeComp.UserVal <= largeComp.Right
+		return largeComp.UserVal >= largeComp.Left && largeComp.UserVal <= largeComp.Right, nil
 	default:
-		return false
+		return false, fmt.Errorf("type not supported: %s", operator)
 	}
 }
 
@@ -41,9 +41,12 @@ func sumCount(groupMap map[string][]*RowV2, colName string, lm *LockManager) (ma
 		var sum int
 		for _, row := range v {
 
-			lm.Lock(RowId(row.ID), row, R)
+			lm.Lock(row.ID, row, R)
 			userValStr := row.Values[colName]
-			lm.Unlock(RowId(row.ID), row, R)
+			err := lm.Unlock(row.ID, row, R)
+			if err != nil {
+				return nil, fmt.Errorf("unlock failed: %w", err)
+			}
 
 			userValInt, err := strconv.Atoi(userValStr)
 			if err != nil {
@@ -65,10 +68,12 @@ func avgCount(groupMap map[string][]*RowV2, colName string, lm *LockManager) (ma
 	for k, v := range groupMap {
 		var sum int
 		for _, row := range v {
-			lm.Lock(RowId(row.ID), row, R)
+			lm.Lock(row.ID, row, R)
 			userValStr := row.Values[colName]
-			lm.Unlock(RowId(row.ID), row, R)
-
+			err := lm.Unlock(row.ID, row, R)
+			if err != nil {
+				return nil, fmt.Errorf("unlock failed: %w", err)
+			}
 			userValInt, err := strconv.Atoi(userValStr)
 			if err != nil {
 				return nil, fmt.Errorf("(avgCount) - Parsing str => int failed: %w", err)
@@ -89,9 +94,12 @@ func minCount(groupMap map[string][]*RowV2, field string, lm *LockManager) (map[
 	for k, v := range groupMap {
 		minAge := math.MaxInt64
 		for _, row := range v {
-			lm.Lock(RowId(row.ID), row, R)
+			lm.Lock(row.ID, row, R)
 			userValStr := row.Values[field]
-			lm.Unlock(RowId(row.ID), row, R)
+			err := lm.Unlock(row.ID, row, R)
+			if err != nil {
+				return nil, fmt.Errorf("unlock failed: %w", err)
+			}
 
 			userValInt, err := strconv.Atoi(userValStr)
 			if err != nil {
@@ -113,9 +121,12 @@ func maxCount(groupMap map[string][]*RowV2, field string, lm *LockManager) (map[
 	for k, v := range groupMap {
 		var maxAge int
 		for _, row := range v {
-			lm.Lock(RowId(row.ID), row, R)
+			lm.Lock(row.ID, row, R)
 			ageStr := row.Values[field]
-			lm.Unlock(RowId(row.ID), row, R)
+			err := lm.Unlock(row.ID, row, R)
+			if err != nil {
+				return nil, fmt.Errorf("unlock failed: %w", err)
+			}
 
 			ageInt, err := strconv.Atoi(ageStr)
 			if err != nil {
@@ -202,12 +213,15 @@ func decimalComparison(outerCtx, innerCtx context.Context, lm *LockManager, maps
 
 			for _, row := range rows {
 
-				lm.Lock(RowId(row.ID), row, R)
+				lm.Lock(row.ID, row, R)
 				fieldVal, ok := row.Values[colName]
 				if !ok {
 					return errors.New("row value not present")
 				}
-				lm.Unlock(RowId(row.ID), row, R)
+				err := lm.Unlock(row.ID, row, R)
+				if err != nil {
+					return fmt.Errorf("unlock failed: %w", err)
+				}
 
 				if fieldVal == operandVal {
 					matchedRows = append(matchedRows, row)
@@ -246,12 +260,16 @@ func charComparison(outerCtx, innerCtx context.Context, lm *LockManager, maps []
 			}
 
 			for _, row := range rows {
-				lm.Lock(RowId(row.ID), row, R)
+				lm.Lock(row.ID, row, R)
 				fieldVal, ok := row.Values[colName]
 				if !ok {
 					return errors.New("row value not present")
 				}
-				lm.Unlock(RowId(row.ID), row, R)
+
+				err := lm.Unlock(row.ID, row, R)
+				if err != nil {
+					return fmt.Errorf("unlock failed: %w", err)
+				}
 
 				if fieldVal == colComparisonVal {
 					matchedRows = append(matchedRows, row)
@@ -295,20 +313,26 @@ func intComparison(outerCtx, innerCtx context.Context, lm *LockManager, conditio
 			}
 
 			for _, row := range rows {
-
-				lm.Lock(RowId(row.ID), row, R)
+				lm.Lock(row.ID, row, R)
 				fieldVal, ok := row.Values[colName]
 				if !ok {
 					return errors.New("row Value not present")
 				}
-				lm.Unlock(RowId(row.ID), row, R)
+				err := lm.Unlock(row.ID, row, R)
+				if err != nil {
+					fmt.Println(row)
+					return fmt.Errorf("Unlock failed: %w", err)
+				}
 
 				parsedUserVal, err := strconv.ParseInt(fieldVal, 10, 64)
 				if err != nil {
 					return fmt.Errorf("parsing Int Failed: %w", err)
 				}
 
-				conditionMatch := compare(parsedUserVal, comparisonVal, kind, nil)
+				conditionMatch, err := compare(parsedUserVal, comparisonVal, kind, nil)
+				if err != nil {
+					return fmt.Errorf("compare failed: %w", err)
+				}
 				if conditionMatch {
 					matchedRows = append(matchedRows, row)
 				}
@@ -358,12 +382,15 @@ func rangeComparison(outerCtx, innerCtx context.Context, lm *LockManager, condit
 
 			for _, row := range rows {
 
-				lm.Lock(RowId(row.ID), row, R)
+				lm.Lock(row.ID, row, R)
 				userValStr, ok := row.Values[columnName]
 				if !ok {
 					return errors.New("row value not present")
 				}
-				lm.Unlock(RowId(row.ID), row, R)
+				err := lm.Unlock(row.ID, row, R)
+				if err != nil {
+					return fmt.Errorf("unlock failed: %w", err)
+				}
 
 				userValInt, err := strconv.Atoi(userValStr)
 				if err != nil {
@@ -376,7 +403,10 @@ func rangeComparison(outerCtx, innerCtx context.Context, lm *LockManager, condit
 					UserVal: userValInt,
 				}
 
-				matched := compare(0, 0, kind, &largeComp)
+				matched, err := compare(0, 0, kind, &largeComp)
+				if err != nil {
+					return fmt.Errorf("compare failed: %w", err)
+				}
 				if matched {
 					matchedRows = append(matchedRows, row)
 				}
@@ -430,7 +460,6 @@ func RowCollector(outerCtx, innerCtx context.Context, pageChan chan *PageV2, out
 
 				rows = append(rows, row)
 				if len(rows) >= BATCH_THRESHOLD {
-
 					outputChan <- rows
 					rows = []*RowV2{}
 				}
@@ -470,24 +499,29 @@ func GetColInfo(nodeMap, refList map[string]interface{}) ([]interface{}, string,
 	return columns, groupKey, set
 }
 
-func Projection(ctx context.Context, lm *LockManager, inputChan chan []*RowV2, outputChan chan []*RowV2, set *strset.Set) error {
+func Projection(outerCtx, innerCtx context.Context, lm *LockManager, inputChan chan []*RowV2, outputChan chan []*RowV2, set *strset.Set) error {
 	for {
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
+		case <-outerCtx.Done():
+			return outerCtx.Err()
+		case <-innerCtx.Done():
+			return innerCtx.Err()
 		case rows, ok := <-inputChan:
 			if !ok {
 				return nil
 			}
 
 			for _, row := range rows {
-				lm.Lock(RowId(row.ID), row, W)
+				lm.Lock(row.ID, row, W)
 				for field := range row.Values {
 					if !set.Has(field) {
 						delete(row.Values, field)
 					}
 				}
-				lm.Unlock(RowId(row.ID), row, W)
+				err := lm.Unlock(row.ID, row, W)
+				if err != nil {
+					return fmt.Errorf("unlock failed: %w", err)
+				}
 			}
 
 			outputChan <- rows
@@ -550,13 +584,19 @@ func Sort(ctx context.Context, lm *LockManager, innerMap map[string]interface{},
 			rowI := (*rows)[i]
 			rowJ := (*rows)[j]
 
-			lm.Lock(RowId(rowI.ID), rowI, R)
+			lm.Lock(rowI.ID, rowI, R)
 			valI, errI := strconv.Atoi(rowI.Values[column])
-			lm.Unlock(RowId(rowI.ID), rowI, R)
+			err = lm.Unlock(rowI.ID, rowI, R)
+			if err != nil {
+				return false
+			}
 
-			lm.Lock(RowId(rowJ.ID), rowJ, R)
+			lm.Lock(rowJ.ID, rowJ, R)
 			valJ, errJ := strconv.Atoi(rowJ.Values[column])
-			lm.Unlock(RowId(rowJ.ID), rowJ, R)
+			err := lm.Unlock(rowJ.ID, rowJ, R)
+			if err != nil {
+				return false
+			}
 
 			if errI != nil || errJ != nil {
 				log.Fatalf("Error converting string to int (SliceStable): %s, %s", errI, errJ)
@@ -590,9 +630,12 @@ func Aggregate(ctx context.Context, lm *LockManager, innerMap map[string]interfa
 
 	for _, row := range *rows {
 
-		lm.Lock(RowId(row.ID), row, R)
+		lm.Lock(row.ID, row, R)
 		groupKey := row.Values[groupByField]
-		lm.Unlock(RowId(row.ID), row, R)
+		err := lm.Unlock(row.ID, row, R)
+		if err != nil {
+			return fmt.Errorf("unlock failed: %w", err)
+		}
 
 		groupMap[groupKey] = append(groupMap[groupKey], row)
 	}

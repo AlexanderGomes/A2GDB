@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 )
 
 type DiskManagerV2 struct {
@@ -12,6 +13,7 @@ type DiskManagerV2 struct {
 	PageCatalog *Catalog
 	FileCatalog *os.File
 	TableObjs   map[string]*TableObj
+	Mu          *sync.RWMutex
 }
 
 func NewDiskManagerV2(dbDirectory string) (*DiskManagerV2, error) {
@@ -69,6 +71,7 @@ func CreatDefaultManager(dbDirectory string) (DiskManagerV2, error) {
 		PageCatalog: &catalog,
 		FileCatalog: catalogFilePtr,
 		TableObjs:   make(map[string]*TableObj),
+		Mu:          &sync.RWMutex{},
 	}
 
 	return dm, nil
@@ -97,6 +100,7 @@ func ReadExistingManager(dbDirectory string) (DiskManagerV2, error) {
 		PageCatalog: catalog,
 		FileCatalog: file,
 		TableObjs:   make(map[string]*TableObj),
+		Mu:          &sync.RWMutex{},
 	}
 
 	return dm, nil

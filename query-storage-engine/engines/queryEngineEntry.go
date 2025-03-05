@@ -55,6 +55,7 @@ func (qe *QueryEngine) handleSelect(plan map[string]interface{}) Result {
 		return handleError(fmt.Errorf("ComputeNodes Failed: %w", err), "failed")
 	}
 
+
 	var wg sync.WaitGroup
 	errChan := make(chan error, len(nodes))
 	ctx, cancel := context.WithCancel(context.Background())
