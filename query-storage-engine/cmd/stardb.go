@@ -19,6 +19,8 @@ func InitDatabase(k int, dirName string) (*engines.QueryEngine, error) {
 	queryEngine := &engines.QueryEngine{
 		BufferPoolManager: bufferPool,
 		Lm:                &engines.LockManager{Mu: sync.RWMutex{}, Rows: map[uint64]*engines.RowInfo{}},
+		QueryChan:         make(chan *engines.QueryInfo, 10000),
+		ResChan:           make(chan *engines.Result, 10000),
 	}
 
 	if err := CreateDefaultTable(queryEngine); err != nil {
@@ -26,6 +28,8 @@ func InitDatabase(k int, dirName string) (*engines.QueryEngine, error) {
 			return nil, fmt.Errorf("unexpected Error: %w", err)
 		}
 	}
+
+	go queryEngine.QueryManager()
 
 	logger.Log.Info("Database initialized successfully")
 	return queryEngine, nil

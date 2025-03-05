@@ -107,11 +107,11 @@ func (qe *QueryEngine) handleUpdate(plan map[string]interface{}, transactionOff 
 			return result
 		}
 
-		return rollbackAndReturn(txId, primary, modifyColumn, walManager, qe, nil, fmt.Errorf("error occurred during update: %w", firstError), "failed")
+		return rollbackAndReturn(txId, primary, modifyColumn, tableName, walManager, qe, nil, fmt.Errorf("error occurred during update: %w", firstError), "failed")
 	}
 
 	if !transactionOff {
-		if err := walManager.CommitTransaction(txId); err != nil {
+		if err := walManager.CommitTransaction(txId, tableName); err != nil {
 			result.Error = fmt.Errorf("CommitTransaction failed: %w", err)
 			result.Msg = "failed"
 			return result
@@ -205,11 +205,11 @@ func (qe *QueryEngine) handleDelete(plan map[string]interface{}, transactionOff,
 			return result
 		}
 
-		return rollbackAndReturn(txId, primary, "", walManager, qe, catalog, fmt.Errorf("error occurred during delete: %w", firstError), "failed")
+		return rollbackAndReturn(txId, primary, "", tableName, walManager, qe, catalog, fmt.Errorf("error occurred during delete: %w", firstError), "failed")
 	}
 
 	if !transactionOff {
-		if err := walManager.CommitTransaction(txId); err != nil {
+		if err := walManager.CommitTransaction(txId, tableName); err != nil {
 			result.Error = fmt.Errorf("CommitTransaction failed: %w", err)
 			result.Msg = "failed"
 			return result
@@ -280,7 +280,7 @@ func (qe *QueryEngine) handleInsert(plan map[string]interface{}, transactionOff,
 
 	bytesNeeded, encodedRows, err := prepareRows(plan, selectedCols, primary, tableName, txId, walManager, transactionOff)
 	if err != nil {
-		return rollbackAndReturn(txId, primary, "", walManager, qe, nil, fmt.Errorf("preparing rows failed: %w", err), "failed")
+		return rollbackAndReturn(txId, primary, "", tableName, walManager, qe, nil, fmt.Errorf("preparing rows failed: %w", err), "failed")
 	}
 
 	logger.Log.WithFields(logrus.Fields{
@@ -292,17 +292,17 @@ func (qe *QueryEngine) handleInsert(plan map[string]interface{}, transactionOff,
 
 	err = findAndUpdate(qe.BufferPoolManager, tableobj, tableStats, bytesNeeded, tableName, encodedRows)
 	if err != nil {
-		return rollbackAndReturn(txId, primary, "", walManager, qe, nil, fmt.Errorf("findAndUpdate Failed: %s", err), "failed")
+		return rollbackAndReturn(txId, primary, "", tableName, walManager, qe, nil, fmt.Errorf("findAndUpdate Failed: %s", err), "failed")
 	}
 
 	if induceErr {
-		return rollbackAndReturn(txId, primary, "", walManager, qe, nil, fmt.Errorf("findAndUpdate Failed: %s", err), "failed")
+		return rollbackAndReturn(txId, primary, "", tableName, walManager, qe, nil, fmt.Errorf("findAndUpdate Failed: %s", err), "failed")
 	}
 
 	if !transactionOff {
-		err = walManager.CommitTransaction(txId)
+		err = walManager.CommitTransaction(txId, tableName)
 		if err != nil {
-			return rollbackAndReturn(txId, primary, "", walManager, qe, nil, fmt.Errorf("CommitTransaction Failed: %s", err), "failed")
+			return rollbackAndReturn(txId, primary, "", tableName, walManager, qe, nil, fmt.Errorf("CommitTransaction Failed: %s", err), "failed")
 		}
 	}
 

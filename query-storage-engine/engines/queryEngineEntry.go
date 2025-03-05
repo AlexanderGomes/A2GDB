@@ -15,6 +15,70 @@ const (
 type QueryEngine struct {
 	BufferPoolManager *BufferPoolManager
 	Lm                *LockManager
+	QueryChan         chan *QueryInfo
+	ResChan           chan *Result
+	InlineMu          sync.Mutex
+}
+
+type QueryInfo struct {
+	RawPlan        interface{}
+	tableName      string
+	TransactionOff bool
+	InduceErr      bool
+}
+
+func (qe *QueryEngine) QueryManager() {
+	var result Result
+
+	for queryInfo := range qe.QueryChan {
+		queryPlan := queryInfo.RawPlan
+
+		plan, isMap := queryPlan.(map[string]interface{})
+		frontendErr, ok := plan["message"].(string)
+		if ok || !isMap {
+			result.Error = fmt.Errorf("frontend failed: %s", frontendErr)
+			result.Msg = "failed"
+			qe.ResChan <- &result
+			continue
+		}
+
+		switch operation := plan["STATEMENT"]; operation {
+		case "CREATE_TABLE", "SELECT":
+			go func() {
+				qe.ResChan <- qe.QueryProcessingEntry(queryPlan, queryInfo.TransactionOff, queryInfo.InduceErr)
+			}()
+		case "INSERT", "DELETE", "UPDATE":
+			queryInfo.tableName = plan["table"].(string)
+			go qe.InlineCruds(queryInfo)
+		default:
+			result.Error = fmt.Errorf("unsupported type: %s", operation)
+			result.Msg = "failed"
+			qe.ResChan <- &result
+		}
+
+	}
+}
+
+func (qe *QueryEngine) InlineCruds(queryInfo *QueryInfo) {
+	qe.InlineMu.Lock()
+	defer qe.InlineMu.Unlock()
+
+	tablesMap := qe.BufferPoolManager.Wal.activeTxTable
+	tableInfo, ok := tablesMap[queryInfo.tableName]
+	if !ok {
+		tableInfo = &Table{notification: make(chan bool, 1)}
+		tablesMap[queryInfo.tableName] = tableInfo
+	}
+
+	if tableInfo.activeTx {
+		for <-tableInfo.notification {
+			qe.ResChan <- qe.QueryProcessingEntry(queryInfo.RawPlan, queryInfo.TransactionOff, queryInfo.InduceErr)
+		}
+		return
+	}
+
+	tableInfo.activeTx = true
+	qe.ResChan <- qe.QueryProcessingEntry(queryInfo.RawPlan, queryInfo.TransactionOff, queryInfo.InduceErr)
 }
 
 func (qe *QueryEngine) QueryProcessingEntry(queryPlan interface{}, transactionOff, induceErr bool) *Result {
@@ -54,7 +118,6 @@ func (qe *QueryEngine) handleSelect(plan map[string]interface{}) Result {
 	if err != nil {
 		return handleError(fmt.Errorf("ComputeNodes Failed: %w", err), "failed")
 	}
-
 
 	var wg sync.WaitGroup
 	errChan := make(chan error, len(nodes))

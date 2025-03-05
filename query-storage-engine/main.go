@@ -15,9 +15,12 @@ func main() {
 		log.Fatal("DB init failed: ", err)
 	}
 
+	// InsertMany(engine, 2000)
+
 	queries := []string{
 		"SELECT * FROM `User`",
 		"SELECT Username, Age FROM `User`",
+		"UPDATE `User` SET Age = 9292 WHERE Username = 'JaneSmith'",
 		"SELECT Username, Age, City FROM `User` WHERE Age > 20",
 		"SELECT Username, Age, City FROM `User` WHERE Age = 20",
 		"SELECT Username, Age, City FROM `User` WHERE Age < 20",
@@ -28,6 +31,7 @@ func main() {
 		"SELECT Username, Age, City FROM `User` ORDER BY Age ASC LIMIT 1",
 		"SELECT Username, Age, City FROM `User` ORDER BY Age DESC LIMIT 1",
 		"SELECT City, COUNT(*) AS UserCount FROM `User` GROUP BY City",
+		"UPDATE `User` SET Age = 1293 WHERE Username = 'AliceBrown'",
 		"SELECT City, MAX(Age) AS max_age FROM `User` GROUP BY City",
 		"SELECT City, MIN(Age) AS max_age FROM `User` GROUP BY City",
 		"SELECT City, AVG(Age) AS max_age FROM `User` GROUP BY City",
@@ -37,10 +41,10 @@ func main() {
 	Concurrent(engine, queries)
 }
 
-func Linear(engine *engines.QueryEngine, queries []string) {
-	for range 1000 {
-		query := queries[0]
-		sendQuery(engine, query)
+func InsertMany(engine *engines.QueryEngine, x int) {
+	sql := "INSERT INTO `User` (Username, Age, City) VALUES ('JaneSmith', 25, 'Los Angeles'), ('AliceBrown', 28, 'Chicago'), ('BobWhite', 35, 'Houston')"
+	for range x {
+		sendQuery(engine, sql)
 	}
 }
 
@@ -64,23 +68,11 @@ func sendQuery(engine *engines.QueryEngine, sql string) {
 		log.Panic(err)
 	}
 
-	res := engine.QueryProcessingEntry(encodedPlan1, false, false)
-	if res.Error != nil {
-		log.Fatal(res.Error)
-	}
+	queryInfo := engines.QueryInfo{RawPlan: encodedPlan1, TransactionOff: false, InduceErr: false}
+	engine.QueryChan <- &queryInfo
 
-	fmt.Printf("query: %s, res: %d\n", sql, len(res.Rows))
-}
-
-func InsertMany(engine *engines.QueryEngine) {
-	sql := "INSERT INTO `User` (Username, Age, City) VALUES ('JaneSmith', 25, 'Los Angeles'), ('AliceBrown', 28, 'Chicago'), ('BobWhite', 35, 'Houston')"
-	encodedPlan1, err := utils.SendSql(sql)
-	if err != nil {
-		log.Panic(err)
-	}
-
-	res := engine.QueryProcessingEntry(encodedPlan1, false, false)
-	if res.Error != nil {
-		log.Fatal(res.Error)
+	for res := range engine.ResChan {
+		fmt.Printf("query: %s, res: %d\n", sql, len(res.Rows))
+		break
 	}
 }

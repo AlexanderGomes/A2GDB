@@ -18,7 +18,6 @@ const (
 	LogTypeDelete
 	LogTypeCommit
 	LogTypeAbort
-	LogTypeCheckpoint
 )
 
 type LogRecord struct {
@@ -33,11 +32,17 @@ type LogRecord struct {
 }
 
 type WalManager struct {
-	CurrentLSN uint64
-	writer     *bufio.Writer
-	file       *os.File
-	mu         sync.Mutex
-	activeTx   map[string][]*LogRecord
+	currentLSN    uint64
+	writer        *bufio.Writer
+	file          *os.File
+	activeTx      map[string][]*LogRecord
+	activeTxTable map[string]*Table
+	mu            sync.Mutex
+}
+
+type Table struct {
+	notification chan bool
+	activeTx     bool
 }
 
 func NewWalManager(logFile string) (*WalManager, error) {
@@ -49,9 +54,10 @@ func NewWalManager(logFile string) (*WalManager, error) {
 	writer := bufio.NewWriter(file)
 
 	wm := &WalManager{
-		file:     file,
-		writer:   writer,
-		activeTx: make(map[string][]*LogRecord),
+		file:          file,
+		writer:        writer,
+		activeTx:      make(map[string][]*LogRecord),
+		activeTxTable: make(map[string]*Table),
 	}
 
 	err = wm.getLSN()
@@ -70,9 +76,9 @@ func (wl *WalManager) Log(txID string, query LogType, tableName string, rowId ui
 		return fmt.Errorf("transaction %s not found", txID)
 	}
 
-	wl.CurrentLSN++
+	wl.currentLSN++
 	record := LogRecord{
-		LSN:         wl.CurrentLSN,
+		LSN:         wl.currentLSN,
 		TxID:        txID,
 		Type:        query,
 		TableID:     tableName,
@@ -97,73 +103,7 @@ func (wl *WalManager) Log(txID string, query LogType, tableName string, rowId ui
 	return nil
 }
 
-func (wl *WalManager) getLSN() error {
-	wl.mu.Lock()
-	defer wl.mu.Unlock()
-
-	fileInfo, err := wl.file.Stat()
-	if err != nil {
-		return fmt.Errorf("failed to get file info: %w", err)
-	}
-
-	fileSize := fileInfo.Size()
-
-	if fileSize == 0 {
-		return nil
-	}
-
-	var offset int64
-	prefix := 4
-	for {
-		tempBuffer := make([]byte, prefix)
-		_, err := wl.file.ReadAt(tempBuffer, offset)
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			return fmt.Errorf("reading from file (failed): %w", err)
-		}
-
-		length, err := decodeLength(tempBuffer)
-		if err != nil {
-			return fmt.Errorf("decodeLength failed: %w", err)
-		}
-
-		logLocation := int64(length) + int64(prefix)
-
-		if (offset + logLocation) == fileSize {
-			tempBuffer := make([]byte, length)
-			_, err := wl.file.ReadAt(tempBuffer, offset+int64(prefix))
-			if err != nil {
-				return fmt.Errorf("reading from file (failed): %w", err)
-			}
-
-			log, err := deserializeLogRecord(tempBuffer)
-			if err != nil {
-				return fmt.Errorf("deserializeLogRecord failed: %w", err)
-			}
-
-			wl.CurrentLSN = log.LSN
-			break
-		}
-
-		offset += logLocation
-
-	}
-
-	return nil
-}
-
-func (wl *WalManager) BeginTransaction() string {
-	wl.mu.Lock()
-	defer wl.mu.Unlock()
-
-	txID := strconv.FormatUint(GenerateRandomID(), 10)
-	wl.activeTx[txID] = []*LogRecord{}
-	return txID
-}
-
-func (wl *WalManager) CommitTransaction(txID string) error {
+func (wl *WalManager) CommitTransaction(txID string, tableName string) error {
 	wl.mu.Lock()
 	defer wl.mu.Unlock()
 
@@ -171,9 +111,9 @@ func (wl *WalManager) CommitTransaction(txID string) error {
 		return fmt.Errorf("transaction %s not found", txID)
 	}
 
-	wl.CurrentLSN++
+	wl.currentLSN++
 	commitRecord := LogRecord{
-		LSN:       wl.CurrentLSN,
+		LSN:       wl.currentLSN,
 		TxID:      txID,
 		Type:      LogTypeCommit,
 		Timestamp: time.Now(),
@@ -195,11 +135,19 @@ func (wl *WalManager) CommitTransaction(txID string) error {
 	}
 
 	delete(wl.activeTx, txID)
+	tableInfo := wl.activeTxTable[tableName]
+	tableInfo.activeTx = false
+
+	select {
+	case tableInfo.notification <- true:
+	default:
+		fmt.Println("No crud waiting")
+	}
 
 	return nil
 }
 
-func (wl *WalManager) AbortTransaction(txID, primary, modifiedColumn string, engine *QueryEngine, catalog *Catalog) error {
+func (wl *WalManager) AbortTransaction(txID, primary, modifiedColumn, tableName string, engine *QueryEngine, catalog *Catalog) error {
 	wl.mu.Lock()
 	defer wl.mu.Unlock()
 
@@ -212,9 +160,9 @@ func (wl *WalManager) AbortTransaction(txID, primary, modifiedColumn string, eng
 		return fmt.Errorf("undo failed: %w", err)
 	}
 
-	wl.CurrentLSN++
+	wl.currentLSN++
 	abortRecord := LogRecord{
-		LSN:       wl.CurrentLSN,
+		LSN:       wl.currentLSN,
 		TxID:      txID,
 		Type:      LogTypeAbort,
 		Timestamp: time.Now(),
@@ -236,6 +184,14 @@ func (wl *WalManager) AbortTransaction(txID, primary, modifiedColumn string, eng
 	}
 
 	delete(wl.activeTx, txID)
+	tableInfo := wl.activeTxTable[tableName]
+	tableInfo.activeTx = false
+
+	select {
+	case tableInfo.notification <- true:
+	default:
+		fmt.Println("No crud waiting")
+	}
 
 	return nil
 }
@@ -287,4 +243,70 @@ func Redo(logs []*LogRecord, engine *QueryEngine, catalog *Catalog, primary, mod
 	}
 
 	return nil
+}
+
+func (wl *WalManager) getLSN() error {
+	wl.mu.Lock()
+	defer wl.mu.Unlock()
+
+	fileInfo, err := wl.file.Stat()
+	if err != nil {
+		return fmt.Errorf("failed to get file info: %w", err)
+	}
+
+	fileSize := fileInfo.Size()
+
+	if fileSize == 0 {
+		return nil
+	}
+
+	var offset int64
+	prefix := 4
+	for {
+		tempBuffer := make([]byte, prefix)
+		_, err := wl.file.ReadAt(tempBuffer, offset)
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return fmt.Errorf("reading from file (failed): %w", err)
+		}
+
+		length, err := decodeLength(tempBuffer)
+		if err != nil {
+			return fmt.Errorf("decodeLength failed: %w", err)
+		}
+
+		logLocation := int64(length) + int64(prefix)
+
+		if (offset + logLocation) == fileSize {
+			tempBuffer := make([]byte, length)
+			_, err := wl.file.ReadAt(tempBuffer, offset+int64(prefix))
+			if err != nil {
+				return fmt.Errorf("reading from file (failed): %w", err)
+			}
+
+			log, err := deserializeLogRecord(tempBuffer)
+			if err != nil {
+				return fmt.Errorf("deserializeLogRecord failed: %w", err)
+			}
+
+			wl.currentLSN = log.LSN
+			break
+		}
+
+		offset += logLocation
+
+	}
+
+	return nil
+}
+
+func (wl *WalManager) BeginTransaction() string {
+	wl.mu.Lock()
+	defer wl.mu.Unlock()
+
+	txID := strconv.FormatUint(GenerateRandomID(), 10)
+	wl.activeTx[txID] = []*LogRecord{}
+	return txID
 }
