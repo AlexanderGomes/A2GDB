@@ -53,12 +53,13 @@ func TestInitDB(t *testing.T) {
 
 func TestCreateTable(t *testing.T) {
 	sql := "CREATE TABLE `User`(PRIMARY KEY(UserId), Username VARCHAR, Age INT, City VARCHAR)\n"
-	encodedPlan1, err := utils.SendSql(sql)
+	encodedPlan, err := utils.SendSql(sql)
 	if err != nil {
 		t.Fatal("Error getting query plan: ", err)
 	}
 
-	sharedDB.QueryProcessingEntry(encodedPlan1, false, false)
+	queryInfo := &engines.QueryInfo{RawPlan: encodedPlan, TransactionOff: false, InduceErr: false}
+	sharedDB.QueryProcessingEntry(queryInfo)
 
 	dbPath := "./A2G_DB"
 
@@ -118,12 +119,13 @@ func TestOrderBy(t *testing.T) {
 
 	expectedColumns := strset.New("Username", "Age", "City")
 	for identity, query := range queryMap {
-		encodedPlan1, err := utils.SendSql(query)
+		encodedPlan, err := utils.SendSql(query)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		res := sharedDB.QueryProcessingEntry(encodedPlan1, false, false)
+		queryInfo := &engines.QueryInfo{RawPlan: encodedPlan, TransactionOff: false, InduceErr: false}
+		res := sharedDB.QueryProcessingEntry(queryInfo)
 		if res.Error != nil {
 			t.Fatal(res.Error)
 		}
@@ -166,13 +168,18 @@ func TestGroupBy(t *testing.T) {
 	}
 
 	for identity, query := range queryMap {
-		encodedPlan1, err := utils.SendSql(query)
+		encodedPlan, err := utils.SendSql(query)
 		if err != nil {
 			t.Fatal(err)
 		}
 
 		expectedCity := "Los Angeles"
-		res := sharedDB.QueryProcessingEntry(encodedPlan1, false, false)
+
+		queryInfo := &engines.QueryInfo{RawPlan: encodedPlan, TransactionOff: false, InduceErr: false}
+		res := sharedDB.QueryProcessingEntry(queryInfo)
+		if res.Error != nil {
+			t.Fatal(res.Error)
+		}
 
 		for k, v := range res.Rows[0].Values {
 			if k != expectedCity {
@@ -213,12 +220,13 @@ func TestGroupBy(t *testing.T) {
 
 func TestUpdate(t *testing.T) {
 	sql1 := fmt.Sprintf("UPDATE `User` SET %s = %s WHERE Username = 'JaneSmith'\n", modifiedField, modifiedValue)
-	encodedPlan1, err := utils.SendSql(sql1)
+	encodedPlan, err := utils.SendSql(sql1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	res := sharedDB.QueryProcessingEntry(encodedPlan1, false, false)
 
+	queryInfo := &engines.QueryInfo{RawPlan: encodedPlan, TransactionOff: false, InduceErr: false}
+	res := sharedDB.QueryProcessingEntry(queryInfo)
 	if res.Error != nil {
 		t.Fatal(res.Error)
 	}
@@ -253,11 +261,16 @@ func TestInsertAfterUpdate(t *testing.T) {
 
 func TestDelete(t *testing.T) {
 	sql1 := fmt.Sprintf("DELETE FROM `%s` WHERE %s = '%s'\n", tableName, checkKey, checkVal)
-	encodedPlan1, err := utils.SendSql(sql1)
+	encodedPlan, err := utils.SendSql(sql1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	sharedDB.QueryProcessingEntry(encodedPlan1, false, false)
+
+	queryInfo := &engines.QueryInfo{RawPlan: encodedPlan, TransactionOff: false, InduceErr: false}
+	res := sharedDB.QueryProcessingEntry(queryInfo)
+	if res.Error != nil {
+		t.Fatal(res.Error)
+	}
 
 	manager := sharedDB.BufferPoolManager.DiskManager
 	tableObj, err := engines.GetTableObj(tableName, manager)
@@ -318,100 +331,44 @@ func TestUndos(t *testing.T) {
 
 func UndoInsert(t *testing.T) {
 	sql := "INSERT INTO `User` (Username, Age, City) VALUES ('JaneSmith99282', 25, 'Los Angeles')\n"
-	encodedPlan1, err := utils.SendSql(sql)
-	if err != nil {
-		t.Fatal(err)
-	}
+	causeError(t, sql)
 
-	sharedDB.QueryProcessingEntry(encodedPlan1, false, true)
-
-	sql2 := "SELECT * FROM `User` WHERE Username = 'JaneSmith99282'\n"
-	encodedPlan2, err := utils.SendSql(sql2)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	results := sharedDB.QueryProcessingEntry(encodedPlan2, false, false)
-	if len(results.Rows) != 0 {
+	sql = "SELECT * FROM `User` WHERE Username = 'JaneSmith99282'\n"
+	rows := IsUserPresent(t, sql)
+	if len(rows) != 0 {
 		t.Fatalf("UndoInsert failed, user was inserted")
 	}
 }
 
 func UndoUpdate(t *testing.T) {
-	// get the id of one user
-	sql := "SELECT * FROM `User` WHERE Username = 'JaneSmith'\n"
-	encodedPlan1, err := utils.SendSql(sql)
-	if err != nil {
-		t.Fatal(err)
-	}
+	id := getId(t)
 
-	result := sharedDB.QueryProcessingEntry(encodedPlan1, false, false)
-	if result.Error != nil {
-		t.Fatal(result.Error)
-	}
+	sql := fmt.Sprintf("UPDATE `User` SET Age = 121209  WHERE UserId = CAST('%d' AS DECIMAL(20,0))\n", id)
+	causeError(t, sql)
 
-	id := result.Rows[0].ID
+	sql = fmt.Sprintf("SELECT * FROM `User` WHERE UserId = CAST('%d' AS DECIMAL(20,0))\n", id)
+	rows := IsUserPresent(t, sql)
 
-	// make a update query
-	// cause an error
-	sql = fmt.Sprintf("UPDATE `User` SET Age = 121209  WHERE UserId = CAST('%d' AS DECIMAL(20,0))\n", id)
-	sharedDB.QueryProcessingEntry(sql, false, true)
-
-	// check if the age was updated // shouldn't had been
-	sql = fmt.Sprintf(" SELECT * FROM `User` WHERE UserId = CAST('%d' AS DECIMAL(20,0))\n", id)
-	encodedPlan2, err := utils.SendSql(sql)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	results := sharedDB.QueryProcessingEntry(encodedPlan2, false, false)
-	if results.Error != nil {
-		t.Fatal(results.Error)
-	}
-
-	if len(results.Rows) != 1 {
+	if len(rows) != 1 {
 		t.Fatalf("Undo update failed, wrong number of tuples")
 	}
 
-	age := results.Rows[0].Values["Age"]
+	age := rows[0].Values["Age"]
 	if age == "121209" {
 		t.Fatalf("Undo update failed, wrong age")
 	}
 }
 
 func UndoDelete(t *testing.T) {
-	// get the id of one user
-	sql := "SELECT * FROM `User` WHERE Username = 'JaneSmith'\n"
-	encodedPlan1, err := utils.SendSql(sql)
-	if err != nil {
-		t.Fatal(err)
-	}
+	id := getId(t)
 
-	result := sharedDB.QueryProcessingEntry(encodedPlan1, false, false)
-	if result.Error != nil {
-		t.Fatal(result.Error)
-	}
+	sql := fmt.Sprintf("DELETE FROM `User` WHERE UserId = CAST('%d' AS DECIMAL(20,0))\n", id)
+	causeError(t, sql)
 
-	id := result.Rows[0].ID
-
-	// make a delete query
-	// cause an error
-	sql = fmt.Sprintf("DELETE FROM `User` WHERE UserId = CAST('%d' AS DECIMAL(20,0))\n", id)
-	sharedDB.QueryProcessingEntry(sql, false, true)
-
-	// check if the user still exists
 	sql = fmt.Sprintf("SELECT * FROM `User` WHERE UserId = CAST('%d' AS DECIMAL(20,0))\n", id)
-	encodedPlan2, err := utils.SendSql(sql)
-	if err != nil {
-		t.Fatal(err)
-	}
+	rows := IsUserPresent(t, sql)
 
-	results := sharedDB.QueryProcessingEntry(encodedPlan2, false, false)
-	if results.Error != nil {
-		t.Fatal(results.Error)
-	}
-
-	if len(results.Rows) != 1 {
+	if len(rows) != 1 {
 		t.Fatalf("Undo Delete failed, wrong number of tuples")
 	}
 }

@@ -16,11 +16,12 @@ type QueryEngine struct {
 	BufferPoolManager *BufferPoolManager
 	Lm                *LockManager
 	QueryChan         chan *QueryInfo
-	ResChan           chan *Result
+	ResultManager     *ResultManager
 	InlineMu          sync.Mutex
 }
 
 type QueryInfo struct {
+	QueryId        uint64
 	RawPlan        interface{}
 	tableName      string
 	TransactionOff bool
@@ -38,14 +39,14 @@ func (qe *QueryEngine) QueryManager() {
 		if ok || !isMap {
 			result.Error = fmt.Errorf("frontend failed: %s", frontendErr)
 			result.Msg = "failed"
-			qe.ResChan <- &result
+			qe.ResultManager.GlobalChannel <- &result
 			continue
 		}
 
 		switch operation := plan["STATEMENT"]; operation {
 		case "CREATE_TABLE", "SELECT":
 			go func() {
-				qe.ResChan <- qe.QueryProcessingEntry(queryPlan, queryInfo.TransactionOff, queryInfo.InduceErr)
+				qe.ResultManager.GlobalChannel <- qe.QueryProcessingEntry(queryInfo)
 			}()
 		case "INSERT", "DELETE", "UPDATE":
 			queryInfo.tableName = plan["table"].(string)
@@ -53,7 +54,7 @@ func (qe *QueryEngine) QueryManager() {
 		default:
 			result.Error = fmt.Errorf("unsupported type: %s", operation)
 			result.Msg = "failed"
-			qe.ResChan <- &result
+			qe.ResultManager.GlobalChannel <- &result
 		}
 
 	}
@@ -72,19 +73,19 @@ func (qe *QueryEngine) InlineCruds(queryInfo *QueryInfo) {
 
 	if tableInfo.activeTx {
 		for <-tableInfo.notification {
-			qe.ResChan <- qe.QueryProcessingEntry(queryInfo.RawPlan, queryInfo.TransactionOff, queryInfo.InduceErr)
+			qe.ResultManager.GlobalChannel <- qe.QueryProcessingEntry(queryInfo)
 		}
 		return
 	}
 
 	tableInfo.activeTx = true
-	qe.ResChan <- qe.QueryProcessingEntry(queryInfo.RawPlan, queryInfo.TransactionOff, queryInfo.InduceErr)
+	qe.ResultManager.GlobalChannel <- qe.QueryProcessingEntry(queryInfo)
 }
 
-func (qe *QueryEngine) QueryProcessingEntry(queryPlan interface{}, transactionOff, induceErr bool) *Result {
+func (qe *QueryEngine) QueryProcessingEntry(queryInfo *QueryInfo) *Result {
 	var result Result
 
-	plan, isMap := queryPlan.(map[string]interface{})
+	plan, isMap := queryInfo.RawPlan.(map[string]interface{})
 	frontendErr, ok := plan["message"].(string)
 	if ok || !isMap {
 		result.Error = fmt.Errorf("frontend failed: %s", frontendErr)
@@ -96,17 +97,19 @@ func (qe *QueryEngine) QueryProcessingEntry(queryPlan interface{}, transactionOf
 	case "CREATE_TABLE":
 		result = qe.handleCreate(plan)
 	case "INSERT":
-		result = qe.handleInsert(plan, transactionOff, induceErr)
+		result = qe.handleInsert(plan, queryInfo.TransactionOff, queryInfo.InduceErr)
 	case "SELECT":
 		result = qe.handleSelect(plan)
 	case "DELETE":
-		result = qe.handleDelete(plan, transactionOff, induceErr)
+		result = qe.handleDelete(plan, queryInfo.TransactionOff, queryInfo.InduceErr)
 	case "UPDATE":
-		result = qe.handleUpdate(plan, transactionOff, induceErr)
+		result = qe.handleUpdate(plan, queryInfo.TransactionOff, queryInfo.InduceErr)
 	default:
 		result.Error = fmt.Errorf("unsupported type: %s", operation)
 		result.Msg = "failed"
 	}
+
+	result.QueryId = queryInfo.QueryId
 
 	return &result
 }
