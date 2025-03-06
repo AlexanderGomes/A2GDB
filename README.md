@@ -2,7 +2,11 @@
 This year (2025), I’m focusing on building a DBaaS to master the practical aspects of building and managing complex, scalable systems.
 
 ## **Why This Project?**
-Database systems operate at extreme scales, processing billions of tuples and often handling data far larger than RAM. At this level, inefficiencies in code—whether in speed, memory usage, or algorithm complexity—become impossible to ignore. Algorithms that seem similar in theory can behave very differently in practice.
+Learning to Handle Extreme Scales:
+- Database systems operate at extreme scales, processing billions of tuples and handling data far larger than RAM. I'm learning how inefficiencies in code—whether in speed, memory usage, or algorithm complexity—become critical at this scale. Algorithms that seem similar in theory can behave very differently in practice, and understanding this difference is key to improving efficiency.
 
-Not every application needs extreme performance, but the complacency in modern software development is hard to ignore. When websites just showing products  consume a peak of 1GB and a medium of 600MB of RAM or a simple notes app uses 400–500MB, something is wrong. We’ve become too reliant on hardware improvements and have stagnated in software efficiency, or at the very least we're assuming that everybody has the latest phone and the best internet access.
+Challenging Modern Software Complacency:
+- Not every application needs extreme performance, but the complacency in modern software development is something I'm learning to challenge. When websites showing products consume up to 1GB of RAM (peak) and 600MB on average, or a simple notes app uses 400–500MB of RAM, it highlights a problem I’m learning to address. We’ve become too reliant on hardware improvements, leading to stagnation in software efficiency, and I’m focusing on creating solutions that don’t just assume everyone has the latest phone or the best internet access.
 
+NO SSN & BAD MARKET:
+- I don't currently have an SSN, and the market is pretty bad even if I had one. I decided to give myself a job and build this project that is very challenging.
