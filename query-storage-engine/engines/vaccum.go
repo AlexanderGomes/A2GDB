@@ -19,7 +19,6 @@ const (
 	THIRD_LEVEL      = 2886
 	SECOND_LEVEL     = 3286
 	FIRST_LEVEL      = 3686
-	EMPTY_PAGE       = 4082
 	AVAIL_DATA       = 4068
 
 	NEXT_LEVEL = 400
@@ -36,7 +35,7 @@ func cleanOrgnize(ctx context.Context, updateInfoChan chan ModifiedInfo, insertC
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		
+
 		space := updateInfo.FreeSpaceMapping
 
 		newPage, err := RearrangePAGE(space.TempPagePtr, tableObj, tableObj.TableName)
@@ -47,7 +46,7 @@ func cleanOrgnize(ctx context.Context, updateInfoChan chan ModifiedInfo, insertC
 		space.TempPagePtr = nil
 		memTag := getTag(space.FreeMemory)
 		if memTag == 0 {
-			memTag = EMPTY_PAGE
+			memTag = AVAIL_DATA
 		}
 
 		dirPage := tableObj.DirectoryPage
@@ -78,7 +77,7 @@ func cleanOrgnize(ctx context.Context, updateInfoChan chan ModifiedInfo, insertC
 		tableObj.Mu.Lock()
 		tableObj.Memory[memTag] = append(tableObj.Memory[memTag], space)
 
-		err = saveMemMapping(tableObj)
+		err = saveMemMapping(tableObj, tableStats)
 		if err != nil {
 			return fmt.Errorf("saveMemMapping failed: %w", err)
 		}
@@ -96,7 +95,7 @@ func cleanOrgnize(ctx context.Context, updateInfoChan chan ModifiedInfo, insertC
 }
 
 // ###[x] last two fields of pageObj aren't being saved on the updatePageInfo function but it gets add and saved here.
-func memSeparationSingle(newSpace *FreeSpace, tableObj *TableObj) error {
+func memSeparationSingle(newSpace *FreeSpace, tableObj *TableObj, tableStats *TableInfo) error {
 	memTag := getTag(newSpace.FreeMemory)
 
 	dirPage := tableObj.DirectoryPage
@@ -107,12 +106,12 @@ func memSeparationSingle(newSpace *FreeSpace, tableObj *TableObj) error {
 	pageObj.Mu.Lock()
 
 	if memTag == 0 {
-		memTag = EMPTY_PAGE
+		memTag = AVAIL_DATA
 	}
 
 	tableObj.Mu.Lock()
 	tableObj.Memory[memTag] = append(tableObj.Memory[memTag], newSpace)
-	err := saveMemMapping(tableObj)
+	err := saveMemMapping(tableObj, tableStats)
 	if err != nil {
 		return fmt.Errorf("saveMemMapping failed: %w", err)
 	}
@@ -132,7 +131,9 @@ func memSeparationSingle(newSpace *FreeSpace, tableObj *TableObj) error {
 	return nil
 }
 
-func saveMemMapping(tableObj *TableObj) error {
+func saveMemMapping(tableObj *TableObj, tableStats *TableInfo) error {
+	tableStats.UsedSpace = AccountUsedMemory(tableObj.Memory)
+
 	bytes, err := EncodeMemObj(tableObj.Memory)
 	if err != nil {
 		return fmt.Errorf("EncodeMemObj failed: %w", err)
@@ -144,6 +145,16 @@ func saveMemMapping(tableObj *TableObj) error {
 	}
 
 	return nil
+}
+
+func AccountUsedMemory(memory map[uint16][]*FreeSpace) uint64 {
+	var totalMem uint64
+	for k, v := range memory {
+		rankMem := int(AVAIL_DATA-k) * len(v)
+		totalMem += uint64(rankMem)
+	}
+
+	return totalMem
 }
 
 func searchPage(tableObj *TableObj, memoryNedded, level uint16) ([]*FreeSpace, *FreeSpace, uint16, int) {
@@ -244,8 +255,8 @@ func getTag(pageMem uint16) uint16 {
 		return SEVENTH_LEVEL
 	case pageMem > ALMOST_FULL_PAGE && pageMem <= EIGHT_LEVEL:
 		return EIGHT_LEVEL
-	case pageMem > FIRST_LEVEL && pageMem <= EMPTY_PAGE:
-		return EMPTY_PAGE
+	case pageMem > FIRST_LEVEL && pageMem <= AVAIL_DATA:
+		return AVAIL_DATA
 	default:
 		return 0
 	}

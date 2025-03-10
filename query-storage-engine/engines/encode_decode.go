@@ -6,7 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"runtime/metrics"
 	"time"
+
+	"github.com/axiomhq/hyperloglog"
+	"github.com/bits-and-blooms/bloom/v3"
 )
 
 func EncodeMemObj(memObj map[uint16][]*FreeSpace) ([]byte, error) {
@@ -393,127 +397,6 @@ func ResetBytesToEmpty(page *PageV2, offset uint16, length uint16) error {
 	return nil
 }
 
-func SerializeCatalog(catalog *Catalog) ([]byte, error) {
-	var buf bytes.Buffer
-
-	numTables := uint32(len(catalog.Tables))
-	if err := binary.Write(&buf, binary.LittleEndian, numTables); err != nil {
-		return nil, err
-	}
-
-	for tableName, tableInfo := range catalog.Tables {
-		nameLen := uint32(len(tableName))
-		if err := binary.Write(&buf, binary.LittleEndian, nameLen); err != nil {
-			return nil, err
-		}
-		if _, err := buf.WriteString(string(tableName)); err != nil {
-			return nil, err
-		}
-
-		schemaLen := uint32(len(tableInfo.Schema))
-		if err := binary.Write(&buf, binary.LittleEndian, schemaLen); err != nil {
-			return nil, err
-		}
-		for columnName, columnType := range tableInfo.Schema {
-			colNameLen := uint32(len(columnName))
-			if err := binary.Write(&buf, binary.LittleEndian, colNameLen); err != nil {
-				return nil, err
-			}
-			if _, err := buf.WriteString(columnName); err != nil {
-				return nil, err
-			}
-
-			if err := binary.Write(&buf, binary.LittleEndian, columnType.IsIndex); err != nil {
-				return nil, err
-			}
-			colTypeLen := uint32(len(columnType.Type))
-			if err := binary.Write(&buf, binary.LittleEndian, colTypeLen); err != nil {
-				return nil, err
-			}
-			if _, err := buf.WriteString(columnType.Type); err != nil {
-				return nil, err
-			}
-		}
-
-		if err := binary.Write(&buf, binary.LittleEndian, tableInfo.NumOfPages); err != nil {
-			return nil, err
-		}
-	}
-
-	return buf.Bytes(), nil
-}
-
-func DeserializeCatalog(data []byte) (*Catalog, error) {
-	var buf bytes.Buffer
-	buf.Write(data)
-
-	var catalog Catalog
-	catalog.Tables = make(map[string]*TableInfo)
-
-	var numTables uint32
-	if err := binary.Read(&buf, binary.LittleEndian, &numTables); err != nil {
-		return nil, err
-	}
-
-	for i := uint32(0); i < numTables; i++ {
-		var nameLen uint32
-		if err := binary.Read(&buf, binary.LittleEndian, &nameLen); err != nil {
-			return nil, err
-		}
-
-		tableName := make([]byte, nameLen)
-		if _, err := buf.Read(tableName); err != nil {
-			return nil, err
-		}
-
-		var tableInfo TableInfo
-
-		var schemaLen uint32
-		if err := binary.Read(&buf, binary.LittleEndian, &schemaLen); err != nil {
-			return nil, err
-		}
-
-		tableInfo.Schema = make(map[string]ColumnType)
-		for j := uint32(0); j < schemaLen; j++ {
-			var colNameLen uint32
-			if err := binary.Read(&buf, binary.LittleEndian, &colNameLen); err != nil {
-				return nil, err
-			}
-			
-			colName := make([]byte, colNameLen)
-			if _, err := buf.Read(colName); err != nil {
-				return nil, err
-			}
-
-			var isIndex bool
-			if err := binary.Read(&buf, binary.LittleEndian, &isIndex); err != nil {
-				return nil, err
-			}
-			var typeLen uint32
-			if err := binary.Read(&buf, binary.LittleEndian, &typeLen); err != nil {
-				return nil, err
-			}
-			colType := make([]byte, typeLen)
-			if _, err := buf.Read(colType); err != nil {
-				return nil, err
-			}
-
-			tableInfo.Schema[string(colName)] = ColumnType{
-				IsIndex: isIndex,
-				Type:    string(colType),
-			}
-		}
-
-		if err := binary.Read(&buf, binary.LittleEndian, &tableInfo.NumOfPages); err != nil {
-			return nil, err
-		}
-
-		catalog.Tables[string(tableName)] = &tableInfo
-	}
-
-	return &catalog, nil
-}
-
 func EncodeItems(items []Item) ([]byte, error) {
 	buf := new(bytes.Buffer)
 
@@ -656,19 +539,6 @@ func writeBytes(buf *bytes.Buffer, b []byte) error {
 	return nil
 }
 
-func writeString(buf *bytes.Buffer, s string) error {
-	length := uint16(len(s))
-	if err := binary.Write(buf, binary.BigEndian, length); err != nil {
-		return err
-	}
-
-	if _, err := buf.WriteString(s); err != nil {
-		return err
-	}
-
-	return nil
-}
-
 func decodeLength(encodedData []byte) (uint32, error) {
 	if len(encodedData) < 4 {
 		return 0, errors.New("encoded data too short to contain length")
@@ -685,7 +555,7 @@ func decodeLength(encodedData []byte) (uint32, error) {
 }
 
 func deserializeLogRecord(data []byte) (*LogRecord, error) {
-	buf := bytes.NewBuffer(data)
+	buf := bytes.NewReader(data)
 	log := &LogRecord{}
 
 	if err := binary.Read(buf, binary.BigEndian, &log.LSN); err != nil {
@@ -733,21 +603,7 @@ func deserializeLogRecord(data []byte) (*LogRecord, error) {
 	return log, nil
 }
 
-func readString(buf *bytes.Buffer) (string, error) {
-	var length uint16
-	if err := binary.Read(buf, binary.BigEndian, &length); err != nil {
-		return "", err
-	}
-
-	strBytes := make([]byte, length)
-	if _, err := buf.Read(strBytes); err != nil {
-		return "", err
-	}
-
-	return string(strBytes), nil
-}
-
-func readBytes(buf *bytes.Buffer) ([]byte, error) {
+func readBytes(buf *bytes.Reader) ([]byte, error) {
 	var length uint32
 	if err := binary.Read(buf, binary.BigEndian, &length); err != nil {
 		return nil, err
@@ -775,4 +631,436 @@ func DecodeReq(data []byte) (uint8, []byte, error) {
 	}
 
 	return operation, remainingData, nil
+}
+
+// Helper functions for serialization
+func writeString(buf *bytes.Buffer, s string) error {
+	nameLen := uint32(len(s))
+	if err := binary.Write(buf, binary.LittleEndian, nameLen); err != nil {
+		return err
+	}
+	if _, err := buf.WriteString(s); err != nil {
+		return err
+	}
+	return nil
+}
+
+func readString(buf *bytes.Reader) (string, error) {
+	var strLen uint32
+	if err := binary.Read(buf, binary.LittleEndian, &strLen); err != nil {
+		return "", err
+	}
+
+	strBytes := make([]byte, strLen)
+	if _, err := buf.Read(strBytes); err != nil {
+		return "", err
+	}
+	return string(strBytes), nil
+}
+
+func writeColumnType(buf *bytes.Buffer, columnType ColumnType) error {
+	if err := binary.Write(buf, binary.LittleEndian, columnType.IsIndex); err != nil {
+		return err
+	}
+	return writeString(buf, columnType.Type)
+}
+
+func readColumnType(buf *bytes.Reader) (ColumnType, error) {
+	var isIndex bool
+	if err := binary.Read(buf, binary.LittleEndian, &isIndex); err != nil {
+		return ColumnType{}, err
+	}
+
+	colType, err := readString(buf)
+	if err != nil {
+		return ColumnType{}, err
+	}
+
+	return ColumnType{
+		IsIndex: isIndex,
+		Type:    colType,
+	}, nil
+}
+
+func writeSchema(buf *bytes.Buffer, schema map[string]ColumnType) error {
+	schemaLen := uint32(len(schema))
+	if err := binary.Write(buf, binary.LittleEndian, schemaLen); err != nil {
+		return err
+	}
+
+	for columnName, columnType := range schema {
+		if err := writeString(buf, columnName); err != nil {
+			return err
+		}
+		if err := writeColumnType(buf, columnType); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func readSchema(buf *bytes.Reader) (map[string]ColumnType, error) {
+	var schemaLen uint32
+	if err := binary.Read(buf, binary.LittleEndian, &schemaLen); err != nil {
+		return nil, err
+	}
+
+	schema := make(map[string]ColumnType)
+	for j := uint32(0); j < schemaLen; j++ {
+		colName, err := readString(buf)
+		if err != nil {
+			return nil, err
+		}
+
+		columnType, err := readColumnType(buf)
+		if err != nil {
+			return nil, err
+		}
+
+		schema[colName] = columnType
+	}
+	return schema, nil
+}
+
+func writeColumnAvgWidth(buf *bytes.Buffer, columnAvgWidth map[Column]uint16) error {
+	mapLen := uint32(len(columnAvgWidth))
+	if err := binary.Write(buf, binary.LittleEndian, mapLen); err != nil {
+		return err
+	}
+
+	for col, width := range columnAvgWidth {
+		if err := writeString(buf, string(col)); err != nil {
+			return err
+		}
+		if err := binary.Write(buf, binary.LittleEndian, width); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func readColumnAvgWidth(buf *bytes.Reader) (map[Column]uint16, error) {
+	var mapLen uint32
+	if err := binary.Read(buf, binary.LittleEndian, &mapLen); err != nil {
+		return nil, err
+	}
+
+	columnAvgWidth := make(map[Column]uint16)
+	for i := uint32(0); i < mapLen; i++ {
+		colName, err := readString(buf)
+		if err != nil {
+			return nil, err
+		}
+
+		var width uint16
+		if err := binary.Read(buf, binary.LittleEndian, &width); err != nil {
+			return nil, err
+		}
+
+		columnAvgWidth[Column(colName)] = width
+	}
+	return columnAvgWidth, nil
+}
+
+func writeHistogram(buf *bytes.Buffer, histogram map[Column]*metrics.Float64Histogram) error {
+	mapLen := uint32(len(histogram))
+	if err := binary.Write(buf, binary.LittleEndian, mapLen); err != nil {
+		return err
+	}
+
+	for col, hist := range histogram {
+		if err := writeString(buf, string(col)); err != nil {
+			return err
+		}
+
+		countsLen := uint32(len(hist.Counts))
+		if err := binary.Write(buf, binary.LittleEndian, countsLen); err != nil {
+			return err
+		}
+		for _, count := range hist.Counts {
+			if err := binary.Write(buf, binary.LittleEndian, count); err != nil {
+				return err
+			}
+		}
+
+		bucketsLen := uint32(len(hist.Buckets))
+		if err := binary.Write(buf, binary.LittleEndian, bucketsLen); err != nil {
+			return err
+		}
+		for _, bucket := range hist.Buckets {
+			if err := binary.Write(buf, binary.LittleEndian, bucket); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func readHistogram(buf *bytes.Reader) (map[Column]*metrics.Float64Histogram, error) {
+	var mapLen uint32
+	if err := binary.Read(buf, binary.LittleEndian, &mapLen); err != nil {
+		return nil, err
+	}
+
+	histogram := make(map[Column]*metrics.Float64Histogram)
+	for i := uint32(0); i < mapLen; i++ {
+		colName, err := readString(buf)
+		if err != nil {
+			return nil, err
+		}
+
+		hist := &metrics.Float64Histogram{}
+
+		var countsLen uint32
+		if err := binary.Read(buf, binary.LittleEndian, &countsLen); err != nil {
+			return nil, err
+		}
+		hist.Counts = make([]uint64, countsLen)
+		for j := uint32(0); j < countsLen; j++ {
+			if err := binary.Read(buf, binary.LittleEndian, &hist.Counts[j]); err != nil {
+				return nil, err
+			}
+		}
+
+		var bucketsLen uint32
+		if err := binary.Read(buf, binary.LittleEndian, &bucketsLen); err != nil {
+			return nil, err
+		}
+		hist.Buckets = make([]float64, bucketsLen)
+		for j := uint32(0); j < bucketsLen; j++ {
+			if err := binary.Read(buf, binary.LittleEndian, &hist.Buckets[j]); err != nil {
+				return nil, err
+			}
+		}
+
+		histogram[Column(colName)] = hist
+	}
+	return histogram, nil
+}
+
+func writeUniqueCount(buf *bytes.Buffer, sketch *hyperloglog.Sketch) error {
+	if sketch == nil {
+		if err := binary.Write(buf, binary.LittleEndian, false); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	if err := binary.Write(buf, binary.LittleEndian, true); err != nil {
+		return err
+	}
+
+	sketchData, err := sketch.MarshalBinary()
+	if err != nil {
+		return err
+	}
+
+	dataLen := uint32(len(sketchData))
+	if err := binary.Write(buf, binary.LittleEndian, dataLen); err != nil {
+		return err
+	}
+
+	if _, err := buf.Write(sketchData); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func readUniqueCount(buf *bytes.Reader) (*hyperloglog.Sketch, error) {
+	var hasSketch bool
+	if err := binary.Read(buf, binary.LittleEndian, &hasSketch); err != nil {
+		return nil, err
+	}
+
+	if !hasSketch {
+		return nil, nil
+	}
+
+	var dataLen uint32
+	if err := binary.Read(buf, binary.LittleEndian, &dataLen); err != nil {
+		return nil, err
+	}
+
+	sketchData := make([]byte, dataLen)
+	if _, err := buf.Read(sketchData); err != nil {
+		return nil, err
+	}
+
+	sketch := &hyperloglog.Sketch{}
+	if err := sketch.UnmarshalBinary(sketchData); err != nil {
+		return nil, err
+	}
+
+	return sketch, nil
+}
+
+func writeSkipPage(buf *bytes.Buffer, skipPage map[PageID]map[Column]*bloom.BloomFilter) error {
+	mapLen := uint32(len(skipPage))
+	if err := binary.Write(buf, binary.LittleEndian, mapLen); err != nil {
+		return err
+	}
+
+	for pageID, colMap := range skipPage {
+		if err := binary.Write(buf, binary.LittleEndian, pageID); err != nil {
+			return err
+		}
+
+		colMapLen := uint32(len(colMap))
+		if err := binary.Write(buf, binary.LittleEndian, colMapLen); err != nil {
+			return err
+		}
+
+		for col, filter := range colMap {
+			if err := writeString(buf, string(col)); err != nil {
+				return err
+			}
+
+			filterData, err := filter.MarshalBinary()
+			if err != nil {
+				return err
+			}
+
+			dataLen := uint32(len(filterData))
+			if err := binary.Write(buf, binary.LittleEndian, dataLen); err != nil {
+				return err
+			}
+
+			if _, err := buf.Write(filterData); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func readSkipPage(buf *bytes.Reader) (map[PageID]map[Column]*bloom.BloomFilter, error) {
+	var mapLen uint32
+	if err := binary.Read(buf, binary.LittleEndian, &mapLen); err != nil {
+		return nil, err
+	}
+
+	skipPage := make(map[PageID]map[Column]*bloom.BloomFilter)
+	for i := uint32(0); i < mapLen; i++ {
+		var pageID PageID
+		if err := binary.Read(buf, binary.LittleEndian, &pageID); err != nil {
+			return nil, err
+		}
+
+		var colMapLen uint32
+		if err := binary.Read(buf, binary.LittleEndian, &colMapLen); err != nil {
+			return nil, err
+		}
+
+		colMap := make(map[Column]*bloom.BloomFilter)
+		for j := uint32(0); j < colMapLen; j++ {
+			colName, err := readString(buf)
+			if err != nil {
+				return nil, err
+			}
+
+			var dataLen uint32
+			if err := binary.Read(buf, binary.LittleEndian, &dataLen); err != nil {
+				return nil, err
+			}
+
+			filterData := make([]byte, dataLen)
+			if _, err := buf.Read(filterData); err != nil {
+				return nil, err
+			}
+
+			filter := &bloom.BloomFilter{}
+			if err := filter.UnmarshalBinary(filterData); err != nil {
+				return nil, err
+			}
+
+			colMap[Column(colName)] = filter
+		}
+
+		skipPage[pageID] = colMap
+	}
+	return skipPage, nil
+}
+
+func writeTableInfo(buf *bytes.Buffer, tableInfo *TableInfo) error {
+	if err := writeSchema(buf, tableInfo.Schema); err != nil {
+		return err
+	}
+
+	if err := binary.Write(buf, binary.LittleEndian, tableInfo.NumOfPages); err != nil {
+		return err
+	}
+	if err := binary.Write(buf, binary.LittleEndian, tableInfo.UsedSpace); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func readTableInfo(buf *bytes.Reader) (*TableInfo, error) {
+	var tableInfo TableInfo
+
+	schema, err := readSchema(buf)
+	if err != nil {
+		return nil, err
+	}
+	tableInfo.Schema = schema
+
+	if err := binary.Read(buf, binary.LittleEndian, &tableInfo.NumOfPages); err != nil {
+		return nil, err
+	}
+	if err := binary.Read(buf, binary.LittleEndian, &tableInfo.UsedSpace); err != nil {
+		return nil, err
+	}
+
+	return &tableInfo, nil
+}
+
+func SerializeCatalog(catalog *Catalog) ([]byte, error) {
+	var buf bytes.Buffer
+
+	numTables := uint32(len(catalog.Tables))
+	if err := binary.Write(&buf, binary.LittleEndian, numTables); err != nil {
+		return nil, err
+	}
+
+	for tableName, tableInfo := range catalog.Tables {
+		if err := writeString(&buf, tableName); err != nil {
+			return nil, err
+		}
+
+		if err := writeTableInfo(&buf, tableInfo); err != nil {
+			return nil, err
+		}
+	}
+
+	return buf.Bytes(), nil
+}
+
+func DeserializeCatalog(data []byte) (*Catalog, error) {
+	buf := bytes.NewReader(data)
+
+	var catalog Catalog
+	catalog.Tables = make(map[string]*TableInfo)
+
+	var numTables uint32
+	if err := binary.Read(buf, binary.LittleEndian, &numTables); err != nil {
+		return nil, err
+	}
+
+	for i := uint32(0); i < numTables; i++ {
+		tableName, err := readString(buf)
+		if err != nil {
+			return nil, err
+		}
+
+		tableInfo, err := readTableInfo(buf)
+		if err != nil {
+			return nil, err
+		}
+
+		catalog.Tables[tableName] = tableInfo
+	}
+
+	return &catalog, nil
 }

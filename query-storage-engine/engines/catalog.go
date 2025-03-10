@@ -8,6 +8,7 @@ type Column string
 type TableInfo struct {
 	Schema     map[string]ColumnType
 	NumOfPages uint64
+	UsedSpace  uint64 // bytes // entire table
 }
 
 type ColumnType struct {

@@ -227,6 +227,7 @@ func RearrangePAGE(page *PageV2, tableObj *TableObj, tableName string) (*PageV2,
 			if err != nil {
 				return nil, fmt.Errorf("AddTuple failed: %w", err)
 			}
+			continue
 		}
 	}
 
@@ -250,11 +251,13 @@ func UpdatePageInfo(pageFound *PageV2, tableObj *TableObj, tableStats *TableInfo
 		pageObj = &PageInfo{
 			Offset:       offset,
 			PointerArray: pageFound.PointerArray,
+			ExactFreeMem: pageFound.Header.UpperPtr - pageFound.Header.LowerPtr,
 		}
 
 		dirPage.Value[pageID] = pageObj
 
 		tableStats.NumOfPages++
+
 		err = manager.UpdateCatalog()
 		if err != nil {
 			return fmt.Errorf("UpdateCatalog Failed: %w", err)

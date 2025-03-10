@@ -19,7 +19,7 @@ func BenchmarkInsert(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		queryInfo := engines.QueryInfo{QueryId: engines.GenerateRandomID(), RawPlan: encodedPlan}
+		queryInfo := engines.QueryInfo{Id: engines.GenerateRandomID(), RawPlan: encodedPlan}
 		engineDB.QueryProcessingEntry(&queryInfo)
 	}
 	b.StopTimer()
@@ -36,7 +36,7 @@ func BenchmarkDelete(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		queryInfo := engines.QueryInfo{QueryId: engines.GenerateRandomID(), RawPlan: encodedPlan}
+		queryInfo := engines.QueryInfo{Id: engines.GenerateRandomID(), RawPlan: encodedPlan}
 		engineDB.QueryProcessingEntry(&queryInfo)
 	}
 	b.StopTimer()
@@ -53,7 +53,7 @@ func BenchmarkUpdate(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		queryInfo := engines.QueryInfo{QueryId: engines.GenerateRandomID(), RawPlan: encodedPlan}
+		queryInfo := engines.QueryInfo{Id: engines.GenerateRandomID(), RawPlan: encodedPlan}
 		engineDB.QueryProcessingEntry(&queryInfo)
 	}
 	b.StopTimer()
@@ -70,7 +70,7 @@ func BenchmarkSelectWheres(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		queryInfo := engines.QueryInfo{QueryId: engines.GenerateRandomID(), RawPlan: encodedPlan}
+		queryInfo := engines.QueryInfo{Id: engines.GenerateRandomID(), RawPlan: encodedPlan}
 		engineDB.QueryProcessingEntry(&queryInfo)
 	}
 	b.StopTimer()
@@ -87,7 +87,7 @@ func BenchmarkSelectWheresRange(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		queryInfo := engines.QueryInfo{QueryId: engines.GenerateRandomID(), RawPlan: encodedPlan}
+		queryInfo := engines.QueryInfo{Id: engines.GenerateRandomID(), RawPlan: encodedPlan}
 		engineDB.QueryProcessingEntry(&queryInfo)
 	}
 	b.StopTimer()
@@ -104,7 +104,7 @@ func BenchmarkSelectSortingAsc(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		queryInfo := engines.QueryInfo{QueryId: engines.GenerateRandomID(), RawPlan: encodedPlan}
+		queryInfo := engines.QueryInfo{Id: engines.GenerateRandomID(), RawPlan: encodedPlan}
 		engineDB.QueryProcessingEntry(&queryInfo)
 	}
 	b.StopTimer()
@@ -121,7 +121,7 @@ func BenchmarkSelectSortingLimit(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		queryInfo := engines.QueryInfo{QueryId: engines.GenerateRandomID(), RawPlan: encodedPlan}
+		queryInfo := engines.QueryInfo{Id: engines.GenerateRandomID(), RawPlan: encodedPlan}
 		engineDB.QueryProcessingEntry(&queryInfo)
 	}
 	b.StopTimer()
@@ -134,7 +134,7 @@ func InsertSample(N int, engineDB *engines.QueryEngine) {
 		if err != nil {
 			log.Fatal(err)
 		}
-		queryInfo := engines.QueryInfo{QueryId: engines.GenerateRandomID(), RawPlan: encodedPlan}
+		queryInfo := engines.QueryInfo{Id: engines.GenerateRandomID(), RawPlan: encodedPlan}
 		engineDB.QueryProcessingEntry(&queryInfo)
 	}
 }
@@ -156,6 +156,6 @@ func CreateTable(engineDB *engines.QueryEngine) {
 		log.Fatal("Error getting query plan: ", err)
 	}
 
-	queryInfo := engines.QueryInfo{QueryId: engines.GenerateRandomID(), RawPlan: encodedPlan}
+	queryInfo := engines.QueryInfo{Id: engines.GenerateRandomID(), RawPlan: encodedPlan}
 	engineDB.QueryProcessingEntry(&queryInfo)
 }

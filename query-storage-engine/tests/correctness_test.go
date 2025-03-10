@@ -293,7 +293,7 @@ func TestDelete(t *testing.T) {
 			t.Fatalf("exact memory not zeroed, pageObj: %+v", pageObj)
 		}
 
-		if pageObj.Level != engines.EMPTY_PAGE {
+		if pageObj.Level != engines.AVAIL_DATA {
 			t.Fatalf("not on expected level, page %+v", page)
 		}
 

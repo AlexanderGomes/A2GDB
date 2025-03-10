@@ -93,7 +93,7 @@ func findAndUpdate(bufferM *BufferPoolManager, tableObj *TableObj, tableStats *T
 	}
 
 	logger.Log.WithFields(logrus.Fields{"newSpace": newSpace}).Info("memSeparationSingle input")
-	err = memSeparationSingle(&newSpace, tableObj) // safe to do memory separation
+	err = memSeparationSingle(&newSpace, tableObj, tableStats) // safe to do memory separation
 	if err != nil {
 		return fmt.Errorf("memSeparationSingle failed: %v", page)
 	}

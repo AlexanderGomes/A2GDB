@@ -3,9 +3,10 @@ package engines
 import "sync"
 
 type ResultManager struct {
-	mu                sync.Mutex
-	SubscribedQueries map[uint64]chan *Result // buffer the channel to 1 // avoid blocking
-	GlobalChannel     chan *Result
+	mu                    sync.Mutex
+	SubscribedQueries     map[uint64]chan *Result // buffer the channel to 1 // avoid blocking
+	SchedulerNotification chan *Result
+	GlobalChannel         chan *Result
 }
 
 func (rm *ResultManager) ResultCollector() {
@@ -15,6 +16,7 @@ func (rm *ResultManager) ResultCollector() {
 			panic("queryId not subscribed, can't deliver message")
 		}
 
+		rm.SchedulerNotification <- res
 		subQueryChan <- res
 	}
 }

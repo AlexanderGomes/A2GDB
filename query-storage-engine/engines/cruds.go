@@ -12,10 +12,11 @@ import (
 )
 
 type Result struct {
-	QueryId uint64
-	Error   error
-	Msg     string
-	Rows    []*RowV2
+	QueryId  uint64
+	QueryTye string
+	Error    error
+	Msg      string
+	Rows     []*RowV2
 }
 
 func (qe *QueryEngine) handleUpdate(plan map[string]interface{}, transactionOff bool, induceErr bool) Result {
@@ -227,7 +228,9 @@ func (qe *QueryEngine) handleCreate(plan map[string]interface{}) Result {
 	tableName := plan["table"].(string)
 	columnsInfo := plan["columns"].([]interface{})
 
-	tableInfo := TableInfo{Schema: make(map[string]ColumnType)}
+	tableInfo := TableInfo{
+		Schema: make(map[string]ColumnType),
+	}
 
 	for _, columnInfo := range columnsInfo {
 		columnMap := columnInfo.(map[string]interface{})

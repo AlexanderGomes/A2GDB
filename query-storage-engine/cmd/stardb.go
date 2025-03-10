@@ -16,12 +16,17 @@ func InitDatabase(k int, dirName string) (*engines.QueryEngine, error) {
 		return nil, fmt.Errorf("error initializing database: %w", err)
 	}
 
+	schedulerNotification := make(chan *engines.Result, 1000)
+	globalChannel := make(chan *engines.Result, 1000)
 	queryEngine := &engines.QueryEngine{
 		BufferPoolManager: bufferPool,
 		Lm:                &engines.LockManager{Mu: sync.RWMutex{}, Rows: map[uint64]*engines.RowInfo{}},
 		QueryChan:         make(chan *engines.QueryInfo, 1000),
-		ResultManager:     &engines.ResultManager{SubscribedQueries: map[uint64]chan *engines.Result{}, GlobalChannel: make(chan *engines.Result, 1000)},
+		ResultManager:     &engines.ResultManager{SubscribedQueries: map[uint64]chan *engines.Result{}, GlobalChannel: globalChannel, SchedulerNotification: schedulerNotification},
+		Scheduler:         &engines.QueryScheduler{Queries: make(chan *engines.QueryInfo, 1000), FinishedQueries: schedulerNotification, ResChan: globalChannel},
 	}
+
+	queryEngine.Scheduler.QueryEngine = queryEngine
 
 	if err := CreateDefaultTable(queryEngine); err != nil {
 		if !strings.Contains(err.Error(), "table already exists") {
@@ -31,6 +36,7 @@ func InitDatabase(k int, dirName string) (*engines.QueryEngine, error) {
 
 	go queryEngine.QueryManager()
 	go queryEngine.ResultManager.ResultCollector()
+	go queryEngine.Scheduler.Scheduler()
 
 	logger.Log.Info("Database initialized successfully")
 	return queryEngine, nil
@@ -43,7 +49,7 @@ func CreateDefaultTable(queryEngine *engines.QueryEngine) error {
 		return fmt.Errorf("SendSql failed: %w", err)
 	}
 
-	queryInfo := engines.QueryInfo{RawPlan: encodedPlan1, TransactionOff: false, InduceErr: false, QueryId: engines.GenerateRandomID()}
+	queryInfo := engines.QueryInfo{RawPlan: encodedPlan1, TransactionOff: false, InduceErr: false, Id: engines.GenerateRandomID()}
 	result := queryEngine.QueryProcessingEntry(&queryInfo)
 	if result.Error != nil {
 		return fmt.Errorf("QueryProcessingEntry failed: %w", result.Error)

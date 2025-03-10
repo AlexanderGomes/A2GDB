@@ -27,7 +27,7 @@ type TableObj struct {
 	DataFile      *os.File
 	MemFile       *os.File
 	TableName     string
-	Mu            sync.RWMutex
+	Mu            *sync.RWMutex
 }
 
 type FreeSpace struct {
@@ -59,6 +59,7 @@ func (dm *DiskManagerV2) InMemoryTableSetUp(tableName string) (*TableObj, error)
 		DirFile:       dirFilePtr,
 		MemFile:       memFilePtr,
 		TableName:     tableName,
+		Mu:            &sync.RWMutex{},
 	}
 
 	dm.Mu.Lock()
@@ -407,6 +408,11 @@ func GetTableObj(tableName string, manager *DiskManagerV2) (*TableObj, error) {
 		if err != nil {
 			return nil, fmt.Errorf("InMemoryTableSetUp failed: %w", err)
 		}
+	}
+
+	if tableObj.Mu == nil {
+		fmt.Println("here")
+		tableObj.Mu = &sync.RWMutex{}
 	}
 
 	return tableObj, err

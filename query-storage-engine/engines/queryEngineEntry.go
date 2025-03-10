@@ -17,11 +17,13 @@ type QueryEngine struct {
 	Lm                *LockManager
 	QueryChan         chan *QueryInfo
 	ResultManager     *ResultManager
+	Scheduler         *QueryScheduler
 	InlineMu          sync.Mutex
 }
 
 type QueryInfo struct {
-	QueryId        uint64
+	Id             uint64
+	Type           string
 	RawPlan        interface{}
 	tableName      string
 	TransactionOff bool
@@ -29,35 +31,41 @@ type QueryInfo struct {
 }
 
 func (qe *QueryEngine) QueryManager() {
-	var result Result
+	var result *Result
+	var plan map[string]interface{}
 
 	for queryInfo := range qe.QueryChan {
 		queryPlan := queryInfo.RawPlan
-
-		plan, isMap := queryPlan.(map[string]interface{})
-		frontendErr, ok := plan["message"].(string)
-		if ok || !isMap {
-			result.Error = fmt.Errorf("frontend failed: %s", frontendErr)
-			result.Msg = "failed"
-			qe.ResultManager.GlobalChannel <- &result
-			continue
-		}
+		result, plan = unwrapPlannerInfo(queryPlan)
 
 		switch operation := plan["STATEMENT"]; operation {
 		case "CREATE_TABLE", "SELECT":
-			go func() {
-				qe.ResultManager.GlobalChannel <- qe.QueryProcessingEntry(queryInfo)
-			}()
+			queryInfo.Type = "NON_CRUD"
+			qe.Scheduler.Queries <- queryInfo
 		case "INSERT", "DELETE", "UPDATE":
+			queryInfo.Type = "CRUD"
 			queryInfo.tableName = plan["table"].(string)
-			go qe.InlineCruds(queryInfo)
+			qe.Scheduler.Queries <- queryInfo
 		default:
 			result.Error = fmt.Errorf("unsupported type: %s", operation)
 			result.Msg = "failed"
-			qe.ResultManager.GlobalChannel <- &result
+			qe.ResultManager.GlobalChannel <- result
 		}
 
 	}
+}
+
+func unwrapPlannerInfo(queryPlan interface{}) (*Result, map[string]interface{}) {
+	var result Result
+
+	plan, isMap := queryPlan.(map[string]interface{})
+	frontendErr, ok := plan["message"].(string)
+	if ok || !isMap {
+		result.Error = fmt.Errorf("frontend failed: %s", frontendErr)
+		result.Msg = "failed"
+	}
+
+	return &result, plan
 }
 
 func (qe *QueryEngine) InlineCruds(queryInfo *QueryInfo) {
@@ -96,20 +104,25 @@ func (qe *QueryEngine) QueryProcessingEntry(queryInfo *QueryInfo) *Result {
 	switch operation := plan["STATEMENT"]; operation {
 	case "CREATE_TABLE":
 		result = qe.handleCreate(plan)
+		result.QueryTye = "NON_CRUD"
 	case "INSERT":
 		result = qe.handleInsert(plan, queryInfo.TransactionOff, queryInfo.InduceErr)
+		result.QueryTye = "CRUD"
 	case "SELECT":
 		result = qe.handleSelect(plan)
+		result.QueryTye = "NON_CRUD"
 	case "DELETE":
 		result = qe.handleDelete(plan, queryInfo.TransactionOff, queryInfo.InduceErr)
+		result.QueryTye = "CRUD"
 	case "UPDATE":
 		result = qe.handleUpdate(plan, queryInfo.TransactionOff, queryInfo.InduceErr)
+		result.QueryTye = "CRUD"
 	default:
 		result.Error = fmt.Errorf("unsupported type: %s", operation)
 		result.Msg = "failed"
 	}
 
-	result.QueryId = queryInfo.QueryId
+	result.QueryId = queryInfo.Id
 
 	return &result
 }

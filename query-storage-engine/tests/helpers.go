@@ -102,7 +102,7 @@ func insertMany(t *testing.T, x int) {
 			t.Fatal(err)
 		}
 
-		queryInfo := engines.QueryInfo{RawPlan: encodedPlan1, QueryId: engines.GenerateRandomID()}
+		queryInfo := engines.QueryInfo{RawPlan: encodedPlan1, Id: engines.GenerateRandomID()}
 		res := sharedDB.QueryProcessingEntry(&queryInfo)
 		if res.Error != nil {
 			t.Fatal("InsertMany Failed: ", res.Error)
@@ -119,7 +119,7 @@ func selectFilter(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	queryInfo := engines.QueryInfo{RawPlan: encodedPlan1, QueryId: engines.GenerateRandomID()}
+	queryInfo := engines.QueryInfo{RawPlan: encodedPlan1, Id: engines.GenerateRandomID()}
 	res := sharedDB.QueryProcessingEntry(&queryInfo)
 	if len(res.Rows) != expectedStressNumber {
 		t.Fatalf("incorrect number of rows returned")
@@ -145,7 +145,7 @@ func selectStart(t *testing.T) *engines.RowV2 {
 		t.Fatal(err)
 	}
 
-	queryInfo := engines.QueryInfo{RawPlan: encodedPlan1, QueryId: engines.GenerateRandomID()}
+	queryInfo := engines.QueryInfo{RawPlan: encodedPlan1, Id: engines.GenerateRandomID()}
 	res := sharedDB.QueryProcessingEntry(&queryInfo)
 	if len(res.Rows) != expectedStressNumber {
 		t.Fatalf("incorrect number of rows returned")
@@ -172,7 +172,7 @@ func selectWhere(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		queryInfo := engines.QueryInfo{RawPlan: encodedPlan1, QueryId: engines.GenerateRandomID()}
+		queryInfo := engines.QueryInfo{RawPlan: encodedPlan1, Id: engines.GenerateRandomID()}
 		res := sharedDB.QueryProcessingEntry(&queryInfo)
 		for _, row := range res.Rows {
 			if len(row.Values) != expectedColumns.Size() {
@@ -220,7 +220,7 @@ func selectWhereAnd(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	queryInfo := engines.QueryInfo{RawPlan: encodedPlan1, QueryId: engines.GenerateRandomID()}
+	queryInfo := engines.QueryInfo{RawPlan: encodedPlan1, Id: engines.GenerateRandomID()}
 	res := sharedDB.QueryProcessingEntry(&queryInfo)
 
 	for _, row := range res.Rows {
@@ -254,7 +254,7 @@ func findByPrimary(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	queryInfo := engines.QueryInfo{RawPlan: encodedPlan1, QueryId: engines.GenerateRandomID()}
+	queryInfo := engines.QueryInfo{RawPlan: encodedPlan1, Id: engines.GenerateRandomID()}
 	res := sharedDB.QueryProcessingEntry(&queryInfo)
 	user := res.Rows[0]
 	if len(res.Rows) != 1 {
@@ -363,7 +363,7 @@ func getId(t *testing.T) uint64 {
 		t.Fatal(err)
 	}
 
-	queryInfo := engines.QueryInfo{RawPlan: encodedPlan1, QueryId: engines.GenerateRandomID()}
+	queryInfo := engines.QueryInfo{RawPlan: encodedPlan1, Id: engines.GenerateRandomID()}
 	result := sharedDB.QueryProcessingEntry(&queryInfo)
 	if result.Error != nil {
 		t.Fatal(result.Error)
@@ -378,7 +378,7 @@ func causeError(t *testing.T, sql string) {
 		t.Fatal(err)
 	}
 
-	queryInfo := engines.QueryInfo{RawPlan: encodedPlan1, QueryId: engines.GenerateRandomID(), InduceErr: true}
+	queryInfo := engines.QueryInfo{RawPlan: encodedPlan1, Id: engines.GenerateRandomID(), InduceErr: true}
 	result := sharedDB.QueryProcessingEntry(&queryInfo)
 	if result.Error == nil {
 		t.Fatal("no error was caused")
@@ -391,7 +391,7 @@ func IsUserPresent(t *testing.T, sql string) []*engines.RowV2 {
 		t.Fatal(err)
 	}
 
-	queryInfo := engines.QueryInfo{QueryId: engines.GenerateRandomID(), RawPlan: encodedPlan}
+	queryInfo := engines.QueryInfo{Id: engines.GenerateRandomID(), RawPlan: encodedPlan}
 	results := sharedDB.QueryProcessingEntry(&queryInfo)
 	if results.Error != nil {
 		t.Fatal(results.Error)
