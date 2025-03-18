@@ -5,70 +5,74 @@ import (
 )
 
 type QueryScheduler struct {
-	Queries         chan *QueryInfo
-	QueryEngine     *QueryEngine
-	FinishedQueries chan *Result
-	ResChan         chan *Result
-	Crud            int
-	NonCrud         int
-	Mu              sync.Mutex
+	Queries      chan *QueryInfo
+	QueryEngine  *QueryEngine
+	Notification chan *Result
+	ResChan      chan *Result
+	Crud         int
+	NonCrud      int
+	CondCrud     *sync.Cond
+	CondNonCrud  *sync.Cond
+	Mu           sync.Mutex
+}
+
+func NewQueryScheduler(notification chan *Result, resChan chan *Result, qe *QueryEngine) *QueryScheduler {
+	qs := &QueryScheduler{
+		Queries:      make(chan *QueryInfo, 1000),
+		Notification: notification,
+		ResChan:      resChan,
+		QueryEngine:  qe,
+	}
+
+	qs.CondCrud = sync.NewCond(&qs.Mu)
+	qs.CondNonCrud = sync.NewCond(&qs.Mu)
+	return qs
 }
 
 func (qs *QueryScheduler) Scheduler() {
-	for {
-		select {
-		case queryInfo := <-qs.Queries:
-			go qs.Execute(queryInfo)
-		case queryFinished := <-qs.FinishedQueries:
-			qs.Mu.Lock()
-			if queryFinished.QueryTye == "CRUD" {
-				qs.Crud--
-			} else {
-				qs.NonCrud--
-			}
-			qs.Mu.Unlock()
-		}
+	for queryInfo := range qs.Queries {
+		go qs.Execute(queryInfo)
 	}
 }
 
 func (qs *QueryScheduler) Execute(queryInfo *QueryInfo) {
 	qs.Mu.Lock()
 
-	if queryInfo.Type == "CRUD" && qs.NonCrud == 0 {
+	if queryInfo.Type == "CRUD" {
+		for qs.NonCrud > 0 {
+			qs.CondNonCrud.Wait()
+		}
+
 		qs.Crud++
 		qs.Mu.Unlock()
-		go qs.QueryEngine.InlineCruds(queryInfo) // could use channel instead of initializing mulitple goroutines when only one can run at any given time
-	} else if queryInfo.Type == "CRUD" && qs.NonCrud > 0 {
-		for res := range qs.FinishedQueries {
-			if res.QueryTye == "NON_CRUD" {
-				qs.NonCrud--
-				if qs.NonCrud == 0 {
-					qs.Crud++
-					qs.Mu.Unlock()
-					go qs.QueryEngine.InlineCruds(queryInfo)
-					break
-				}
-			}
+		go qs.QueryEngine.InlineCruds(queryInfo)
+	} else if queryInfo.Type == "NON_CRUD" {
+		for qs.Crud > 0 {
+			qs.CondCrud.Wait()
 		}
-	} else if queryInfo.Type == "NON_CRUD" && qs.Crud == 0 {
+
 		qs.NonCrud++
 		qs.Mu.Unlock()
 		go func() {
 			qs.ResChan <- qs.QueryEngine.QueryProcessingEntry(queryInfo)
 		}()
-	} else if queryInfo.Type == "NON_CRUD" && qs.Crud > 0 {
-		for res := range qs.FinishedQueries {
-			if res.QueryTye == "CRUD" {
-				qs.Crud--
-				if qs.Crud == 0 {
-					qs.NonCrud++
-					qs.Mu.Unlock()
-					go func() {
-						qs.ResChan <- qs.QueryEngine.QueryProcessingEntry(queryInfo)
-					}()
-					break
-				}
+	}
+}
+
+func (qs *QueryScheduler) Decreaser() {
+	for res := range qs.Notification {
+		qs.Mu.Lock()
+		if res.QueryTye == "NON_CRUD" {
+			qs.NonCrud--
+			if qs.NonCrud == 0 {
+				qs.CondCrud.Broadcast()
+			}
+		} else {
+			qs.Crud--
+			if qs.Crud == 0 {
+				qs.CondNonCrud.Broadcast()
 			}
 		}
+		qs.Mu.Unlock()
 	}
 }

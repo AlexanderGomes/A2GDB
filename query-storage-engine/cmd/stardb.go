@@ -23,10 +23,9 @@ func InitDatabase(k int, dirName string) (*engines.QueryEngine, error) {
 		Lm:                &engines.LockManager{Mu: sync.RWMutex{}, Rows: map[uint64]*engines.RowInfo{}},
 		QueryChan:         make(chan *engines.QueryInfo, 1000),
 		ResultManager:     &engines.ResultManager{SubscribedQueries: map[uint64]chan *engines.Result{}, GlobalChannel: globalChannel, SchedulerNotification: schedulerNotification},
-		Scheduler:         &engines.QueryScheduler{Queries: make(chan *engines.QueryInfo, 1000), FinishedQueries: schedulerNotification, ResChan: globalChannel},
 	}
 
-	queryEngine.Scheduler.QueryEngine = queryEngine
+	queryEngine.Scheduler = engines.NewQueryScheduler(schedulerNotification, globalChannel, queryEngine)
 
 	if err := CreateDefaultTable(queryEngine); err != nil {
 		if !strings.Contains(err.Error(), "table already exists") {
@@ -37,6 +36,7 @@ func InitDatabase(k int, dirName string) (*engines.QueryEngine, error) {
 	go queryEngine.QueryManager()
 	go queryEngine.ResultManager.ResultCollector()
 	go queryEngine.Scheduler.Scheduler()
+	go queryEngine.Scheduler.Decreaser()
 
 	logger.Log.Info("Database initialized successfully")
 	return queryEngine, nil

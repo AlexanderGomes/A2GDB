@@ -75,13 +75,14 @@ func CreatePageV2(tableName string) *PageV2 {
 	}
 }
 
-func (p *PageV2) AddTuple(data []byte) error {
+func (p *PageV2) AddTuple(data []byte, verbose string) error {
 	tupleLen := uint16(len(data))
 	offset := p.Header.UpperPtr - tupleLen
 	canInsert := p.Header.UpperPtr-p.Header.LowerPtr > tupleLen && offset < PageDataSize
 
 	if !canInsert {
 		fmt.Println("(addTuple) pageHeader: ", p.Header)
+		fmt.Println(verbose)
 		return fmt.Errorf("AddTuple (can't insert)")
 	}
 
@@ -223,7 +224,7 @@ func RearrangePAGE(page *PageV2, tableObj *TableObj, tableName string) (*PageV2,
 
 		if !location.Free {
 			rowBytes := page.Data[location.Offset : location.Offset+location.Length]
-			err := newPage.AddTuple(rowBytes)
+			err := newPage.AddTuple(rowBytes, "RearrangePAGE")
 			if err != nil {
 				return nil, fmt.Errorf("AddTuple failed: %w", err)
 			}

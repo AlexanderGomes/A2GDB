@@ -80,7 +80,7 @@ func findAndUpdate(bufferM *BufferPoolManager, tableObj *TableObj, tableStats *T
 
 	for _, encodedRow := range encodedRows {
 		newSpace.FreeMemory -= uint16(len(encodedRow))
-		err := page.AddTuple(encodedRow)
+		err := page.AddTuple(encodedRow, "findAndUpdate")
 		if err != nil {
 			return fmt.Errorf("AddTuple failed: %w", err)
 		}
