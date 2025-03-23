@@ -40,7 +40,7 @@ func (qs *QueryScheduler) Execute(queryInfo *QueryInfo) {
 
 	if queryInfo.Type == "CRUD" {
 		for qs.NonCrud > 0 {
-			qs.CondNonCrud.Wait()
+			qs.CondNonCrud.Wait() // unlocks when it shouldn't
 		}
 
 		qs.Crud++
@@ -48,7 +48,7 @@ func (qs *QueryScheduler) Execute(queryInfo *QueryInfo) {
 		go qs.QueryEngine.InlineCruds(queryInfo)
 	} else if queryInfo.Type == "NON_CRUD" {
 		for qs.Crud > 0 {
-			qs.CondCrud.Wait()
+			qs.CondCrud.Wait() // unlocks when it shouldn't
 		}
 
 		qs.NonCrud++
