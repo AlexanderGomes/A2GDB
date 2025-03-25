@@ -7,36 +7,23 @@ import (
 	"fmt"
 	"log"
 	"sync"
+
+	"github.com/joho/godotenv"
 )
 
 func main() {
+	err := godotenv.Load("../.env")
+	if err != nil {
+		log.Fatal("Error loading .env file")
+	}
+
 	engine, err := cmd.InitDatabase(2, "A2G_DB_OS")
 	if err != nil {
 		log.Fatal("DB init failed: ", err)
 	}
 
-	// InsertMany(engine, 2000)
-
-	queries := []string{
-		"SELECT * FROM `User`",
-		"SELECT Username, Age FROM `User`",
-		"INSERT INTO `User` (Username, Age, City) VALUES ('JaneSmith', 25, 'Los Angeles'), ('AliceBrown', 28, 'Chicago'), ('BobWhite', 35, 'Houston')",
-		"SELECT Username, Age, City FROM `User` WHERE Age > 20",
-		"SELECT Username, Age, City FROM `User` WHERE Age = 20",
-		"INSERT INTO `User` (Username, Age, City) VALUES ('JaneSmith', 25, 'Los Angeles'), ('AliceBrown', 28, 'Chicago'), ('BobWhite', 35, 'Houston')",
-		"SELECT Username, Age, City FROM `User` WHERE Age < 20",
-		"INSERT INTO `User` (Username, Age, City) VALUES ('JaneSmith', 25, 'Los Angeles'), ('AliceBrown', 28, 'Chicago'), ('BobWhite', 35, 'Houston')",
-		"SELECT * FROM `User`",
-		"SELECT Username, Age FROM `User`",
-		"INSERT INTO `User` (Username, Age, City) VALUES ('JaneSmith', 25, 'Los Angeles'), ('AliceBrown', 28, 'Chicago'), ('BobWhite', 35, 'Houston')",
-		"SELECT Username, Age, City FROM `User` WHERE Age > 20",
-		"SELECT Username, Age, City FROM `User` WHERE Age = 20",
-		"INSERT INTO `User` (Username, Age, City) VALUES ('JaneSmith', 25, 'Los Angeles'), ('AliceBrown', 28, 'Chicago'), ('BobWhite', 35, 'Houston')",
-		"SELECT Username, Age, City FROM `User` WHERE Age < 20",
-		"INSERT INTO `User` (Username, Age, City) VALUES ('JaneSmith', 25, 'Los Angeles'), ('AliceBrown', 28, 'Chicago'), ('BobWhite', 35, 'Houston')",
-	}
-
-	Concurrent(engine, queries)
+	server := engines.NewServer(&engines.Config{Host: "localhost", Port: "3030", QueryEngine: engine})
+	server.Run()
 }
 
 func InsertMany(engine *engines.QueryEngine, x int) {

@@ -135,13 +135,14 @@ func (wl *WalManager) CommitTransaction(txID string, tableName string) error {
 	}
 
 	delete(wl.activeTx, txID)
-	tableInfo := wl.activeTxTable[tableName]
-	tableInfo.activeTx = false
-
-	select {
-	case tableInfo.notification <- true:
-	default:
-		fmt.Println("No crud waiting")
+	tableInfo, ok := wl.activeTxTable[tableName]
+	if ok {
+		tableInfo.activeTx = false
+		select {
+		case tableInfo.notification <- true:
+		default:
+			fmt.Println("No crud waiting")
+		}
 	}
 
 	return nil

@@ -457,7 +457,8 @@ public class QueryPlanner {
       columnsArray.put(tempJsonObject);
     }
 
-    DbSchemas.put(tableName, columnsArray.toString());
+    DbSchemas.put(tableName, columnsArray.toString()); // xxxx
+    System.out.println("schema");
 
     jsonObj.put("columns", columnsArray);
 
@@ -512,7 +513,9 @@ class ClientHandler implements Runnable {
       String query = reader.readLine();
       logger.info("Query Received");
 
+      System.out.println("before calling getLogicalPlan");
       String encodedPlan = planner.getLogicalPlan(query);
+      System.out.println("after calling getLogicalPlan");
       if (encodedPlan != "") {
         logger.info("Encoded Plan Success");
       }

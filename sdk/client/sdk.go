@@ -105,7 +105,7 @@ func (cred *UserCred) GetOfficialTableName(tableName string) string {
 	return tableName + "-" + cred.DbName + "-" + fmt.Sprintf("%d", cred.UserId)
 }
 
-func (cred *UserCred) ExecuteQuery(sql string) error {
+func (cred *UserCred) ExecuteQuery(sql string) (string, error) {
 	var tableName string
 	re := regexp.MustCompile("`(.*?)`")
 	match := re.FindStringSubmatch(sql)
@@ -125,22 +125,21 @@ func (cred *UserCred) ExecuteQuery(sql string) error {
 
 	bytes, err := message.Encode()
 	if err != nil {
-		return fmt.Errorf("encoding tcp failed: %w", err)
+		return "", fmt.Errorf("encoding tcp failed: %w", err)
 	}
 
 	conn, err := SendBytes(bytes)
 	if err != nil {
-		return fmt.Errorf("SendBytes Failed: %w", err)
+		return "",fmt.Errorf("SendBytes Failed: %w", err)
 
 	}
 	defer conn.Close()
 
 	msg, err := ReadResponse(conn)
 	if err != nil {
-		return fmt.Errorf("ReadResponse Failed: %w", err)
+		return "",fmt.Errorf("ReadResponse Failed: %w", err)
 	}
 
-	fmt.Println(msg)
 
-	return nil
+	return msg, nil
 }

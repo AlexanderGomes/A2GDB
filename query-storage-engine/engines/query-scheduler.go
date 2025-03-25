@@ -40,19 +40,21 @@ func (qs *QueryScheduler) Execute(queryInfo *QueryInfo) {
 
 	if queryInfo.Type == "CRUD" {
 		for qs.NonCrud > 0 {
-			qs.CondNonCrud.Wait() // unlocks when it shouldn't
+			qs.CondNonCrud.Wait()
 		}
 
 		qs.Crud++
 		qs.Mu.Unlock()
+
 		go qs.QueryEngine.InlineCruds(queryInfo)
 	} else if queryInfo.Type == "NON_CRUD" {
 		for qs.Crud > 0 {
-			qs.CondCrud.Wait() // unlocks when it shouldn't
+			qs.CondCrud.Wait()
 		}
 
 		qs.NonCrud++
 		qs.Mu.Unlock()
+
 		go func() {
 			qs.ResChan <- qs.QueryEngine.QueryProcessingEntry(queryInfo)
 		}()
@@ -65,12 +67,12 @@ func (qs *QueryScheduler) Decreaser() {
 		if res.QueryTye == "NON_CRUD" {
 			qs.NonCrud--
 			if qs.NonCrud == 0 {
-				qs.CondCrud.Broadcast()
+				qs.CondNonCrud.Broadcast()
 			}
 		} else {
 			qs.Crud--
 			if qs.Crud == 0 {
-				qs.CondNonCrud.Broadcast()
+				qs.CondCrud.Broadcast()
 			}
 		}
 		qs.Mu.Unlock()

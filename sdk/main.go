@@ -14,16 +14,16 @@ func main() {
 		log.Fatal("Error loading .env file")
 	}
 
-	cred, err := client.Auth("sander@gmail.com", "81377662asaasa", "NEWDB")
+	cred, err := client.Auth("sander@gmail.com", "81377662", "NEWDB")
 	if err != nil {
-		fmt.Println(err)
+		log.Fatal(err)
 	}
 
-	schema := map[string]string{"UserId": "PRIMARY KEY", "Name": "VARCHAR", "Email": "VARCHAR", "Password": "VARCHAR"}
-	cred.CreateTable("User", schema)
-
-	for {
-		sql := "INSERT INTO `User` (Name, Email, Password) VALUES ('JaneSmith', 'sander@gmail.com', '199191928182')\n"
-		cred.ExecuteQuery(sql)
+	sql := "INSERT INTO `User` (Name, Email, Password) VALUES ('JaneSmith', 'sander@gmail.com', '199191928182')\n"
+	msg, err := cred.ExecuteQuery(sql)
+	if err != nil {
+		panic(err)
 	}
+
+	fmt.Println(msg)
 }

@@ -6,7 +6,7 @@ import org.mapdb.*;
 public class DbSchemas {
     private static ConcurrentMap<String, String> schemasMap;
     private static DB db;
-    private static final String BASE_PATH = "/Users/alexsandergomes/Documents/A2G_startup/planner/src/main/java/resources/";
+    private static final String BASE_PATH = "/Users/alexsandergomes/Documents/A2GDB/planner/src/main/java/resources/";
     private static final Object LOCK = new Object();
 
     static {
@@ -15,7 +15,7 @@ public class DbSchemas {
 
     private static void initialize() {
         if (db == null) {
-            synchronized (LOCK) { 
+            synchronized (LOCK) {
                 if (db == null) {
                     db = DBMaker.fileDB(BASE_PATH + "schema.db")
                             .transactionEnable()

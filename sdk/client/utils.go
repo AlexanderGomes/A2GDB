@@ -15,7 +15,7 @@ import (
 	"github.com/golang-jwt/jwt"
 )
 
-const SERVER = ":3404"
+const SERVER = ":3030"
 
 func SendBytes(bytes []byte) (net.Conn, error) {
 	timeout := 2 * time.Second
