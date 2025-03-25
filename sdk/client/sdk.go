@@ -140,6 +140,7 @@ func (cred *UserCred) ExecuteQuery(sql string) (string, error) {
 		return "",fmt.Errorf("ReadResponse Failed: %w", err)
 	}
 
+	
 
 	return msg, nil
 }

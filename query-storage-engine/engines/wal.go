@@ -141,7 +141,7 @@ func (wl *WalManager) CommitTransaction(txID string, tableName string) error {
 		select {
 		case tableInfo.notification <- true:
 		default:
-			fmt.Println("No crud waiting")
+			fmt.Println("No routine waiting")
 		}
 	}
 
@@ -191,7 +191,7 @@ func (wl *WalManager) AbortTransaction(txID, primary, modifiedColumn, tableName 
 	select {
 	case tableInfo.notification <- true:
 	default:
-		fmt.Println("No crud waiting")
+		fmt.Println("No routine waiting")
 	}
 
 	return nil

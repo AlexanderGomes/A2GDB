@@ -1,6 +1,9 @@
 package engines
 
-import "sync"
+import (
+	"fmt"
+	"sync"
+)
 
 type ResultManager struct {
 	mu                    sync.Mutex
@@ -16,6 +19,7 @@ func (rm *ResultManager) ResultCollector() {
 			panic("queryId not subscribed, can't deliver message")
 		}
 
+		fmt.Printf("ResultManager: %+v\n", res)
 		rm.SchedulerNotification <- res
 		subQueryChan <- res
 	}

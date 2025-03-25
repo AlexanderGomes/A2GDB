@@ -24,7 +24,7 @@ func SendBytes(bytes []byte) (net.Conn, error) {
 		return nil, fmt.Errorf("couldn't stablish connection: %s", err)
 	}
 
-	writeDeadLine := time.Now().Add(4 * time.Second)
+	writeDeadLine := time.Now().Add(5 * time.Second)
 	err = conn.SetWriteDeadline(writeDeadLine)
 	if err != nil {
 		return nil, fmt.Errorf("SetReadDeadline failed: %w", err)
@@ -109,7 +109,7 @@ func GetClaims(claims jwt.MapClaims) (*UserCred, error) {
 }
 
 func ReadResponse(conn net.Conn) (string, error) {
-	readDeadLine := time.Now().Add(4 * time.Second)
+	readDeadLine := time.Now().Add(5 * time.Second)
 	err := conn.SetReadDeadline(readDeadLine)
 	if err != nil {
 		return "", fmt.Errorf("SetReadDeadline failed: %w", err)

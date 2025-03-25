@@ -59,6 +59,7 @@ func (qs *QueryScheduler) Execute(queryInfo *QueryInfo) {
 			qs.ResChan <- qs.QueryEngine.QueryProcessingEntry(queryInfo)
 		}()
 	}
+
 }
 
 func (qs *QueryScheduler) Decreaser() {

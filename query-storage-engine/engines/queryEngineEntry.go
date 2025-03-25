@@ -104,7 +104,7 @@ func (qe *QueryEngine) QueryProcessingEntry(queryInfo *QueryInfo) *Result {
 	switch operation := plan["STATEMENT"]; operation {
 	case "CREATE_TABLE":
 		result = qe.handleCreate(plan)
-		result.QueryTye = "CRUD"
+		result.QueryTye = "NON_CRUD"
 	case "INSERT":
 		result = qe.handleInsert(plan, queryInfo.TransactionOff, queryInfo.InduceErr)
 		result.QueryTye = "CRUD"

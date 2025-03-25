@@ -516,17 +516,20 @@ func removeTrailing(s string, remove rune) string {
 }
 
 func ExecuteQuery(sql string, queryEngine *QueryEngine) (*Result, error) {
-	encodedPlan1, err := utils.SendSql(sql)
+	encodedPlan, err := utils.SendSql(sql)
 	if err != nil {
 		return nil, fmt.Errorf("SendSql Failed: %w", err)
 	}
 
-	queryInfo := QueryInfo{RawPlan: encodedPlan1, TransactionOff: false, InduceErr: false}
-	res := queryEngine.QueryProcessingEntry(&queryInfo)
-	if res.Error != nil {
-		return nil, fmt.Errorf("QueryProcessingEntry Failed: %w", res.Error)
-	}
+	queryInfo := QueryInfo{Id: GenerateRandomID(), RawPlan: encodedPlan, TransactionOff: false, InduceErr: false}
+	resChan := queryEngine.ResultManager.CreatePersonalChan()
+	queryEngine.ResultManager.Subscribe(queryInfo.Id, resChan)
 
+	queryEngine.QueryChan <- &queryInfo
+
+	res := <-resChan
+
+	queryEngine.ResultManager.Unsubscribe(queryInfo.Id)
 	return res, nil
 }
 
