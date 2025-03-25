@@ -1,19 +1,24 @@
 package engines
 
 import (
+	"errors"
 	"sync"
+	"time"
 )
 
 type QueryScheduler struct {
+	QueryEngine *QueryEngine
+
 	Queries      chan *QueryInfo
-	QueryEngine  *QueryEngine
 	Notification chan *Result
 	ResChan      chan *Result
-	Crud         int
-	NonCrud      int
-	CondCrud     *sync.Cond
-	CondNonCrud  *sync.Cond
-	Mu           sync.Mutex
+
+	Crud                  int
+	NonCrud               int
+	CondCrud              *sync.Cond
+	CondNonCrud           *sync.Cond
+	CondResourceAvailable *sync.Cond
+	Mu                    sync.Mutex
 }
 
 func NewQueryScheduler(notification chan *Result, resChan chan *Result, qe *QueryEngine) *QueryScheduler {
@@ -26,6 +31,7 @@ func NewQueryScheduler(notification chan *Result, resChan chan *Result, qe *Quer
 
 	qs.CondCrud = sync.NewCond(&qs.Mu)
 	qs.CondNonCrud = sync.NewCond(&qs.Mu)
+	qs.CondResourceAvailable = sync.NewCond(&qs.Mu)
 	return qs
 }
 
@@ -35,11 +41,49 @@ func (qs *QueryScheduler) Scheduler() {
 	}
 }
 
+func (qs *QueryEngine) WaitForResources() bool {
+	timer := time.NewTimer(qs.Config.QueryTimeout)
+	defer timer.Stop()
+
+	done := make(chan struct{})
+
+	go func() {
+		qs.Scheduler.CondResourceAvailable.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return true
+	case <-timer.C:
+		return false
+	}
+}
+
 func (qs *QueryScheduler) Execute(queryInfo *QueryInfo) {
 	qs.Mu.Lock()
 
+	if qs.QueryEngine.SystemStats.UnderPressure {
+		// ## can try to free some memory up
+		freed := qs.QueryEngine.WaitForResources()
+		if !freed {
+			res := &Result{
+				QueryId:  queryInfo.Id,
+				QueryTye: queryInfo.Type,
+				Msg:      "Failed",
+				Error:    errors.New("resource is scarse in the moment"),
+			}
+
+			qs.ResChan <- res
+			return
+		}
+	}
+
 	if queryInfo.Type == "CRUD" {
 		for qs.NonCrud > 0 {
+			// unlocks while waiting,
+			// which allows for mulitple goroutines
+			// of different types to wait together.
 			qs.CondNonCrud.Wait()
 		}
 

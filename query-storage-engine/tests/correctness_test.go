@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/scylladb/go-set/strset"
 )
@@ -43,7 +44,8 @@ func TestMain(m *testing.M) {
 }
 
 func TestInitDB(t *testing.T) {
-	engine, err := cmd.InitDatabase(2, "./A2G_DB")
+	config := engines.QueryEngineConfig{CollectSystemInfoInterval: 10 * time.Second}
+	engine, err := cmd.InitDatabase(2, "A2G_DB_OS", config)
 	if err != nil {
 		t.Fatalf("Initializing DB failed: %s", err)
 	}

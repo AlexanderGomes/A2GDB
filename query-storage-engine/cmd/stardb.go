@@ -9,7 +9,7 @@ import (
 	"sync"
 )
 
-func InitDatabase(k int, dirName string) (*engines.QueryEngine, error) {
+func InitDatabase(k int, dirName string, config engines.QueryEngineConfig) (*engines.QueryEngine, error) {
 	logger.InitLogger()
 	bufferPool, err := engines.NewBufferPoolManager(k, dirName)
 	if err != nil {
@@ -19,6 +19,7 @@ func InitDatabase(k int, dirName string) (*engines.QueryEngine, error) {
 	schedulerNotification := make(chan *engines.Result, 1000)
 	globalChannel := make(chan *engines.Result, 1000)
 	queryEngine := &engines.QueryEngine{
+		Config:            &config,
 		BufferPoolManager: bufferPool,
 		Lm:                &engines.LockManager{Mu: sync.RWMutex{}, Rows: map[uint64]*engines.RowInfo{}},
 		QueryChan:         make(chan *engines.QueryInfo, 1000),
@@ -26,6 +27,8 @@ func InitDatabase(k int, dirName string) (*engines.QueryEngine, error) {
 	}
 
 	queryEngine.Scheduler = engines.NewQueryScheduler(schedulerNotification, globalChannel, queryEngine)
+	queryEngine.SystemStats, _ = queryEngine.GetSystemPressureStats()
+
 
 	if err := CreateDefaultTable(queryEngine); err != nil {
 		if !strings.Contains(err.Error(), "table already exists") {
@@ -37,6 +40,7 @@ func InitDatabase(k int, dirName string) (*engines.QueryEngine, error) {
 	go queryEngine.ResultManager.ResultCollector()
 	go queryEngine.Scheduler.Scheduler()
 	go queryEngine.Scheduler.Decreaser()
+	go queryEngine.SystemInfoCollector()
 
 	logger.Log.Info("Database initialized successfully")
 	return queryEngine, nil

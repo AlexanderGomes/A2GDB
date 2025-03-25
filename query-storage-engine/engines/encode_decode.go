@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"io"
 	"runtime/metrics"
 	"time"
@@ -395,77 +394,6 @@ func ResetBytesToEmpty(page *PageV2, offset uint16, length uint16) error {
 	}
 
 	return nil
-}
-
-func EncodeItems(items []Item) ([]byte, error) {
-	buf := new(bytes.Buffer)
-
-	if err := binary.Write(buf, binary.LittleEndian, int32(len(items))); err != nil {
-		return nil, err
-	}
-
-	for _, item := range items {
-		encodedItem, err := EncodeItem(item)
-		if err != nil {
-			return nil, fmt.Errorf("EncodeItem failed: %w", err)
-		}
-		buf.Write(encodedItem)
-	}
-
-	return buf.Bytes(), nil
-}
-
-func EncodeItem(item Item) ([]byte, error) {
-	buf := new(bytes.Buffer)
-
-	if err := binary.Write(buf, binary.LittleEndian, item.Key); err != nil {
-		return nil, err
-	}
-
-	if err := binary.Write(buf, binary.LittleEndian, item.Value); err != nil {
-		return nil, err
-	}
-
-	return buf.Bytes(), nil
-}
-
-func DecodeItems(data []byte) ([]Item, error) {
-	buf := bytes.NewReader(data)
-	var items []Item
-
-	var length int32
-	if err := binary.Read(buf, binary.LittleEndian, &length); err != nil {
-		return nil, err
-	}
-
-	for i := int32(0); i < length; i++ {
-		itemData := make([]byte, 16)
-		if _, err := buf.Read(itemData); err != nil {
-			return nil, err
-		}
-		item, err := DecodeItem(itemData)
-		if err != nil {
-			return nil, fmt.Errorf("DecodeItem failed: %w", err)
-		}
-		items = append(items, item)
-	}
-
-	return items, nil
-}
-
-func DecodeItem(data []byte) (Item, error) {
-	buf := bytes.NewReader(data)
-	var item Item
-
-	if err := binary.Read(buf, binary.LittleEndian, &item.Key); err != nil {
-		return Item{}, err
-	}
-
-	if err := binary.Read(buf, binary.LittleEndian, &item.Value); err != nil {
-		return Item{}, err
-	}
-
-	return item, nil
 }
 
 func encodeLog(log *LogRecord) ([]byte, error) {

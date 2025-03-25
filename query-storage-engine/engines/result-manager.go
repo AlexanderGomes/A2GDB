@@ -1,7 +1,6 @@
 package engines
 
 import (
-	"fmt"
 	"sync"
 )
 
@@ -19,7 +18,6 @@ func (rm *ResultManager) ResultCollector() {
 			panic("queryId not subscribed, can't deliver message")
 		}
 
-		fmt.Printf("ResultManager: %+v\n", res)
 		rm.SchedulerNotification <- res
 		subQueryChan <- res
 	}

@@ -4,6 +4,14 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
+
+	"github.com/shirou/gopsutil/v4/disk"
+	"github.com/shirou/gopsutil/v4/mem"
+)
+
+const (
+	RAM_THRESHOLD = 500 * 1024 * 1024 * 1024
 )
 
 const (
@@ -13,12 +21,56 @@ const (
 )
 
 type QueryEngine struct {
-	BufferPoolManager *BufferPoolManager
-	Lm                *LockManager
-	QueryChan         chan *QueryInfo
-	ResultManager     *ResultManager
-	Scheduler         *QueryScheduler
-	InlineMu          sync.Mutex
+	BufferPoolManager   *BufferPoolManager
+	Lm                  *LockManager
+	QueryChan           chan *QueryInfo
+	ResultManager       *ResultManager
+	Scheduler           *QueryScheduler
+	InlineMu            sync.Mutex
+	SystemStats         *SystemStats
+	Config              *QueryEngineConfig
+	PressureBroadcasted bool
+}
+
+type SystemStats struct {
+	TotalRAM          uint64
+	AvailableRAM      uint64
+	RAMUsedPercent    float64
+	SwapTotal         uint64
+	SwapUsedPercent   float64
+	DiskTotal         uint64
+	DiskFree          uint64
+	DiskUsedPercent   float64
+	DiskIOReadBytes   uint64
+	DiskIOWriteBytes  uint64
+	UnderPressure     bool
+	PressureReasoning []string
+}
+
+type QueryEngineConfig struct {
+	CollectSystemInfoInterval time.Duration
+	QueryTimeout              time.Duration // hanging queries
+	GarbageCollectionInterval time.Duration
+	AllowedRAMConsuption      uint64
+	MaxConcurrentQueries      int
+}
+
+func (qe *QueryEngine) SystemInfoCollector() {
+	ticker := time.NewTicker(qe.Config.CollectSystemInfoInterval)
+	defer ticker.Stop()
+
+	var err error
+	for range ticker.C {
+		qe.SystemStats, err = qe.GetSystemPressureStats()
+		if err != nil {
+			panic(err)
+		}
+
+		if !qe.SystemStats.UnderPressure && !qe.PressureBroadcasted {
+			qe.Scheduler.CondResourceAvailable.Broadcast()
+			qe.PressureBroadcasted = true
+		}
+	}
 }
 
 type QueryInfo struct {
@@ -163,4 +215,78 @@ func (qe *QueryEngine) handleSelect(plan map[string]interface{}) Result {
 	result.Msg = "success"
 
 	return result
+}
+
+func (qe *QueryEngine) GetSystemPressureStats() (*SystemStats, error) {
+	var reasons []string
+
+	underPressure := false
+	qe.PressureBroadcasted = false
+
+	vmStat, err := mem.VirtualMemory()
+	if err != nil {
+		return nil, err
+	}
+
+	if vmStat.Available < RAM_THRESHOLD {
+		underPressure = true
+		reasons = append(reasons, "Low available RAM")
+	}
+
+	swapStat, err := mem.SwapMemory()
+	if err != nil {
+		return nil, err
+	}
+	if swapStat.UsedPercent > 20 {
+		underPressure = true
+		reasons = append(reasons, "High swap usage")
+	}
+
+	diskStat, err := disk.Usage("/")
+	if err != nil {
+		return nil, err
+	}
+
+	if diskStat.UsedPercent > 60 {
+		underPressure = true
+		reasons = append(reasons, "High disk usage")
+	}
+
+	initialIO, err := disk.IOCounters()
+	if err != nil {
+		return nil, err
+	}
+	time.Sleep(3 * time.Second)
+	finalIO, err := disk.IOCounters()
+	if err != nil {
+		return nil, err
+	}
+
+	var readDelta, writeDelta uint64
+	for device, initial := range initialIO {
+		if final, exists := finalIO[device]; exists {
+			readDelta += final.ReadBytes - initial.ReadBytes
+			writeDelta += final.WriteBytes - initial.WriteBytes
+		}
+	}
+
+	if (readDelta+writeDelta)/3 > 20*1024*1024 {
+		underPressure = true
+		reasons = append(reasons, "High disk IO activity")
+	}
+
+	return &SystemStats{
+		TotalRAM:          vmStat.Total,
+		AvailableRAM:      vmStat.Available,
+		RAMUsedPercent:    vmStat.UsedPercent,
+		SwapTotal:         swapStat.Total,
+		SwapUsedPercent:   swapStat.UsedPercent,
+		DiskTotal:         diskStat.Total,
+		DiskFree:          diskStat.Free,
+		DiskUsedPercent:   diskStat.UsedPercent,
+		DiskIOReadBytes:   readDelta,
+		DiskIOWriteBytes:  writeDelta,
+		UnderPressure:     underPressure,
+		PressureReasoning: reasons,
+	}, nil
 }

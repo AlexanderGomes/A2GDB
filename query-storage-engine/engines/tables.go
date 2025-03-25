@@ -8,8 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-
-	"github.com/google/btree"
 )
 
 const (
@@ -130,27 +128,6 @@ func GetDirInfo(fileptr *os.File) (*DirectoryPageV2, error) {
 	}
 
 	return dirPage, nil
-}
-
-func GetBpTree(fileptr *os.File) (*btree.BTree, error) {
-	bpBytes, err := ReadNonPageFile(fileptr)
-	if err != nil {
-		return nil, fmt.Errorf("ReadNonPageFile failed: %w", err)
-	}
-
-	tree := NewTree(20)
-	if len(bpBytes) > 0 {
-		items, err := DecodeItems(bpBytes)
-		if err != nil {
-			return nil, fmt.Errorf("DecodeItems failed: %w", err)
-		}
-
-		for _, item := range items {
-			tree.ReplaceOrInsert(item)
-		}
-	}
-
-	return tree, nil
 }
 
 func (dm *DiskManagerV2) CreateTable(tableName string, info TableInfo) error {

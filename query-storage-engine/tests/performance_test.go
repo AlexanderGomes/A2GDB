@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"testing"
+	"time"
 )
 
 func BenchmarkInsert(b *testing.B) {
@@ -140,7 +141,8 @@ func InsertSample(N int, engineDB *engines.QueryEngine) {
 }
 
 func InitDB(testName string) *engines.QueryEngine {
-	engines, err := cmd.InitDatabase(2, fmt.Sprintf("./%s", testName))
+	config := engines.QueryEngineConfig{CollectSystemInfoInterval: 10 * time.Second}
+	engines, err := cmd.InitDatabase(2, "A2G_DB_OS", config)
 	if err != nil {
 		log.Fatalf("Initializing DB failed: %s", err)
 	}

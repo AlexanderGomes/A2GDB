@@ -5,12 +5,11 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"net"
 	"os"
 	"runtime/pprof"
 	"time"
-
-	"math/rand"
 )
 
 const (

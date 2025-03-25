@@ -20,34 +20,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	schema := map[string]string{"UserId": "PRIMARY KEY", "Username": "VARCHAR", "Age": "INT", "City": "VARCHAR"}
-	cred.CreateTable("User", schema)
-
-	InsertMany(2000, cred)
-
-	queries := []string{
-		"SELECT * FROM `User`",
-		"SELECT Username, Age FROM `User`",
-		"INSERT INTO `User` (Username, Age, City) VALUES ('JaneSmith', 25, 'Los Angeles'), ('AliceBrown', 28, 'Chicago'), ('BobWhite', 35, 'Houston')",
-		"SELECT Username, Age, City FROM `User` WHERE Age > 20",
-		"SELECT Username, Age, City FROM `User` WHERE Age = 20",
-		"INSERT INTO `User` (Username, Age, City) VALUES ('JaneSmith', 25, 'Los Angeles'), ('AliceBrown', 28, 'Chicago'), ('BobWhite', 35, 'Houston')",
-		"SELECT Username, Age, City FROM `User` WHERE Age < 20",
-		"INSERT INTO `User` (Username, Age, City) VALUES ('JaneSmith', 25, 'Los Angeles'), ('AliceBrown', 28, 'Chicago'), ('BobWhite', 35, 'Houston')",
-		"SELECT * FROM `User`",
-		"SELECT Username, Age FROM `User`",
-		"DELETE FROM `User` WHERE Username = 'JaneSmith'",
-		"INSERT INTO `User` (Username, Age, City) VALUES ('JaneSmith', 25, 'Los Angeles'), ('AliceBrown', 28, 'Chicago'), ('BobWhite', 35, 'Houston')",
-		"SELECT Username, Age, City FROM `User` WHERE Age > 20",
-		"UPDATE `User` SET Age = 121209 WHERE Username = 'AliceBrown'",
-		"SELECT Username, Age, City FROM `User` WHERE Age = 20",
-		"INSERT INTO `User` (Username, Age, City) VALUES ('JaneSmith', 25, 'Los Angeles'), ('AliceBrown', 28, 'Chicago'), ('BobWhite', 35, 'Houston')",
-		"SELECT Username, Age, City FROM `User` WHERE Age < 20",
-		"INSERT INTO `User` (Username, Age, City) VALUES ('JaneSmith', 25, 'Los Angeles'), ('AliceBrown', 28, 'Chicago'), ('BobWhite', 35, 'Houston')",
-	}
-
-
-	Concurrent(queries, cred)
+	InsertMany(20000, cred)
 }
 
 func Concurrent(queries []string, cred *client.UserCred) {

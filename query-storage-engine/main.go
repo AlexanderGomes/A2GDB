@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/joho/godotenv"
 )
@@ -17,7 +18,12 @@ func main() {
 		log.Fatal("Error loading .env file")
 	}
 
-	engine, err := cmd.InitDatabase(2, "A2G_DB_OS")
+	config := engines.QueryEngineConfig{
+		CollectSystemInfoInterval: 30 * time.Second,
+		AllowedRAMConsuption:      1 << 30,
+		QueryTimeout:              10 * time.Second}
+
+	engine, err := cmd.InitDatabase(2, "A2G_DB_OS", config)
 	if err != nil {
 		log.Fatal("DB init failed: ", err)
 	}
