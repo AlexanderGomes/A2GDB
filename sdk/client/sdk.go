@@ -42,7 +42,7 @@ func Auth(email, password, dbName string) (*UserCred, error) {
 	}
 	defer conn.Close()
 
-	readDeadLine := time.Now().Add(4 * time.Second)
+	readDeadLine := time.Now().Add(READ_TIMEOUT * time.Second)
 	err = conn.SetReadDeadline(readDeadLine)
 	if err != nil {
 		return nil, fmt.Errorf("SetReadDeadline failed: %w", err)

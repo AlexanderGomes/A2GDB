@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	RAM_THRESHOLD = 500 * 1024 * 1024 * 1024
+	RAM_THRESHOLD = 500 * 1024 * 1024
 )
 
 const (
@@ -21,15 +21,15 @@ const (
 )
 
 type QueryEngine struct {
-	BufferPoolManager   *BufferPoolManager
-	Lm                  *LockManager
-	QueryChan           chan *QueryInfo
-	ResultManager       *ResultManager
-	Scheduler           *QueryScheduler
-	InlineMu            sync.Mutex
-	SystemStats         *SystemStats
-	Config              *QueryEngineConfig
-	PressureBroadcasted bool
+	BufferPoolManager *BufferPoolManager
+	Lm                *LockManager
+	QueryChan         chan *QueryInfo
+	ResultManager     *ResultManager
+	Scheduler         *QueryScheduler
+	InlineMu          sync.Mutex
+	SystemStats       *SystemStats
+	Config            *QueryEngineConfig
+	CanBroadcast      bool
 }
 
 type SystemStats struct {
@@ -66,9 +66,9 @@ func (qe *QueryEngine) SystemInfoCollector() {
 			panic(err)
 		}
 
-		if !qe.SystemStats.UnderPressure && !qe.PressureBroadcasted {
+		if !qe.SystemStats.UnderPressure && qe.CanBroadcast {
 			qe.Scheduler.CondResourceAvailable.Broadcast()
-			qe.PressureBroadcasted = true
+			qe.CanBroadcast = false
 		}
 	}
 }
@@ -221,7 +221,6 @@ func (qe *QueryEngine) GetSystemPressureStats() (*SystemStats, error) {
 	var reasons []string
 
 	underPressure := false
-	qe.PressureBroadcasted = false
 
 	vmStat, err := mem.VirtualMemory()
 	if err != nil {
@@ -229,6 +228,7 @@ func (qe *QueryEngine) GetSystemPressureStats() (*SystemStats, error) {
 	}
 
 	if vmStat.Available < RAM_THRESHOLD {
+		qe.CanBroadcast = true
 		underPressure = true
 		reasons = append(reasons, "Low available RAM")
 	}
@@ -238,6 +238,7 @@ func (qe *QueryEngine) GetSystemPressureStats() (*SystemStats, error) {
 		return nil, err
 	}
 	if swapStat.UsedPercent > 20 {
+		qe.CanBroadcast = true
 		underPressure = true
 		reasons = append(reasons, "High swap usage")
 	}
@@ -248,6 +249,7 @@ func (qe *QueryEngine) GetSystemPressureStats() (*SystemStats, error) {
 	}
 
 	if diskStat.UsedPercent > 60 {
+		qe.CanBroadcast = true
 		underPressure = true
 		reasons = append(reasons, "High disk usage")
 	}
@@ -271,6 +273,7 @@ func (qe *QueryEngine) GetSystemPressureStats() (*SystemStats, error) {
 	}
 
 	if (readDelta+writeDelta)/3 > 20*1024*1024 {
+		qe.CanBroadcast = true
 		underPressure = true
 		reasons = append(reasons, "High disk IO activity")
 	}

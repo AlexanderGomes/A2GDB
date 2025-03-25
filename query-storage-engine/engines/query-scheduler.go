@@ -65,6 +65,7 @@ func (qs *QueryScheduler) Execute(queryInfo *QueryInfo) {
 
 	if qs.QueryEngine.SystemStats.UnderPressure {
 		// ## can try to free some memory up
+
 		freed := qs.QueryEngine.WaitForResources()
 		if !freed {
 			res := &Result{

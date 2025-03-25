@@ -15,16 +15,21 @@ import (
 	"github.com/golang-jwt/jwt"
 )
 
-const SERVER = ":3030"
+const (
+	SERVER        = ":3030"
+	READ_TIMEOUT  = 20
+	WRITE_TIMEOUT = 20
+	DIAL_TIMEOUT  = 2
+)
 
 func SendBytes(bytes []byte) (net.Conn, error) {
-	timeout := 2 * time.Second
+	timeout := DIAL_TIMEOUT * time.Second
 	conn, err := net.DialTimeout("tcp", SERVER, timeout)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't stablish connection: %s", err)
 	}
 
-	writeDeadLine := time.Now().Add(5 * time.Second)
+	writeDeadLine := time.Now().Add(WRITE_TIMEOUT * time.Second)
 	err = conn.SetWriteDeadline(writeDeadLine)
 	if err != nil {
 		return nil, fmt.Errorf("SetReadDeadline failed: %w", err)
@@ -109,7 +114,7 @@ func GetClaims(claims jwt.MapClaims) (*UserCred, error) {
 }
 
 func ReadResponse(conn net.Conn) (string, error) {
-	readDeadLine := time.Now().Add(5 * time.Second)
+	readDeadLine := time.Now().Add(READ_TIMEOUT * time.Second)
 	err := conn.SetReadDeadline(readDeadLine)
 	if err != nil {
 		return "", fmt.Errorf("SetReadDeadline failed: %w", err)

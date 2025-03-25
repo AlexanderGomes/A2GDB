@@ -21,7 +21,7 @@ func main() {
 	config := engines.QueryEngineConfig{
 		CollectSystemInfoInterval: 30 * time.Second,
 		AllowedRAMConsuption:      1 << 30,
-		QueryTimeout:              10 * time.Second}
+		QueryTimeout:              5 * time.Second}
 
 	engine, err := cmd.InitDatabase(2, "A2G_DB_OS", config)
 	if err != nil {
