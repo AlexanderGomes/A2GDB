@@ -66,6 +66,10 @@ func (qe *QueryEngine) SystemInfoCollector() {
 			panic(err)
 		}
 
+		// if broadcast is true and underPressure is false
+		// it means that the system was previously under pressure
+		// but now it has recovered, which gives the permission
+		// to notify frozen queries that haven't timed out.
 		if !qe.SystemStats.UnderPressure && qe.CanBroadcast {
 			qe.Scheduler.CondResourceAvailable.Broadcast()
 			qe.CanBroadcast = false

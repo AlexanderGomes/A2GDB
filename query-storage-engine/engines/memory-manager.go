@@ -25,21 +25,24 @@ const (
 )
 
 type MemoryContext struct {
-	mu   sync.RWMutex
-	name string
+	mu sync.RWMutex
 
+	name     string
 	parent   *MemoryContext
 	children []*MemoryContext
+	pools    map[reflect.Type]*sync.Pool
+
+	stats *Stats
 
 	contextType   MemoryContextType
 	allocStrategy AllocationStrategy
+}
 
+type Stats struct {
 	totalAllocated uint64
 	totalFreed     uint64
 	peakUsage      uint64
 	currentUsage   uint64
-
-	pools map[reflect.Type]*sync.Pool
 }
 
 type MemoryContextConfig struct {
@@ -56,6 +59,7 @@ func NewMemoryContext(config MemoryContextConfig) *MemoryContext {
 		contextType:   config.ContextType,
 		allocStrategy: config.AllocationStrat,
 		pools:         make(map[reflect.Type]*sync.Pool),
+		stats:         &Stats{},
 	}
 
 	if mc.parent != nil {
@@ -99,16 +103,16 @@ func (mc *MemoryContext) CreatePool(
 		New: func() interface{} {
 			obj := allocator()
 			size := unsafe.Sizeof(obj)
-			atomic.AddUint64(&mc.totalAllocated, uint64(size))
-			atomic.AddUint64(&mc.currentUsage, uint64(size))
+			atomic.AddUint64(&mc.stats.totalAllocated, uint64(size))
+			atomic.AddUint64(&mc.stats.currentUsage, uint64(size))
 
 			for {
-				current := atomic.LoadUint64(&mc.currentUsage)
-				peak := atomic.LoadUint64(&mc.peakUsage)
+				current := atomic.LoadUint64(&mc.stats.currentUsage)
+				peak := atomic.LoadUint64(&mc.stats.peakUsage)
 				if current <= peak {
 					break
 				}
-				if atomic.CompareAndSwapUint64(&mc.peakUsage, peak, current) {
+				if atomic.CompareAndSwapUint64(&mc.stats.peakUsage, peak, current) {
 					break
 				}
 			}
@@ -133,15 +137,15 @@ func (mm *MemoryContext) Acquire(objectType reflect.Type) interface{} {
 	obj := pool.Get()
 	size := unsafe.Sizeof(obj)
 
-	atomic.AddUint64(&mm.totalAllocated, uint64(size))
-	current := atomic.AddUint64(&mm.currentUsage, uint64(size))
+	atomic.AddUint64(&mm.stats.totalAllocated, uint64(size))
+	current := atomic.AddUint64(&mm.stats.currentUsage, uint64(size))
 
 	for {
-		peak := atomic.LoadUint64(&mm.peakUsage)
+		peak := atomic.LoadUint64(&mm.stats.peakUsage)
 		if current <= peak {
 			break
 		}
-		if atomic.CompareAndSwapUint64(&mm.peakUsage, peak, current) {
+		if atomic.CompareAndSwapUint64(&mm.stats.peakUsage, peak, current) {
 			break
 		}
 	}
@@ -161,8 +165,8 @@ func (mc *MemoryContext) Release(objectType reflect.Type, obj interface{}) {
 	clearObjectFields(obj)
 
 	size := unsafe.Sizeof(obj)
-	atomic.AddUint64(&mc.totalFreed, uint64(size))
-	atomic.AddUint64(&mc.currentUsage, ^uint64(size-1))
+	atomic.AddUint64(&mc.stats.totalFreed, uint64(size))
+	atomic.AddUint64(&mc.stats.currentUsage, ^uint64(size-1))
 
 	pool.Put(obj)
 }
@@ -206,4 +210,45 @@ func clearObjectFields(obj interface{}) {
 			clearObjectFields(field.Addr().Interface())
 		}
 	}
+}
+
+func MemorySnap(rootCtx *MemoryContext) *Stats {
+	var s Stats
+
+	rootCtx.mu.RLock()
+	defer rootCtx.mu.RUnlock()
+
+	CollectStats(rootCtx.stats, &s)
+
+	for _, child := range rootCtx.children {
+		TraverseMemoryContext(child, &s)
+	}
+
+	return &s
+}
+
+func TraverseMemoryContext(ctx *MemoryContext, destination *Stats) {
+	if ctx == nil {
+		return
+	}
+
+	ctx.mu.RLock()
+
+	CollectStats(ctx.stats, destination)
+
+	children := make([]*MemoryContext, len(ctx.children))
+	copy(children, ctx.children)
+
+	ctx.mu.RUnlock()
+
+	for _, child := range children {
+		TraverseMemoryContext(child, destination)
+	}
+}
+
+func CollectStats(source, destination *Stats) {
+	destination.currentUsage += source.currentUsage
+	destination.totalAllocated += source.totalAllocated
+	destination.totalFreed += source.totalFreed
+	destination.peakUsage += source.peakUsage
 }

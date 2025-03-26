@@ -9,8 +9,8 @@ const (
 	R = "READ"
 )
 
-// The LockManager prevents race conditions when it comes to updating / reading the row in memory.
-
+// The LockManager prevents race conditions
+//  when it comes to updating / reading the rows in memory.
 type LockManager struct {
 	Mu   sync.RWMutex
 	Rows map[uint64]*RowInfo
