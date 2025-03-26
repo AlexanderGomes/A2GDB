@@ -10,7 +10,7 @@ import (
 type MemoryContextType int
 
 const (
-	TopMemoryContext MemoryContextType = iota
+	TopMemoryContext MemoryContextType = iota + 1
 	TransientMemoryContext
 	QueryMemoryContext
 	PerTupleMemoryContext
@@ -19,7 +19,7 @@ const (
 type AllocationStrategy int
 
 const (
-	DefaultAllocation AllocationStrategy = iota
+	DefaultAllocation AllocationStrategy = iota + 1
 	SmallObjectAllocation
 	LargeObjectAllocation
 )
@@ -30,7 +30,7 @@ type MemoryContext struct {
 	name     string
 	parent   *MemoryContext
 	children []*MemoryContext
-	pools    map[reflect.Type]*sync.Pool
+	pools    map[reflect.Type]Pool
 
 	stats *Stats
 
@@ -52,13 +52,20 @@ type MemoryContextConfig struct {
 	AllocationStrat AllocationStrategy
 }
 
+type Pool struct {
+	allocator func() any
+	mu        *sync.Mutex
+	pool      []any
+	capacity  int
+}
+
 func NewMemoryContext(config MemoryContextConfig) *MemoryContext {
 	mc := &MemoryContext{
 		name:          config.Name,
 		parent:        config.Parent,
 		contextType:   config.ContextType,
 		allocStrategy: config.AllocationStrat,
-		pools:         make(map[reflect.Type]*sync.Pool),
+		pools:         make(map[reflect.Type]Pool),
 		stats:         &Stats{},
 	}
 
@@ -92,49 +99,62 @@ func (mc *MemoryContext) registerChild(child *MemoryContext) {
 	mc.children = append(mc.children, child)
 }
 
-func (mc *MemoryContext) CreatePool(
-	objectType reflect.Type,
-	allocator func() interface{},
-) *sync.Pool {
+func (mc *MemoryContext) CreatePool(objectType reflect.Type, allocator func() any, capacity int) {
 	mc.mu.Lock()
 	defer mc.mu.Unlock()
 
-	pool := &sync.Pool{
-		New: func() interface{} {
-			obj := allocator()
-			size := unsafe.Sizeof(obj)
-			atomic.AddUint64(&mc.stats.totalAllocated, uint64(size))
-			atomic.AddUint64(&mc.stats.currentUsage, uint64(size))
-
-			for {
-				current := atomic.LoadUint64(&mc.stats.currentUsage)
-				peak := atomic.LoadUint64(&mc.stats.peakUsage)
-				if current <= peak {
-					break
-				}
-				if atomic.CompareAndSwapUint64(&mc.stats.peakUsage, peak, current) {
-					break
-				}
-			}
-
-			return obj
-		},
+	poolObj := Pool{
+		pool:      make([]any, 0, capacity),
+		capacity:  capacity,
+		mu:        &sync.Mutex{},
+		allocator: allocator,
 	}
 
-	mc.pools[objectType] = pool
-	return pool
+	for range capacity {
+		obj := allocator()
+		size := unsafe.Sizeof(obj)
+
+		atomic.AddUint64(&mc.stats.totalAllocated, uint64(size))
+		atomic.AddUint64(&mc.stats.currentUsage, uint64(size))
+
+		for {
+			current := atomic.LoadUint64(&mc.stats.currentUsage)
+			peak := atomic.LoadUint64(&mc.stats.peakUsage)
+			if current <= peak {
+				break
+			}
+			if atomic.CompareAndSwapUint64(&mc.stats.peakUsage, peak, current) {
+				break
+			}
+		}
+
+		poolObj.pool = append(poolObj.pool, obj)
+	}
+
+	mc.pools[objectType] = poolObj
 }
 
-func (mm *MemoryContext) Acquire(objectType reflect.Type) interface{} {
-	mm.mu.RLock()
-	defer mm.mu.RUnlock()
+func (mm *MemoryContext) Acquire(objectType reflect.Type) any {
+	mm.mu.Lock()
+	defer mm.mu.Unlock()
 
-	pool, exists := mm.pools[objectType]
-	if !exists {
+	poolObj, exists := mm.pools[objectType]
+	if !exists || len(poolObj.pool) == 0 {
 		return nil
 	}
 
-	obj := pool.Get()
+	poolObj.mu.Lock()
+	defer poolObj.mu.Unlock()
+
+	if len(poolObj.pool) == 0 {
+		Double(&poolObj)
+	}
+
+	obj := poolObj.pool[len(poolObj.pool)-1]
+	poolObj.pool = poolObj.pool[:len(poolObj.pool)-1]
+
+	mm.pools[objectType] = poolObj
+
 	size := unsafe.Sizeof(obj)
 
 	atomic.AddUint64(&mm.stats.totalAllocated, uint64(size))
@@ -153,25 +173,36 @@ func (mm *MemoryContext) Acquire(objectType reflect.Type) interface{} {
 	return obj
 }
 
-func (mc *MemoryContext) Release(objectType reflect.Type, obj interface{}) {
-	mc.mu.RLock()
-	defer mc.mu.RUnlock()
+func (mm *MemoryContext) Release(objectType reflect.Type, obj any) bool {
+	mm.mu.Lock()
+	defer mm.mu.Unlock()
 
-	pool, exists := mc.pools[objectType]
+	poolObj, exists := mm.pools[objectType]
 	if !exists {
-		return
+		return false
 	}
 
+	poolObj.mu.Lock()
+	defer poolObj.mu.Unlock()
+
 	clearObjectFields(obj)
+	poolObj.pool = append(poolObj.pool, obj)
+	mm.pools[objectType] = poolObj
+
+	// x == capacity means everybody returned their objects
+	// shrink
+	if len(poolObj.pool) == poolObj.capacity && poolObj.capacity > 2 {
+		Shrink(&poolObj)
+	}
 
 	size := unsafe.Sizeof(obj)
-	atomic.AddUint64(&mc.stats.totalFreed, uint64(size))
-	atomic.AddUint64(&mc.stats.currentUsage, ^uint64(size-1))
+	atomic.AddUint64(&mm.stats.totalFreed, uint64(size))
+	atomic.AddUint64(&mm.stats.currentUsage, -uint64(size))
 
-	pool.Put(obj)
+	return true
 }
 
-func clearObjectFields(obj interface{}) {
+func clearObjectFields(obj any) {
 	v := reflect.ValueOf(obj)
 
 	if v.Kind() == reflect.Ptr {
@@ -221,13 +252,13 @@ func MemorySnap(rootCtx *MemoryContext) *Stats {
 	CollectStats(rootCtx.stats, &s)
 
 	for _, child := range rootCtx.children {
-		TraverseMemoryContext(child, &s)
+		childStats(child, &s)
 	}
 
 	return &s
 }
 
-func TraverseMemoryContext(ctx *MemoryContext, destination *Stats) {
+func childStats(ctx *MemoryContext, destination *Stats) {
 	if ctx == nil {
 		return
 	}
@@ -242,7 +273,7 @@ func TraverseMemoryContext(ctx *MemoryContext, destination *Stats) {
 	ctx.mu.RUnlock()
 
 	for _, child := range children {
-		TraverseMemoryContext(child, destination)
+		childStats(child, destination)
 	}
 }
 
@@ -252,3 +283,73 @@ func CollectStats(source, destination *Stats) {
 	destination.totalFreed += source.totalFreed
 	destination.peakUsage += source.peakUsage
 }
+
+func Double(poolObj *Pool) {
+	newCapacity := poolObj.capacity * 2
+	poolObj.capacity = newCapacity
+
+	newPool := make([]any, len(poolObj.pool), newCapacity)
+	copy(newPool, poolObj.pool)
+
+	for range newCapacity {
+		newObj := poolObj.allocator()
+		newPool = append(newPool, newObj)
+	}
+
+	poolObj.pool = newPool
+}
+
+func Shrink(poolObj *Pool) {
+	if poolObj.capacity <= 1 {
+		return
+	}
+
+	newCapacity := poolObj.capacity / 2
+
+	newPool := make([]any, newCapacity)
+	newPool = append(newPool, poolObj.pool[:newCapacity]...)
+
+	poolObj.capacity = newCapacity
+	poolObj.pool = newPool
+}
+
+func ClaimContextTree(rootCtx *MemoryContext) {
+	CleanStatsAndPool(rootCtx)
+
+	for _, child := range rootCtx.children {
+		CleanAllChildren(child)
+	}
+}
+
+func CleanAllChildren(childCtx *MemoryContext) {
+	CleanStatsAndPool(childCtx)
+
+	childCtx.mu.RLock()
+	children := make([]*MemoryContext, len(childCtx.children))
+	copy(children, childCtx.children)
+	childCtx.mu.RUnlock()
+
+	for _, child := range children {
+		CleanAllChildren(child)
+		child = nil
+	}
+
+	childCtx.children = childCtx.children[:0]
+}
+
+func CleanStatsAndPool(ctx *MemoryContext) {
+	ctx.mu.RLock()
+	defer ctx.mu.RUnlock()
+
+	ctx.stats = nil
+	ctx.contextType = 0
+	ctx.allocStrategy = 0
+
+	for _, poolObj := range ctx.pools {
+		poolObj.mu.Lock()
+		poolObj.allocator = nil
+		poolObj.capacity = 0
+		poolObj.pool = poolObj.pool[:0]
+	}
+}
+
