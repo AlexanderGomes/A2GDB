@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -711,4 +712,46 @@ func redoDelete(log *LogRecord, engine *QueryEngine, catalog *Catalog) error {
 func redoUpdate(log *LogRecord, engine *QueryEngine) error {
 
 	return nil
+}
+
+
+func clearObjectFields(obj any) {
+	v := reflect.ValueOf(obj)
+
+	if v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
+
+	if v.Kind() != reflect.Struct {
+		return
+	}
+
+	for i := range v.NumField() {
+		field := v.Field(i)
+
+		if !field.CanSet() {
+			panic("unaddressable field")
+		}
+
+		switch field.Kind() {
+		case reflect.Slice:
+			field.Set(reflect.Zero(field.Type()))
+		case reflect.Map:
+			field.Set(reflect.Zero(field.Type()))
+		case reflect.Ptr:
+			field.Set(reflect.Zero(field.Type()))
+		case reflect.String:
+			field.SetString("")
+		case reflect.Bool:
+			field.SetBool(false)
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			field.SetInt(0)
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			field.SetUint(0)
+		case reflect.Float32, reflect.Float64:
+			field.SetFloat(0)
+		case reflect.Struct:
+			clearObjectFields(field.Addr().Interface())
+		}
+	}
 }
