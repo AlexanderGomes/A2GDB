@@ -227,7 +227,7 @@ func (qe *QueryEngine) GetSystemPressureStats() (*SystemStats, error) {
 		return nil, err
 	}
 
-	if vmStat.Available < RAM_THRESHOLD {
+	if vmStat.Available < qe.Config.AllowedRAMConsuption {
 		qe.CanBroadcast = true
 		underPressure = true
 		reasons = append(reasons, "Low available RAM")
@@ -248,7 +248,7 @@ func (qe *QueryEngine) GetSystemPressureStats() (*SystemStats, error) {
 		return nil, err
 	}
 
-	if diskStat.UsedPercent > 60 {
+	if diskStat.UsedPercent > 90 {
 		qe.CanBroadcast = true
 		underPressure = true
 		reasons = append(reasons, "High disk usage")
@@ -278,6 +278,7 @@ func (qe *QueryEngine) GetSystemPressureStats() (*SystemStats, error) {
 		reasons = append(reasons, "High disk IO activity")
 	}
 
+	fmt.Println("UnderPressure: ", underPressure)
 	return &SystemStats{
 		TotalRAM:          vmStat.Total,
 		AvailableRAM:      vmStat.Available,

@@ -64,14 +64,13 @@ func (qs *QueryScheduler) Execute(queryInfo *QueryInfo) {
 	qs.Mu.Lock()
 
 	if qs.QueryEngine.SystemStats.UnderPressure {
-		// ## can try to free some memory up
 
 		freed := qs.QueryEngine.WaitForResources()
 		if !freed {
 			res := &Result{
 				QueryId:  queryInfo.Id,
 				QueryTye: queryInfo.Type,
-				Msg:      "Failed",
+				Msg:      "resource is scarse in the moment",
 				Error:    errors.New("resource is scarse in the moment"),
 			}
 

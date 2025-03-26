@@ -20,7 +20,10 @@ func main() {
 		log.Fatal(err)
 	}
 
-	InsertMany(20000, cred)
+	schema := map[string]string{"UserId": "PRIMARY KEY", "Username": "VARCHAR", "Age": "INT", "City": "VARCHAR"}
+	cred.CreateTable("User", schema)
+
+	InsertMany(1000, cred)
 }
 
 func Concurrent(queries []string, cred *client.UserCred) {
