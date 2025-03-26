@@ -3,95 +3,207 @@ package engines
 import (
 	"reflect"
 	"sync"
+	"sync/atomic"
+	"unsafe"
 )
 
-type MemoryManagerConfig struct {
-	TotalMemoryLimit uint64
-	DefaultPoolSize  int
+type MemoryContextType int
+
+const (
+	TopMemoryContext MemoryContextType = iota
+	TransientMemoryContext
+	QueryMemoryContext
+	PerTupleMemoryContext
+)
+
+type AllocationStrategy int
+
+const (
+	DefaultAllocation AllocationStrategy = iota
+	SmallObjectAllocation
+	LargeObjectAllocation
+)
+
+type MemoryContext struct {
+	mu   sync.RWMutex
+	name string
+
+	parent   *MemoryContext
+	children []*MemoryContext
+
+	contextType   MemoryContextType
+	allocStrategy AllocationStrategy
+
+	totalAllocated uint64
+	totalFreed     uint64
+	peakUsage      uint64
+	currentUsage   uint64
+
+	pools map[reflect.Type]*sync.Pool
 }
 
-type MemoryManager struct {
-	config           MemoryManagerConfig
-	pools            map[reflect.Type]*sync.Pool
-	poolsMutex       sync.RWMutex
-	totalAllocations uint64
-	totalFreed       uint64
-	currentMemoryUsage uint64
+type MemoryContextConfig struct {
+	Name            string
+	Parent          *MemoryContext
+	ContextType     MemoryContextType
+	AllocationStrat AllocationStrategy
 }
 
-type PoolStats struct {
-	TypeName     string
-	ObjectSize   uintptr
-}
-
-func NewMemoryManager(config MemoryManagerConfig) *MemoryManager {
-	if config.DefaultPoolSize == 0 {
-		config.DefaultPoolSize = 100 
+func NewMemoryContext(config MemoryContextConfig) *MemoryContext {
+	mc := &MemoryContext{
+		name:          config.Name,
+		parent:        config.Parent,
+		contextType:   config.ContextType,
+		allocStrategy: config.AllocationStrat,
+		pools:         make(map[reflect.Type]*sync.Pool),
 	}
 
-	if config.TotalMemoryLimit == 0 {
-		config.TotalMemoryLimit = 1024 * 1024 * 1024
+	if mc.parent != nil {
+		mc.parent.registerChild(mc)
 	}
 
-	return &MemoryManager{
-		config: config,
-		pools:  make(map[reflect.Type]*sync.Pool),
-	}
+	return mc
 }
 
+// Creates and registers a child context with the same
+// context type as the parent.
+func (mc *MemoryContext) CreateChild(name string) {
+	memCtx := mc.Allocate(name)
+	mc.registerChild(memCtx)
+}
 
-func (mm *MemoryManager) CreatePool(
+func (mc *MemoryContext) Allocate(name string) *MemoryContext {
+	return NewMemoryContext(MemoryContextConfig{
+		Name:        name,
+		Parent:      mc,
+		ContextType: mc.contextType,
+	})
+}
+
+// Register a child with custom contex type, not the same
+// as its parent
+func (mc *MemoryContext) registerChild(child *MemoryContext) {
+	mc.mu.Lock()
+	defer mc.mu.Unlock()
+	mc.children = append(mc.children, child)
+}
+
+func (mc *MemoryContext) CreatePool(
 	objectType reflect.Type,
 	allocator func() interface{},
 ) *sync.Pool {
-	mm.poolsMutex.Lock()
-	defer mm.poolsMutex.Unlock()
-
-	if existingPool, exists := mm.pools[objectType]; exists {
-		return existingPool
-	}
+	mc.mu.Lock()
+	defer mc.mu.Unlock()
 
 	pool := &sync.Pool{
-		New: allocator,
+		New: func() interface{} {
+			obj := allocator()
+			size := unsafe.Sizeof(obj)
+			atomic.AddUint64(&mc.totalAllocated, uint64(size))
+			atomic.AddUint64(&mc.currentUsage, uint64(size))
+
+			for {
+				current := atomic.LoadUint64(&mc.currentUsage)
+				peak := atomic.LoadUint64(&mc.peakUsage)
+				if current <= peak {
+					break
+				}
+				if atomic.CompareAndSwapUint64(&mc.peakUsage, peak, current) {
+					break
+				}
+			}
+
+			return obj
+		},
 	}
 
-	mm.pools[objectType] = pool
-
+	mc.pools[objectType] = pool
 	return pool
 }
 
-func (mm *MemoryManager) Acquire(objectType reflect.Type) interface{} {
-	mm.poolsMutex.RLock()
-	defer mm.poolsMutex.RUnlock()
+func (mm *MemoryContext) Acquire(objectType reflect.Type) interface{} {
+	mm.mu.RLock()
+	defer mm.mu.RUnlock()
 
 	pool, exists := mm.pools[objectType]
 	if !exists {
 		return nil
 	}
 
-	return pool.Get()
+	obj := pool.Get()
+	size := unsafe.Sizeof(obj)
+
+	atomic.AddUint64(&mm.totalAllocated, uint64(size))
+	current := atomic.AddUint64(&mm.currentUsage, uint64(size))
+
+	for {
+		peak := atomic.LoadUint64(&mm.peakUsage)
+		if current <= peak {
+			break
+		}
+		if atomic.CompareAndSwapUint64(&mm.peakUsage, peak, current) {
+			break
+		}
+	}
+
+	return obj
 }
 
-func (mm *MemoryManager) Release(objectType reflect.Type, obj interface{}) {
-	mm.poolsMutex.RLock()
-	defer mm.poolsMutex.RUnlock()
+func (mc *MemoryContext) Release(objectType reflect.Type, obj interface{}) {
+	mc.mu.RLock()
+	defer mc.mu.RUnlock()
 
-	pool, exists := mm.pools[objectType]
+	pool, exists := mc.pools[objectType]
 	if !exists {
 		return
 	}
 
+	clearObjectFields(obj)
+
+	size := unsafe.Sizeof(obj)
+	atomic.AddUint64(&mc.totalFreed, uint64(size))
+	atomic.AddUint64(&mc.currentUsage, ^uint64(size-1))
+
 	pool.Put(obj)
 }
 
-func (mm *MemoryManager) GetPoolStats(objectType reflect.Type) *PoolStats {
-	mm.poolsMutex.RLock()
-	defer mm.poolsMutex.RUnlock()
+func clearObjectFields(obj interface{}) {
+	v := reflect.ValueOf(obj)
 
-	objSize := reflect.New(objectType).Elem().Type().Size()
+	if v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
 
-	return &PoolStats{
-		TypeName:   objectType.String(),
-		ObjectSize: objSize,
+	if v.Kind() != reflect.Struct {
+		return
+	}
+
+	for i := range v.NumField() {
+		field := v.Field(i)
+
+		if !field.CanSet() {
+			panic("unaddressable field")
+		}
+
+		switch field.Kind() {
+		case reflect.Slice:
+			field.Set(reflect.Zero(field.Type()))
+		case reflect.Map:
+			field.Set(reflect.Zero(field.Type()))
+		case reflect.Ptr:
+			field.Set(reflect.Zero(field.Type()))
+		case reflect.String:
+			field.SetString("")
+		case reflect.Bool:
+			field.SetBool(false)
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			field.SetInt(0)
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			field.SetUint(0)
+		case reflect.Float32, reflect.Float64:
+			field.SetFloat(0)
+		case reflect.Struct:
+			clearObjectFields(field.Addr().Interface())
+		}
 	}
 }
