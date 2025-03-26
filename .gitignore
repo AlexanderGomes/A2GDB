@@ -5,7 +5,8 @@ query-storage-engine/tmp
 planner/target
 .vscode
 *.json
-*.md
+query-storage-engine/tasks.md
+query-storage-engine/performance.md
 *.prof
 planner/src/main/java/resources
 .env
