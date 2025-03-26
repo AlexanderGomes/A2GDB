@@ -10,10 +10,15 @@ import (
 type MemoryContextType int
 
 const (
-	TopMemoryContext MemoryContextType = iota + 1
-	TransientMemoryContext
-	QueryMemoryContext
-	PerTupleMemoryContext
+	Insert MemoryContextType = iota + 1
+	UpdateMultiple
+	UpdateSingle
+	DeleteSingle
+	DeleteMultiple
+	SelectStarAndColumn
+	SelectWhereClause
+	SelectOrderByClause
+	SelectGroupByClauseCount
 )
 
 type AllocationStrategy int
@@ -21,24 +26,31 @@ type AllocationStrategy int
 const (
 	DefaultAllocation AllocationStrategy = iota + 1
 	SmallObjectAllocation
+	MediumObjectAllocation
 	LargeObjectAllocation
 )
 
+type ContextManager struct {
+	mu       sync.RWMutex
+	ctxCache map[MemoryContextType][]*MemoryContext
+}
+
 type MemoryContext struct {
-	mu sync.RWMutex
+	active bool
+	mu     sync.RWMutex
 
 	name     string
 	parent   *MemoryContext
 	children []*MemoryContext
 	pools    map[reflect.Type]Pool
 
-	stats *Stats
+	stats *MemContextStats
 
 	contextType   MemoryContextType
 	allocStrategy AllocationStrategy
 }
 
-type Stats struct {
+type MemContextStats struct {
 	totalAllocated uint64
 	totalFreed     uint64
 	peakUsage      uint64
@@ -66,7 +78,7 @@ func NewMemoryContext(config MemoryContextConfig) *MemoryContext {
 		contextType:   config.ContextType,
 		allocStrategy: config.AllocationStrat,
 		pools:         make(map[reflect.Type]Pool),
-		stats:         &Stats{},
+		stats:         &MemContextStats{},
 	}
 
 	if mc.parent != nil {
@@ -243,8 +255,8 @@ func clearObjectFields(obj any) {
 	}
 }
 
-func MemorySnap(rootCtx *MemoryContext) *Stats {
-	var s Stats
+func MemorySnap(rootCtx *MemoryContext) *MemContextStats {
+	var s MemContextStats
 
 	rootCtx.mu.RLock()
 	defer rootCtx.mu.RUnlock()
@@ -258,7 +270,7 @@ func MemorySnap(rootCtx *MemoryContext) *Stats {
 	return &s
 }
 
-func childStats(ctx *MemoryContext, destination *Stats) {
+func childStats(ctx *MemoryContext, destination *MemContextStats) {
 	if ctx == nil {
 		return
 	}
@@ -277,7 +289,7 @@ func childStats(ctx *MemoryContext, destination *Stats) {
 	}
 }
 
-func CollectStats(source, destination *Stats) {
+func CollectStats(source, destination *MemContextStats) {
 	destination.currentUsage += source.currentUsage
 	destination.totalAllocated += source.totalAllocated
 	destination.totalFreed += source.totalFreed
@@ -313,43 +325,76 @@ func Shrink(poolObj *Pool) {
 	poolObj.pool = newPool
 }
 
-func ClaimContextTree(rootCtx *MemoryContext) {
-	CleanStatsAndPool(rootCtx)
+// if cache type isn't cached, the method will return create a new context.
+func (cm *ContextManager) GetOrCreateContext(ctxType MemoryContextType, config MemoryContextConfig) *MemoryContext {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	var ctx *MemoryContext
+
+	ctxs, ok := cm.ctxCache[ctxType]
+	if !ok {
+		return nil
+	}
+
+	if len(ctxs) == 0 {
+		ctx = NewMemoryContext(config)
+		ctx.active = true
+		return ctx
+	}
+
+	ctx = ctxs[0]
+	ctx.active = true
+
+	cm.ctxCache[ctxType] = ctxs[1:]
+
+	return ctx
+}
+
+// caches the memory context structure for similar queries
+func (cm *ContextManager) ReturnContext(rootCtx *MemoryContext) {
+	CleanInfoAndPool(rootCtx)
 
 	for _, child := range rootCtx.children {
 		CleanAllChildren(child)
 	}
+
+	rootCtx.mu.Lock()
+	rootCtx.active = false
+	rootCtx.mu.Unlock()
+
+	cm.mu.Lock()
+	cm.ctxCache[rootCtx.contextType] = append(cm.ctxCache[rootCtx.contextType], rootCtx)
+	cm.mu.Unlock()
 }
 
 func CleanAllChildren(childCtx *MemoryContext) {
-	CleanStatsAndPool(childCtx)
+	CleanInfoAndPool(childCtx)
 
-	childCtx.mu.RLock()
-	children := make([]*MemoryContext, len(childCtx.children))
-	copy(children, childCtx.children)
-	childCtx.mu.RUnlock()
-
-	for _, child := range children {
+	for _, child := range childCtx.children {
 		CleanAllChildren(child)
-		child = nil
 	}
 
-	childCtx.children = childCtx.children[:0]
 }
 
-func CleanStatsAndPool(ctx *MemoryContext) {
-	ctx.mu.RLock()
-	defer ctx.mu.RUnlock()
+func CleanInfoAndPool(ctx *MemoryContext) {
+	ctx.mu.Lock()
+	defer ctx.mu.Unlock()
 
-	ctx.stats = nil
+	ctx.stats.currentUsage = 0
+	ctx.stats.peakUsage = 0
+	ctx.stats.totalAllocated = 0
+	ctx.stats.totalFreed = 0
+
+	ctx.name = ""
 	ctx.contextType = 0
 	ctx.allocStrategy = 0
 
 	for _, poolObj := range ctx.pools {
 		poolObj.mu.Lock()
 		poolObj.allocator = nil
-		poolObj.capacity = 0
-		poolObj.pool = poolObj.pool[:0]
+		Shrink(&poolObj)
+		poolObj.mu.Unlock()
 	}
-}
 
+}

@@ -32,6 +32,7 @@ func (qe *QueryEngine) handleUpdate(plan map[string]interface{}, transactionOff 
 	tableName := plan["table"].(string)
 	manager := qe.BufferPoolManager.DiskManager
 	walManager := qe.BufferPoolManager.Wal
+	tableStats := manager.PageCatalog.Tables[tableName]
 
 	tableObj, err := GetTableObj(tableName, manager)
 	if err != nil {
@@ -40,8 +41,7 @@ func (qe *QueryEngine) handleUpdate(plan map[string]interface{}, transactionOff 
 		return result
 	}
 
-	tableStats := manager.PageCatalog.Tables[tableName]
-
+	
 	isPrimary, err := isPrimary(filterColumn, tableName, manager.PageCatalog)
 	if err != nil {
 		result.Error = fmt.Errorf("isPrimary failed: %w", err)

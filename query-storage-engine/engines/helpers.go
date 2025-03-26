@@ -243,9 +243,9 @@ func processPagesForUpdate(ctx context.Context, lm *LockManager, pageChan chan *
 			return ctx.Err()
 		}
 
-		var freeSpacePage *FreeSpace
-		var updateInfo ModifiedInfo
-		var nonAddedRows NonAddedRows
+		var freeSpacePage *FreeSpace  // 1000 pages == 1000x1
+		var updateInfo ModifiedInfo   // 1000 pages === 1000x1
+		var nonAddedRows NonAddedRows // 1000 pages === 1000x30
 
 		pageId := PageID(page.Header.ID)
 
