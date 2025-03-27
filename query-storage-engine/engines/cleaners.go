@@ -1,6 +1,8 @@
 package engines
 
-import "bytes"
+import (
+	"bytes"
+)
 
 func RowV2Cleaner(obj any) {
 	if row, ok := obj.(*RowV2); ok {
@@ -36,7 +38,9 @@ func FreeSpaceCleaner(obj any) {
 		fs.PageID = 0
 		fs.FreeMemory = 0
 		fs.TempPagePtr = nil
+		return
 	}
+	panic("object is not *freeSpace")
 }
 
 func ModifiedInfoCleaner(obj any) {

@@ -242,7 +242,8 @@ func (qe *QueryEngine) GetSystemPressureStats() (*SystemStats, error) {
 	if err != nil {
 		return nil, err
 	}
-	if swapStat.UsedPercent > 20 {
+
+	if swapStat.UsedPercent > 80 {
 		qe.CanBroadcast = true
 		underPressure = true
 		reasons = append(reasons, "High swap usage")
@@ -277,13 +278,13 @@ func (qe *QueryEngine) GetSystemPressureStats() (*SystemStats, error) {
 		}
 	}
 
-	if (readDelta+writeDelta)/3 > 20*1024*1024 {
+	if (readDelta+writeDelta)/3 > 100*1024*1024 {
 		qe.CanBroadcast = true
 		underPressure = true
 		reasons = append(reasons, "High disk IO activity")
 	}
 
-	fmt.Println("UnderPressure: ", underPressure)
+	fmt.Printf("UnderPressureStats: %t, Reasons: %+v\n", underPressure, reasons)
 	return &SystemStats{
 		TotalRAM:          vmStat.Total,
 		AvailableRAM:      vmStat.Available,

@@ -26,8 +26,10 @@ func ByteSliceAllocator() any {
 	return &s
 }
 
-func FreeSpaceAllocator() any {
-	return &FreeSpace{}
+func FreeSpaceAllocator() func() any {
+	return func() any {
+		return &FreeSpace{}
+	}
 }
 
 func ModifiedInfoAllocator() any {

@@ -4,6 +4,7 @@ import (
 	"a2gdb/logger"
 	"context"
 	"fmt"
+	"reflect"
 
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -24,7 +25,7 @@ const (
 	NEXT_LEVEL = 400
 )
 
-func cleanOrgnize(ctx context.Context, updateInfoChan chan *ModifiedInfo, insertChan chan *NonAddedRows, tableObj *TableObj, tableStats *TableInfo) error {
+func cleanOrgnize(ctx context.Context, accountingCtx *MemoryContext, updateInfoChan chan *ModifiedInfo, insertChan chan *NonAddedRows, tableObj *TableObj, tableStats *TableInfo) error {
 	logger.Log.Info("cleanOrgnize (start)")
 
 	if insertChan != nil {
@@ -80,6 +81,12 @@ func cleanOrgnize(ctx context.Context, updateInfoChan chan *ModifiedInfo, insert
 		err = saveMemMapping(tableObj, tableStats)
 		if err != nil {
 			return fmt.Errorf("saveMemMapping failed: %w", err)
+		}
+
+		var freeSpaceType = reflect.TypeOf((*FreeSpace)(nil)).Elem()
+		freed := accountingCtx.Release(freeSpaceType, space)
+		if !freed {
+			panic("freeSpaceObj wasn't freed")
 		}
 
 		tableObj.Mu.Unlock()

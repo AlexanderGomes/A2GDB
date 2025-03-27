@@ -236,7 +236,7 @@ type ModifiedInfo struct {
 	NonAddedRow      *NonAddedRows
 }
 
-func processPagesForUpdate(ctx context.Context, qe *QueryEngine, lm *LockManager, pageChan chan *PageV2, updateInfoChan chan *ModifiedInfo, updateKey, updateVal, filterKey, filterVal, txID string, tableObj *TableObj, wal *WalManager, txOff bool) error {
+func processPagesForUpdate(ctx context.Context, accountingCtx *MemoryContext, qe *QueryEngine, lm *LockManager, pageChan chan *PageV2, updateInfoChan chan *ModifiedInfo, updateKey, updateVal, filterKey, filterVal, txID string, tableObj *TableObj, wal *WalManager, txOff bool) error {
 	logger.Log.Info("processPagesForUpdate (start)")
 	defer close(updateInfoChan)
 
@@ -248,18 +248,12 @@ func processPagesForUpdate(ctx context.Context, qe *QueryEngine, lm *LockManager
 	row, reader, buffer, slice := GetTupleObjs(tupleCtx)
 	rowpObj, readerpObj, bufferpObj, slicepObj := GetTuplePoolObjs(tupleCtx)
 
-	accountingCtx, wasCached := qe.CtxManager.GetOrCreateContext(AccountingLevel, MemoryContextConfig{Name: "Accouting", ContextType: AccountingLevel, AllocationStrat: DefaultAllocation})
-	if !wasCached {
-		CreateAccountingPools(accountingCtx)
-	}
-
-	freeSpacePage, updateInfo, nonAddedRows := GetAccountingObjs(accountingCtx)
-	freeSpacePoolObj, ModifiedInfoPoolObj, nonAddedRowPoolObj := GetAccountingPoolObjs(accountingCtx)
-
 	for page := range pageChan {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
+
+		freeSpacePage, updateInfo, nonAddedRows := GetAccountingObjs(accountingCtx)
 
 		pageId := PageID(page.Header.ID)
 
@@ -341,24 +335,17 @@ func processPagesForUpdate(ctx context.Context, qe *QueryEngine, lm *LockManager
 			updateInfoChan <- updateInfo
 		}
 
-		freeSpacePoolObj.cleaner(freeSpacePage)
-		ModifiedInfoPoolObj.cleaner(updateInfo)
-		nonAddedRowPoolObj.cleaner(nonAddedRows)
-
 		logger.Log.WithFields(logrus.Fields{"Memlevel": pageObj.Level, "exactFreeMem": pageObj.ExactFreeMem, "offset": pageObj.Offset}).Info("After Modification (PageObj)")
 	}
 
 	ReleaseTupleObjs(tupleCtx, row, reader, buffer, slice)
 	qe.CtxManager.ReturnContext(tupleCtx)
 
-	ReleaseAccountingObjs(accountingCtx, freeSpacePage, updateInfo, nonAddedRows)
-	qe.CtxManager.ReturnContext(accountingCtx)
-
 	logger.Log.Info("processPagesForUpdate (end)")
 	return nil
 }
 
-func handleLikeInsert(ctx context.Context, nonAddedRows chan *NonAddedRows, tableObj *TableObj, tableName string, bpm *BufferPoolManager, tableStats *TableInfo) error {
+func handleLikeInsert(ctx context.Context, accountingCtx *MemoryContext, qe *QueryEngine, nonAddedRows chan *NonAddedRows, tableObj *TableObj, tableName string, bpm *BufferPoolManager, tableStats *TableInfo) error {
 	logger.Log.Info("handleLikeInsert(update) Started")
 
 	for nonAddedRow := range nonAddedRows {
@@ -382,12 +369,17 @@ func handleLikeInsert(ctx context.Context, nonAddedRows chan *NonAddedRows, tabl
 		if err != nil {
 			return fmt.Errorf("findAndUpdate failed: %w", err)
 		}
+
+		var nonAddedRowsType = reflect.TypeOf((*NonAddedRows)(nil)).Elem()
+		accountingCtx.Release(nonAddedRowsType, nonAddedRow)
 	}
 
+	qe.CtxManager.ReturnContext(accountingCtx)
 	logger.Log.Info("handleLikeInsert(update) Completed")
 	return nil
 }
 
+// Potential Improvement
 func ChunkRows(nonAddedRows *NonAddedRows) []*NonAddedRows {
 	const maxBytesPerChunk = 2096
 	var chunkedRows []*NonAddedRows

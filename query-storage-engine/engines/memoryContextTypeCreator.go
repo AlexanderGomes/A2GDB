@@ -6,7 +6,7 @@ import (
 )
 
 func CreateTuplePools(memCtx *MemoryContext) {
-	var rowType = reflect.TypeOf((*RowV2)(nil)).Elem()
+	var rowType = reflect.TypeOf((*RowV2)(nil))
 	var readerType = reflect.TypeOf((*bytes.Reader)(nil))
 	var bufferType = reflect.TypeOf((*bytes.Buffer)(nil))
 	var byteSliceType = reflect.TypeOf((*[]byte)(nil))
@@ -20,7 +20,7 @@ func CreateTuplePools(memCtx *MemoryContext) {
 }
 
 func GetTupleObjs(memCtx *MemoryContext) (*RowV2, *bytes.Reader, *bytes.Buffer, *[]byte) {
-	rowInterface := memCtx.Acquire(reflect.TypeOf((*RowV2)(nil)).Elem())
+	rowInterface := memCtx.Acquire(reflect.TypeOf((*RowV2)(nil)))
 	row := rowInterface.(*RowV2)
 
 	readerInterface := memCtx.Acquire(reflect.TypeOf((*bytes.Reader)(nil)))
@@ -36,7 +36,7 @@ func GetTupleObjs(memCtx *MemoryContext) (*RowV2, *bytes.Reader, *bytes.Buffer, 
 }
 
 func GetTuplePoolObjs(memCtx *MemoryContext) (*Pool, *Pool, *Pool, *Pool) {
-	var rowType = reflect.TypeOf((*RowV2)(nil)).Elem()
+	var rowType = reflect.TypeOf((*RowV2)(nil))
 	var readerType = reflect.TypeOf((*bytes.Reader)(nil))
 	var bufferType = reflect.TypeOf((*bytes.Buffer)(nil))
 	var byteSliceType = reflect.TypeOf((*[]byte)(nil))
@@ -50,7 +50,7 @@ func GetTuplePoolObjs(memCtx *MemoryContext) (*Pool, *Pool, *Pool, *Pool) {
 }
 
 func ReleaseTupleObjs(memCtx *MemoryContext, row *RowV2, reader *bytes.Reader, buffer *bytes.Buffer, slice *[]byte) {
-	var rowType = reflect.TypeOf((*RowV2)(nil)).Elem()
+	var rowType = reflect.TypeOf((*RowV2)(nil))
 	var readerType = reflect.TypeOf((*bytes.Reader)(nil))
 	var bufferType = reflect.TypeOf((*bytes.Buffer)(nil))
 	var byteSliceType = reflect.TypeOf((*[]byte)(nil))
@@ -62,34 +62,34 @@ func ReleaseTupleObjs(memCtx *MemoryContext, row *RowV2, reader *bytes.Reader, b
 }
 
 func CreateAccountingPools(memCtx *MemoryContext) {
-	var freeSpaceType = reflect.TypeOf((*FreeSpace)(nil)).Elem()
-	var modifiedInfoType = reflect.TypeOf((*ModifiedInfo)(nil)).Elem()
-	var nonAddedRowsType = reflect.TypeOf((*NonAddedRows)(nil)).Elem()
+	var freeSpaceType = reflect.TypeOf((*FreeSpace)(nil))
+	var modifiedInfoType = reflect.TypeOf((*ModifiedInfo)(nil))
+	var nonAddedRowsType = reflect.TypeOf((*NonAddedRows)(nil))
 
 	capacity := DetermineCapacity(memCtx.allocStrategy)
 
-	memCtx.CreatePool(freeSpaceType, FreeSpaceAllocator, FreeSpaceCleaner, capacity)
+	memCtx.CreatePool(freeSpaceType, FreeSpaceAllocator(), FreeSpaceCleaner, capacity)
 	memCtx.CreatePool(modifiedInfoType, ModifiedInfoAllocator, ModifiedInfoCleaner, capacity)
 	memCtx.CreatePool(nonAddedRowsType, NonAddedRowsAllocator, NonAddedRowsCleaner, capacity)
 }
 
 func GetAccountingObjs(memCtx *MemoryContext) (*FreeSpace, *ModifiedInfo, *NonAddedRows) {
-	freeSpaceInterface := memCtx.Acquire(reflect.TypeOf((*FreeSpace)(nil)).Elem())
+	freeSpaceInterface := memCtx.Acquire(reflect.TypeOf((*FreeSpace)(nil)))
 	freeSpace := freeSpaceInterface.(*FreeSpace)
 
-	mdInterface := memCtx.Acquire(reflect.TypeOf((*ModifiedInfo)(nil)).Elem())
+	mdInterface := memCtx.Acquire(reflect.TypeOf((*ModifiedInfo)(nil)))
 	modified := mdInterface.(*ModifiedInfo)
 
-	ndInterface := memCtx.Acquire(reflect.TypeOf((*NonAddedRows)(nil)).Elem())
+	ndInterface := memCtx.Acquire(reflect.TypeOf((*NonAddedRows)(nil)))
 	nonAddedRow := ndInterface.(*NonAddedRows)
 
 	return freeSpace, modified, nonAddedRow
 }
 
 func GetAccountingPoolObjs(memCtx *MemoryContext) (*Pool, *Pool, *Pool) {
-	var freeSpaceType = reflect.TypeOf((*FreeSpace)(nil)).Elem()
-	var modifiedInfoType = reflect.TypeOf((*ModifiedInfo)(nil)).Elem()
-	var nonAddedRowsType = reflect.TypeOf((*NonAddedRows)(nil)).Elem()
+	var freeSpaceType = reflect.TypeOf((*FreeSpace)(nil))
+	var modifiedInfoType = reflect.TypeOf((*ModifiedInfo)(nil))
+	var nonAddedRowsType = reflect.TypeOf((*NonAddedRows)(nil))
 
 	freeSpacePoolObj := memCtx.GetPool(freeSpaceType)
 	ModifiedInfoPoolObj := memCtx.GetPool(modifiedInfoType)
@@ -99,11 +99,23 @@ func GetAccountingPoolObjs(memCtx *MemoryContext) (*Pool, *Pool, *Pool) {
 }
 
 func ReleaseAccountingObjs(memCtx *MemoryContext, freeSpace *FreeSpace, modified *ModifiedInfo, nonAddedRow *NonAddedRows) {
-	var freeSpaceType = reflect.TypeOf((*FreeSpace)(nil)).Elem()
-	var modifiedInfoType = reflect.TypeOf((*ModifiedInfo)(nil)).Elem()
-	var nonAddedRowsType = reflect.TypeOf((*NonAddedRows)(nil)).Elem()
+	var freeSpaceType = reflect.TypeOf((*FreeSpace)(nil))
+	var modifiedInfoType = reflect.TypeOf((*ModifiedInfo)(nil))
+	var nonAddedRowsType = reflect.TypeOf((*NonAddedRows)(nil))
 
-	memCtx.Release(freeSpaceType, freeSpace)
-	memCtx.Release(modifiedInfoType, modified)
-	memCtx.Release(nonAddedRowsType, nonAddedRow)
+	freed := memCtx.Release(freeSpaceType, freeSpace)
+	if !freed {
+		panic("couldn't free freeSpaceObj")
+	}
+
+	freed = memCtx.Release(modifiedInfoType, modified)
+	if !freed {
+		panic("couldn't free modifiedObj")
+	}
+
+	freed = memCtx.Release(nonAddedRowsType, nonAddedRow)
+	if !freed {
+		panic("couldn't free nonAddedRow")
+	}
+
 }

@@ -69,18 +69,23 @@ func (qe *QueryEngine) handleUpdate(plan map[string]interface{}, transactionOff 
 		txId = walManager.BeginTransaction()
 	}
 
+	accountingCtx, wasCached := qe.CtxManager.GetOrCreateContext(AccountingLevel, MemoryContextConfig{Name: "Accouting", ContextType: AccountingLevel, AllocationStrat: DefaultAllocation})
+	if !wasCached {
+		CreateAccountingPools(accountingCtx)
+	}
+
 	tasks := []func() error{
 		func() error {
 			return qe.BufferPoolManager.FullTableScan(ctx, pageChan, tableObj, tableStats.NumOfPages)
 		},
 		func() error {
-			return processPagesForUpdate(ctx, qe, qe.Lm, pageChan, updateInfoChan, modifyColumn, modifyValue, filterColumn, filterValue, txId, tableObj, walManager, transactionOff)
+			return processPagesForUpdate(ctx, accountingCtx, qe, qe.Lm, pageChan, updateInfoChan, modifyColumn, modifyValue, filterColumn, filterValue, txId, tableObj, walManager, transactionOff)
 		},
 		func() error {
-			return cleanOrgnize(ctx, updateInfoChan, insertChan, tableObj, tableStats)
+			return cleanOrgnize(ctx, accountingCtx, updateInfoChan, insertChan, tableObj, tableStats)
 		},
 		func() error {
-			return handleLikeInsert(ctx, insertChan, tableObj, tableName, qe.BufferPoolManager, tableStats)
+			return handleLikeInsert(ctx, accountingCtx, qe, insertChan, tableObj, tableName, qe.BufferPoolManager, tableStats)
 		},
 	}
 
@@ -178,7 +183,7 @@ func (qe *QueryEngine) handleDelete(plan map[string]interface{}, transactionOff,
 			return processPagesForDeletion(ctx, qe.Lm, pageChan, updateInfoChan, deleteKey, deleteVal, txId, isPrimary, tableObj, walManager, transactionOff)
 		},
 		func() error {
-			return cleanOrgnize(ctx, updateInfoChan, nil, tableObj, tableStats)
+			return cleanOrgnize(ctx, nil, updateInfoChan, nil, tableObj, tableStats)
 		},
 	}
 

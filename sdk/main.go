@@ -20,10 +20,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	schema := map[string]string{"UserId": "PRIMARY KEY", "Username": "VARCHAR", "Age": "INT", "City": "VARCHAR"}
-	cred.CreateTable("User", schema)
-
-	InsertMany(1000, cred)
+	UpdateQuery(cred)
 }
 
 func Concurrent(queries []string, cred *client.UserCred) {
@@ -53,4 +50,15 @@ func InsertMany(x int, cred *client.UserCred) {
 		}
 		fmt.Println(msg)
 	}
+}
+
+func UpdateQuery(cred *client.UserCred) {
+	sql := "UPDATE `User` SET Age = 121209 WHERE Username = 'JaneSmith'"
+
+	msg, err := cred.ExecuteQuery(sql)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(msg)
+
 }

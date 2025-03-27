@@ -1,6 +1,7 @@
 package engines
 
 import (
+	"fmt"
 	"reflect"
 	"sync"
 	"sync/atomic"
@@ -44,14 +45,10 @@ func (cm *ContextManager) GetOrCreateContext(ctxType MemoryContextType, config M
 	var wasCached bool
 
 	ctxs, ok := cm.ctxCache[ctxType]
-	if !ok {
-		return nil, wasCached
-	}
-
-	if len(ctxs) == 0 {
-		// could duplicate an existing context of the same type
+	if len(ctxs) == 0 || !ok {
 		ctx = NewMemoryContext(config)
 		ctx.active = true
+
 		return ctx, wasCached
 	}
 
@@ -156,6 +153,8 @@ func (mc *MemoryContext) CreatePool(objectType reflect.Type, allocator func() an
 
 	for range capacity {
 		obj := allocator()
+		fmt.Println(obj)
+		fmt.Println(objectType)
 		size := unsafe.Sizeof(obj)
 
 		atomic.AddUint64(&mc.stats.totalAllocated, uint64(size))
