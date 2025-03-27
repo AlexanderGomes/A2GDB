@@ -2,6 +2,7 @@ package engines
 
 import (
 	"a2gdb/logger"
+	"bytes"
 	"context"
 	"fmt"
 	"regexp"
@@ -41,7 +42,6 @@ func (qe *QueryEngine) handleUpdate(plan map[string]interface{}, transactionOff 
 		return result
 	}
 
-	
 	isPrimary, err := isPrimary(filterColumn, tableName, manager.PageCatalog)
 	if err != nil {
 		result.Error = fmt.Errorf("isPrimary failed: %w", err)
@@ -61,7 +61,7 @@ func (qe *QueryEngine) handleUpdate(plan map[string]interface{}, transactionOff 
 	var wg sync.WaitGroup
 	errChan := make(chan error, 4)
 	pageChan := make(chan *PageV2, 100)
-	updateInfoChan := make(chan ModifiedInfo, 100)
+	updateInfoChan := make(chan *ModifiedInfo, 100)
 	insertChan := make(chan *NonAddedRows, 100)
 
 	var txId string
@@ -74,7 +74,7 @@ func (qe *QueryEngine) handleUpdate(plan map[string]interface{}, transactionOff 
 			return qe.BufferPoolManager.FullTableScan(ctx, pageChan, tableObj, tableStats.NumOfPages)
 		},
 		func() error {
-			return processPagesForUpdate(ctx, qe.Lm, pageChan, updateInfoChan, modifyColumn, modifyValue, filterColumn, filterValue, txId, tableObj, walManager, transactionOff)
+			return processPagesForUpdate(ctx, qe, qe.Lm, pageChan, updateInfoChan, modifyColumn, modifyValue, filterColumn, filterValue, txId, tableObj, walManager, transactionOff)
 		},
 		func() error {
 			return cleanOrgnize(ctx, updateInfoChan, insertChan, tableObj, tableStats)
@@ -163,7 +163,7 @@ func (qe *QueryEngine) handleDelete(plan map[string]interface{}, transactionOff,
 	errChan := make(chan error, 3)
 
 	pageChan := make(chan *PageV2, 100)
-	updateInfoChan := make(chan ModifiedInfo, 100)
+	updateInfoChan := make(chan *ModifiedInfo, 100)
 
 	var txId string
 	if !transactionOff {
@@ -256,14 +256,14 @@ func (qe *QueryEngine) handleCreate(plan map[string]interface{}) Result {
 	return result
 }
 
-func (qe *QueryEngine) handleInsert(plan map[string]interface{}, transactionOff, induceErr bool) Result {
+func (qe *QueryEngine) handleInsert(plan map[string]any, transactionOff, induceErr bool) Result {
 	logger.Log.Info("Insertion Started")
 
 	manager := qe.BufferPoolManager.DiskManager
 	walManager := qe.BufferPoolManager.Wal
 	catalog := manager.PageCatalog
 
-	selectedCols := plan["selectedCols"].([]interface{})
+	selectedCols := plan["selectedCols"].([]any)
 	tableName := plan["table"].(string)
 	tableStats := catalog.Tables[tableName]
 
@@ -322,12 +322,12 @@ func ReturnPrimaryIds(encodedRows [][]byte) (*Result, error) {
 	var res Result
 
 	for _, encodedRow := range encodedRows {
-		row, err := DecodeRow(encodedRow)
-		if err != nil {
-			return nil, fmt.Errorf("DecodeRow failed: %w", err)
-		}
+		var row RowV2
 
-		res.Rows = append(res.Rows, row)
+		buff := bytes.NewReader(encodedRow)
+		DecodeRow(&row, buff)
+
+		res.Rows = append(res.Rows, &row)
 	}
 
 	res.Msg = "successful query"

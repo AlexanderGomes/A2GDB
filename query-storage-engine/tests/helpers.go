@@ -3,6 +3,7 @@ package tests
 import (
 	"a2gdb/engines"
 	"a2gdb/utils"
+	"bytes"
 	"fmt"
 	"strconv"
 	"testing"
@@ -77,10 +78,10 @@ func checkTupleNumber(t *testing.T, expectedNumber int) {
 			location := &pageObj.PointerArray[i]
 
 			rowBytes := page.Data[location.Offset : location.Offset+location.Length]
-			row, err := engines.DecodeRow(rowBytes)
-			if err != nil {
-				t.Fatalf("couldn't decode row, location: %+v, error: %s", location, err)
-			}
+			var row engines.RowV2
+			buff := bytes.NewReader(rowBytes)
+
+			engines.DecodeRow(&row, buff)
 
 			innerCount++
 			if row.Values[checkKey] == checkVal {
@@ -330,12 +331,12 @@ func getRows(t *testing.T) []*engines.RowV2 {
 
 		for _, location := range pageObj.PointerArray {
 			rowBytes := page.Data[location.Offset : location.Offset+location.Length]
-			row, err := engines.DecodeRow(rowBytes)
-			if err != nil {
-				t.Fatalf("couldn't decode row, location: %+v, error: %s", location, err)
-			}
+			var row engines.RowV2
+			buff := bytes.NewReader(rowBytes)
 
-			rows = append(rows, row)
+			engines.DecodeRow(&row, buff)
+
+			rows = append(rows, &row)
 		}
 	}
 

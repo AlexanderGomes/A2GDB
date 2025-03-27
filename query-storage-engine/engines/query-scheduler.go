@@ -77,6 +77,8 @@ func (qs *QueryScheduler) Execute(queryInfo *QueryInfo) {
 			qs.ResChan <- res
 			return
 		}
+
+		//## TODO - Free resources before the query times out.
 	}
 
 	if queryInfo.Type == "CRUD" {

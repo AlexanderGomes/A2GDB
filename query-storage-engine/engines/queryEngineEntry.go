@@ -21,6 +21,7 @@ const (
 )
 
 type QueryEngine struct {
+	CtxManager        *ContextManager
 	BufferPoolManager *BufferPoolManager
 	Lm                *LockManager
 	QueryChan         chan *QueryInfo

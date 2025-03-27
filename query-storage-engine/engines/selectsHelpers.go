@@ -1,6 +1,7 @@
 package engines
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -451,14 +452,14 @@ func RowCollector(outerCtx, innerCtx context.Context, pageChan chan *PageV2, out
 					continue
 				}
 
+				// TODO - possible change
 				rowBytes := page.Data[location.Offset : location.Offset+location.Length]
-				row, err := DecodeRow(rowBytes)
-				if err != nil {
-					pageObj.Mu.RUnlock()
-					return fmt.Errorf("DecodeRow Failed: %w", err)
-				}
+				buf := bytes.NewReader(rowBytes)
+				var row RowV2
 
-				rows = append(rows, row)
+				DecodeRow(&row, buf)
+
+				rows = append(rows, &row)
 				if len(rows) >= BATCH_THRESHOLD {
 					outputChan <- rows
 					rows = []*RowV2{}

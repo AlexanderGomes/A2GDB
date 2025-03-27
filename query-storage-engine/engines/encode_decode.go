@@ -308,20 +308,18 @@ func DecodePageV2(data []byte) (*PageV2, error) {
 	return page, nil
 }
 
-func EncodeRow(row *RowV2) ([]byte, error) {
-	var buf bytes.Buffer
-
-	if err := binary.Write(&buf, binary.LittleEndian, row.ID); err != nil {
+func EncodeRow(row *RowV2, buf *bytes.Buffer) ([]byte, error) {
+	if err := binary.Write(buf, binary.LittleEndian, row.ID); err != nil {
 		return nil, err
 	}
 
 	numValues := uint32(len(row.Values))
-	if err := binary.Write(&buf, binary.LittleEndian, numValues); err != nil {
+	if err := binary.Write(buf, binary.LittleEndian, numValues); err != nil {
 		return nil, err
 	}
 
 	for key, value := range row.Values {
-		if err := binary.Write(&buf, binary.LittleEndian, uint32(len(key))); err != nil {
+		if err := binary.Write(buf, binary.LittleEndian, uint32(len(key))); err != nil {
 			return nil, err
 		}
 
@@ -329,7 +327,7 @@ func EncodeRow(row *RowV2) ([]byte, error) {
 			return nil, err
 		}
 
-		if err := binary.Write(&buf, binary.LittleEndian, uint32(len(value))); err != nil {
+		if err := binary.Write(buf, binary.LittleEndian, uint32(len(value))); err != nil {
 			return nil, err
 		}
 		if _, err := buf.WriteString(value); err != nil {
@@ -340,17 +338,13 @@ func EncodeRow(row *RowV2) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func DecodeRow(data []byte) (*RowV2, error) {
-	buf := bytes.NewReader(data)
-
-	var row RowV2
-
+func DecodeRow(row *RowV2, buf *bytes.Reader) error {
 	if err := binary.Read(buf, binary.LittleEndian, &row.ID); err != nil {
-		return nil, err
+		return err
 	}
 	var numValues uint32
 	if err := binary.Read(buf, binary.LittleEndian, &numValues); err != nil {
-		return nil, err
+		return err
 	}
 
 	row.Values = make(map[string]string, numValues)
@@ -358,30 +352,31 @@ func DecodeRow(data []byte) (*RowV2, error) {
 	for i := uint32(0); i < numValues; i++ {
 		var keyLength uint32
 		if err := binary.Read(buf, binary.LittleEndian, &keyLength); err != nil {
-			return nil, err
+			return err
 		}
 
 		keyBytes := make([]byte, keyLength)
 		if _, err := io.ReadFull(buf, keyBytes); err != nil {
-			return nil, err
+			return err
 		}
 		key := string(keyBytes)
 
 		var valueLength uint32
 		if err := binary.Read(buf, binary.LittleEndian, &valueLength); err != nil {
-			return nil, err
+			return err
 		}
 
 		valueBytes := make([]byte, valueLength)
 		if _, err := io.ReadFull(buf, valueBytes); err != nil {
-			return nil, err
+			return err
 		}
+
 		value := string(valueBytes)
 
 		row.Values[key] = value
 	}
 
-	return &row, nil
+	return nil
 }
 
 func ResetBytesToEmpty(page *PageV2, offset uint16, length uint16) error {

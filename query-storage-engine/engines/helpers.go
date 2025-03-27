@@ -3,6 +3,7 @@ package engines
 import (
 	"a2gdb/logger"
 	"a2gdb/utils"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -33,14 +34,15 @@ func prepareRows(plan map[string]interface{}, selectedCols []interface{}, primar
 
 		//#Add row values
 		newRow.Values[primary] = strconv.FormatUint(newRow.ID, 10)
-		for i, rowVal := range row.([]interface{}) {
+		for i, rowVal := range row.([]any) {
 			strRowVal := strings.ReplaceAll(rowVal.(string), "'", "")
 			strRowCol := selectedCols[i].(string)
 
 			newRow.Values[strRowCol] = strRowVal
 		}
 
-		encodedRow, err := EncodeRow(&newRow)
+		buff := BufferAllocator() // ## TODO - POSSIBLE CHANGE
+		encodedRow, err := EncodeRow(&newRow, buff.(*bytes.Buffer))
 		if err != nil {
 			return 0, nil, fmt.Errorf("encodeRow failed: %w", err)
 		}
@@ -146,7 +148,7 @@ func checkPresenceGetPrimary(selectedCols []interface{}, tableName string, catal
 	return primary, nil
 }
 
-func processPagesForDeletion(ctx context.Context, lm *LockManager, pages chan *PageV2, updateInfoChan chan ModifiedInfo, deleteKey, deleteVal, txID string, isPrimary bool, tableObj *TableObj, wal *WalManager, txOff bool) error {
+func processPagesForDeletion(ctx context.Context, lm *LockManager, pages chan *PageV2, updateInfoChan chan *ModifiedInfo, deleteKey, deleteVal, txID string, isPrimary bool, tableObj *TableObj, wal *WalManager, txOff bool) error {
 	defer close(updateInfoChan)
 
 	var foundMatch bool
@@ -178,14 +180,13 @@ func processPagesForDeletion(ctx context.Context, lm *LockManager, pages chan *P
 			}
 
 			rowBytes := page.Data[location.Offset : location.Offset+location.Length]
-			row, err := DecodeRow(rowBytes)
-			if err != nil {
-				return fmt.Errorf("DecodeRow failed: %w", err)
-			}
+			var row RowV2
+			buf := bytes.NewReader(rowBytes)
+			DecodeRow(&row, buf)
 
-			lm.Lock(row.ID, row, R)
+			lm.Lock(row.ID, &row, R)
 			deleteMatchFound := row.Values[deleteKey] == deleteVal
-			err = lm.Unlock(row.ID, row, R)
+			err := lm.Unlock(row.ID, &row, R)
 			if err != nil {
 				return fmt.Errorf("unlock failed: %w", err)
 			}
@@ -218,7 +219,7 @@ func processPagesForDeletion(ctx context.Context, lm *LockManager, pages chan *P
 		pageObj.Mu.Unlock()
 		if freeSpacePage != nil {
 			updateInfo.FreeSpaceMapping = freeSpacePage
-			updateInfoChan <- updateInfo
+			updateInfoChan <- &updateInfo
 		}
 	}
 
@@ -235,18 +236,30 @@ type ModifiedInfo struct {
 	NonAddedRow      *NonAddedRows
 }
 
-func processPagesForUpdate(ctx context.Context, lm *LockManager, pageChan chan *PageV2, updateInfoChan chan ModifiedInfo, updateKey, updateVal, filterKey, filterVal, txID string, tableObj *TableObj, wal *WalManager, txOff bool) error {
+func processPagesForUpdate(ctx context.Context, qe *QueryEngine, lm *LockManager, pageChan chan *PageV2, updateInfoChan chan *ModifiedInfo, updateKey, updateVal, filterKey, filterVal, txID string, tableObj *TableObj, wal *WalManager, txOff bool) error {
 	logger.Log.Info("processPagesForUpdate (start)")
 	defer close(updateInfoChan)
+
+	tupleCtx, wasCached := qe.CtxManager.GetOrCreateContext(TupleLevel, MemoryContextConfig{Name: "Tuples", ContextType: TupleLevel, AllocationStrat: DefaultAllocation})
+	if !wasCached {
+		CreateTuplePools(tupleCtx)
+	}
+
+	row, reader, buffer, slice := GetTupleObjs(tupleCtx)
+	rowpObj, readerpObj, bufferpObj, slicepObj := GetTuplePoolObjs(tupleCtx)
+
+	accountingCtx, wasCached := qe.CtxManager.GetOrCreateContext(AccountingLevel, MemoryContextConfig{Name: "Accouting", ContextType: AccountingLevel, AllocationStrat: DefaultAllocation})
+	if !wasCached {
+		CreateAccountingPools(accountingCtx)
+	}
+
+	freeSpacePage, updateInfo, nonAddedRows := GetAccountingObjs(accountingCtx)
+	freeSpacePoolObj, ModifiedInfoPoolObj, nonAddedRowPoolObj := GetAccountingPoolObjs(accountingCtx)
 
 	for page := range pageChan {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-
-		var freeSpacePage *FreeSpace  // 1000 pages == 1000x1
-		var updateInfo ModifiedInfo   // 1000 pages === 1000x1
-		var nonAddedRows NonAddedRows // 1000 pages === 1000x30
 
 		pageId := PageID(page.Header.ID)
 
@@ -265,22 +278,26 @@ func processPagesForUpdate(ctx context.Context, lm *LockManager, pageChan chan *
 				continue
 			}
 
-			oldRowBytes := page.Data[location.Offset : location.Offset+location.Length]
-			row, err := DecodeRow(oldRowBytes)
-			if err != nil {
-				return fmt.Errorf("couldn't decode row, location: %+v, error: %s", location, err)
-			}
+			oldRowBytes := SliceBytesExpression(slice, page.Data, location.Offset, location.Offset+location.Length)
+			reader.Reset(*oldRowBytes)
+			slicepObj.cleaner(oldRowBytes)
+
+			DecodeRow(row, reader)
+
+			readerpObj.cleaner(reader)
 
 			lm.Lock(row.ID, row, R)
 			updateMatch := row.Values[filterKey] == filterVal
-			err = lm.Unlock(row.ID, row, R)
+			err := lm.Unlock(row.ID, row, R)
 			if err != nil {
 				return fmt.Errorf("unlock failed: %w", err)
 			}
 
 			if updateMatch {
-				if freeSpacePage == nil {
-					freeSpacePage = &FreeSpace{PageID: PageID(page.Header.ID), TempPagePtr: page, FreeMemory: pageObj.ExactFreeMem}
+				if freeSpacePage.PageID == 0 {
+					freeSpacePage.PageID = PageID(page.Header.ID)
+					freeSpacePage.TempPagePtr = page
+					freeSpacePage.FreeMemory = pageObj.ExactFreeMem
 				}
 
 				lm.Lock(row.ID, row, W)
@@ -290,17 +307,21 @@ func processPagesForUpdate(ctx context.Context, lm *LockManager, pageChan chan *
 					return fmt.Errorf("unlock failed: %w", err)
 				}
 
-				newRowBytes, err := EncodeRow(row)
+				newRowBytes, err := EncodeRow(row, buffer)
 				if err != nil {
 					return fmt.Errorf("EncodeRow failed: %w", err)
 				}
 
+				bufferpObj.cleaner(buffer)
+
 				if !txOff {
-					err = wal.Log(txID, LogTypeUpdate, tableObj.TableName, row.ID, oldRowBytes, newRowBytes)
+					err = wal.Log(txID, LogTypeUpdate, tableObj.TableName, row.ID, *oldRowBytes, newRowBytes)
 					if err != nil {
 						return fmt.Errorf("wal.log failed: %w", err)
 					}
 				}
+
+				rowpObj.cleaner(row)
 
 				location.Free = true
 				freeSpacePage.FreeMemory += location.Length
@@ -314,14 +335,24 @@ func processPagesForUpdate(ctx context.Context, lm *LockManager, pageChan chan *
 
 		if freeSpacePage != nil {
 			updateInfo.FreeSpaceMapping = freeSpacePage
-			updateInfo.NonAddedRow = &nonAddedRows
+			updateInfo.NonAddedRow = nonAddedRows
 
 			logger.Log.WithField("updateInfo", updateInfo).Info("Page processed")
 			updateInfoChan <- updateInfo
 		}
 
+		freeSpacePoolObj.cleaner(freeSpacePage)
+		ModifiedInfoPoolObj.cleaner(updateInfo)
+		nonAddedRowPoolObj.cleaner(nonAddedRows)
+
 		logger.Log.WithFields(logrus.Fields{"Memlevel": pageObj.Level, "exactFreeMem": pageObj.ExactFreeMem, "offset": pageObj.Offset}).Info("After Modification (PageObj)")
 	}
+
+	ReleaseTupleObjs(tupleCtx, row, reader, buffer, slice)
+	qe.CtxManager.ReturnContext(tupleCtx)
+
+	ReleaseAccountingObjs(accountingCtx, freeSpacePage, updateInfo, nonAddedRows)
+	qe.CtxManager.ReturnContext(accountingCtx)
 
 	logger.Log.Info("processPagesForUpdate (end)")
 	return nil
@@ -617,11 +648,10 @@ func Bookkeeping(email, pass, dbName string, queryEngine *QueryEngine) (*RowV2, 
 }
 
 func undoDelete(log *LogRecord, engine *QueryEngine, catalog *Catalog) error {
-	oldImage := log.BeforeImage
-	oldRow, err := DecodeRow(oldImage)
-	if err != nil {
-		return fmt.Errorf("DecodeRow failed: %w", err)
-	}
+	var oldRow RowV2
+	buf := bytes.NewReader(log.BeforeImage)
+
+	DecodeRow(&oldRow, buf)
 
 	sql := buildInsertQueryFromMap(log.TableID, oldRow.Values, catalog)
 
@@ -660,10 +690,10 @@ func buildInsertQueryFromMap(tableID string, oldRow map[string]string, catalog *
 }
 
 func undoUpdate(log *LogRecord, engine *QueryEngine, primary, modifiedColumn string) error {
-	oldRow, err := DecodeRow(log.BeforeImage)
-	if err != nil {
-		return fmt.Errorf("DecodeRow failed: %w", err)
-	}
+	var oldRow RowV2
+	buf := bytes.NewReader(log.BeforeImage)
+
+	DecodeRow(&oldRow, buf)
 
 	oldVal := oldRow.Values[modifiedColumn]
 	sql := fmt.Sprintf("UPDATE `%s` SET %s = %s WHERE %s = CAST('%d' AS DECIMAL(20,0))\n", log.TableID, modifiedColumn, oldVal, primary, log.RowID)
@@ -714,7 +744,6 @@ func redoUpdate(log *LogRecord, engine *QueryEngine) error {
 	return nil
 }
 
-
 func clearObjectFields(obj any) {
 	v := reflect.ValueOf(obj)
 
@@ -754,4 +783,29 @@ func clearObjectFields(obj any) {
 			clearObjectFields(field.Addr().Interface())
 		}
 	}
+}
+
+func SliceBytesExpression(dest *[]byte, source []byte, start, end uint16) *[]byte {
+	for i := start; i < end; i++ {
+		*dest = append(*dest, source[i])
+	}
+
+	return dest
+}
+
+func DetermineCapacity(alloc AllocationStrategy) int {
+	var capacity int
+
+	switch alloc {
+	case DefaultAllocation:
+		capacity = 1
+	case SmallObjectAllocation:
+		capacity = 10
+	case MediumObjectAllocation:
+		capacity = 20
+	case LargeObjectAllocation:
+		capacity = 100
+	}
+
+	return capacity
 }

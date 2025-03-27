@@ -10,15 +10,8 @@ import (
 type MemoryContextType int
 
 const (
-	Insert MemoryContextType = iota + 1
-	UpdateMultiple
-	UpdateSingle
-	DeleteSingle
-	DeleteMultiple
-	SelectStarAndColumn
-	SelectWhereClause
-	SelectOrderByClause
-	SelectGroupByClauseCount
+	TupleLevel MemoryContextType = iota + 1
+	AccountingLevel
 )
 
 type AllocationStrategy int
@@ -31,44 +24,48 @@ const (
 )
 
 type ContextManager struct {
-	mu       sync.RWMutex
+	mu       *sync.RWMutex
 	ctxCache map[MemoryContextType][]*MemoryContext
 }
 
+func NewContextManager() *ContextManager {
+	return &ContextManager{
+		mu:       &sync.RWMutex{},
+		ctxCache: map[MemoryContextType][]*MemoryContext{},
+	}
+}
+
 // if cache type isn't cached, the method will return create a new context.
-func (cm *ContextManager) GetOrCreateContext(ctxType MemoryContextType, config MemoryContextConfig) *MemoryContext {
+func (cm *ContextManager) GetOrCreateContext(ctxType MemoryContextType, config MemoryContextConfig) (*MemoryContext, bool) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
 	var ctx *MemoryContext
+	var wasCached bool
 
 	ctxs, ok := cm.ctxCache[ctxType]
 	if !ok {
-		return nil
+		return nil, wasCached
 	}
 
 	if len(ctxs) == 0 {
+		// could duplicate an existing context of the same type
 		ctx = NewMemoryContext(config)
 		ctx.active = true
-		return ctx
+		return ctx, wasCached
 	}
 
 	ctx = ctxs[0]
 	ctx.active = true
 
 	cm.ctxCache[ctxType] = ctxs[1:]
+	wasCached = true
 
-	return ctx
+	return ctx, wasCached
 }
 
 // caches the memory context structure for similar queries
 func (cm *ContextManager) ReturnContext(rootCtx *MemoryContext) {
-	CleanInfoAndPool(rootCtx)
-
-	for _, child := range rootCtx.children {
-		CleanAllChildren(child)
-	}
-
 	rootCtx.mu.Lock()
 	rootCtx.active = false
 	rootCtx.mu.Unlock()
@@ -117,21 +114,17 @@ func NewMemoryContext(config MemoryContextConfig) *MemoryContext {
 		stats:         &MemContextStats{},
 	}
 
-	if mc.parent != nil {
-		mc.parent.registerChild(mc)
-	}
-
 	return mc
 }
 
 // Creates and registers a child context with the same
 // context type as the parent.
 func (mc *MemoryContext) CreateChild(name string) {
-	memCtx := mc.Allocate(name)
-	mc.registerChild(memCtx)
+	memCtx := mc.allocate(name)
+	mc.RegisterChild(memCtx)
 }
 
-func (mc *MemoryContext) Allocate(name string) *MemoryContext {
+func (mc *MemoryContext) allocate(name string) *MemoryContext {
 	return NewMemoryContext(MemoryContextConfig{
 		Name:        name,
 		Parent:      mc,
@@ -141,11 +134,13 @@ func (mc *MemoryContext) Allocate(name string) *MemoryContext {
 
 // Register a child with custom contex type, not the same
 // as its parent
-func (mc *MemoryContext) registerChild(child *MemoryContext) {
+func (mc *MemoryContext) RegisterChild(child *MemoryContext) {
 	mc.mu.Lock()
 	defer mc.mu.Unlock()
 	mc.children = append(mc.children, child)
 }
+
+// Object Methods
 
 func (mc *MemoryContext) CreatePool(objectType reflect.Type, allocator func() any, cleaner func(any), capacity int) {
 	mc.mu.Lock()
@@ -192,7 +187,7 @@ func (mm *MemoryContext) Acquire(objectType reflect.Type) any {
 		return nil
 	}
 
-	obj := poolObj.Get(objectType)
+	obj := poolObj.get()
 	mm.pools[objectType] = poolObj
 
 	size := unsafe.Sizeof(obj)
@@ -221,7 +216,7 @@ func (mm *MemoryContext) Release(objectType reflect.Type, obj any) bool {
 		return false
 	}
 
-	poolObj.Put(objectType, obj)
+	poolObj.put(obj)
 	mm.pools[objectType] = poolObj
 
 	size := unsafe.Sizeof(obj)
@@ -231,6 +226,18 @@ func (mm *MemoryContext) Release(objectType reflect.Type, obj any) bool {
 	return true
 }
 
+func (mm *MemoryContext) GetPool(objectType reflect.Type) *Pool {
+	mm.mu.Lock()
+	defer mm.mu.Unlock()
+
+	poolObj, exists := mm.pools[objectType]
+	if !exists {
+		return nil
+	}
+
+	return &poolObj
+}
+
 // ### Stats
 func MemorySnap(rootCtx *MemoryContext) *MemContextStats {
 	var s MemContextStats
@@ -238,7 +245,7 @@ func MemorySnap(rootCtx *MemoryContext) *MemContextStats {
 	rootCtx.mu.RLock()
 	defer rootCtx.mu.RUnlock()
 
-	CollectStats(rootCtx.stats, &s)
+	collectStats(rootCtx.stats, &s)
 
 	for _, child := range rootCtx.children {
 		childStats(child, &s)
@@ -254,7 +261,7 @@ func childStats(ctx *MemoryContext, destination *MemContextStats) {
 
 	ctx.mu.RLock()
 
-	CollectStats(ctx.stats, destination)
+	collectStats(ctx.stats, destination)
 
 	children := make([]*MemoryContext, len(ctx.children))
 	copy(children, ctx.children)
@@ -266,43 +273,11 @@ func childStats(ctx *MemoryContext, destination *MemContextStats) {
 	}
 }
 
-func CollectStats(source, destination *MemContextStats) {
+func collectStats(source, destination *MemContextStats) {
 	destination.currentUsage += source.currentUsage
 	destination.totalAllocated += source.totalAllocated
 	destination.totalFreed += source.totalFreed
 	destination.peakUsage += source.peakUsage
-}
-
-// ## Reclaming memory context
-func CleanAllChildren(childCtx *MemoryContext) {
-	CleanInfoAndPool(childCtx)
-
-	for _, child := range childCtx.children {
-		CleanAllChildren(child)
-	}
-
-}
-
-func CleanInfoAndPool(ctx *MemoryContext) {
-	ctx.mu.Lock()
-	defer ctx.mu.Unlock()
-
-	ctx.stats.currentUsage = 0
-	ctx.stats.peakUsage = 0
-	ctx.stats.totalAllocated = 0
-	ctx.stats.totalFreed = 0
-
-	ctx.name = ""
-	ctx.contextType = 0
-	ctx.allocStrategy = 0
-
-	for _, poolObj := range ctx.pools {
-		poolObj.mu.Lock()
-		poolObj.allocator = nil
-		poolObj.Shrink()
-		poolObj.mu.Unlock()
-	}
-
 }
 
 type Pool struct {
@@ -315,12 +290,12 @@ type Pool struct {
 
 // if not more objects are available, the pool will double
 // in size.
-func (pObj *Pool) Get(objectType reflect.Type) any {
+func (pObj *Pool) get() any {
 	pObj.mu.Lock()
 	defer pObj.mu.Unlock()
 
 	if len(pObj.pool) == 0 {
-		pObj.Double()
+		pObj.double()
 	}
 
 	obj := pObj.pool[len(pObj.pool)-1]
@@ -331,7 +306,7 @@ func (pObj *Pool) Get(objectType reflect.Type) any {
 
 // if everybody has returned their objects, the pool will
 // halve in size.
-func (pObj *Pool) Put(objectType reflect.Type, obj any) {
+func (pObj *Pool) put(obj any) {
 	pObj.mu.Lock()
 	defer pObj.mu.Unlock()
 
@@ -341,11 +316,11 @@ func (pObj *Pool) Put(objectType reflect.Type, obj any) {
 	// x == capacity means everybody returned their objects
 	// shrink
 	if len(pObj.pool) == pObj.capacity && pObj.capacity > 2 {
-		pObj.Shrink()
+		pObj.shrink()
 	}
 }
 
-func (poolObj *Pool) Double() {
+func (poolObj *Pool) double() {
 	newCapacity := poolObj.capacity * 2
 	poolObj.capacity = newCapacity
 
@@ -360,7 +335,7 @@ func (poolObj *Pool) Double() {
 	poolObj.pool = newPool
 }
 
-func (poolObj *Pool) Shrink() {
+func (poolObj *Pool) shrink() {
 	if poolObj.capacity <= 1 {
 		return
 	}

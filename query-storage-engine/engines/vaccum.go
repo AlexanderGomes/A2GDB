@@ -24,7 +24,7 @@ const (
 	NEXT_LEVEL = 400
 )
 
-func cleanOrgnize(ctx context.Context, updateInfoChan chan ModifiedInfo, insertChan chan *NonAddedRows, tableObj *TableObj, tableStats *TableInfo) error {
+func cleanOrgnize(ctx context.Context, updateInfoChan chan *ModifiedInfo, insertChan chan *NonAddedRows, tableObj *TableObj, tableStats *TableInfo) error {
 	logger.Log.Info("cleanOrgnize (start)")
 
 	if insertChan != nil {

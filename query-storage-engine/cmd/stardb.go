@@ -24,11 +24,11 @@ func InitDatabase(k int, dirName string, config engines.QueryEngineConfig) (*eng
 		Lm:                &engines.LockManager{Mu: sync.RWMutex{}, Rows: map[uint64]*engines.RowInfo{}},
 		QueryChan:         make(chan *engines.QueryInfo, 1000),
 		ResultManager:     &engines.ResultManager{SubscribedQueries: map[uint64]chan *engines.Result{}, GlobalChannel: globalChannel, SchedulerNotification: schedulerNotification},
+		CtxManager:        engines.NewContextManager(),
 	}
 
 	queryEngine.Scheduler = engines.NewQueryScheduler(schedulerNotification, globalChannel, queryEngine)
 	queryEngine.SystemStats, _ = queryEngine.GetSystemPressureStats()
-
 
 	if err := CreateDefaultTable(queryEngine); err != nil {
 		if !strings.Contains(err.Error(), "table already exists") {
