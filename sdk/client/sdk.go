@@ -130,17 +130,15 @@ func (cred *UserCred) ExecuteQuery(sql string) (string, error) {
 
 	conn, err := SendBytes(bytes)
 	if err != nil {
-		return "",fmt.Errorf("SendBytes Failed: %w", err)
+		return "", fmt.Errorf("SendBytes Failed: %w", err)
 
 	}
 	defer conn.Close()
 
 	msg, err := ReadResponse(conn)
 	if err != nil {
-		return "",fmt.Errorf("ReadResponse Failed: %w", err)
+		return "", fmt.Errorf("ReadResponse Failed: %w", err)
 	}
-
-	
 
 	return msg, nil
 }

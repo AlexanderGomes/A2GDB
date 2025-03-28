@@ -74,6 +74,8 @@ func (qe *QueryEngine) handleUpdate(plan map[string]interface{}, transactionOff 
 		CreateAccountingPools(accountingCtx)
 	}
 
+	defer qe.CtxManager.ReturnContext(accountingCtx)
+
 	tasks := []func() error{
 		func() error {
 			return qe.BufferPoolManager.FullTableScan(ctx, pageChan, tableObj, tableStats.NumOfPages)
@@ -85,7 +87,7 @@ func (qe *QueryEngine) handleUpdate(plan map[string]interface{}, transactionOff 
 			return cleanOrgnize(ctx, accountingCtx, updateInfoChan, insertChan, tableObj, tableStats)
 		},
 		func() error {
-			return handleLikeInsert(ctx, accountingCtx, qe, insertChan, tableObj, tableName, qe.BufferPoolManager, tableStats)
+			return handleLikeInsert(ctx, accountingCtx, insertChan, tableObj, tableName, qe.BufferPoolManager, tableStats)
 		},
 	}
 

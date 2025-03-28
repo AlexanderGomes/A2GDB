@@ -262,8 +262,8 @@ func processPagesForUpdate(ctx context.Context, accountingCtx *MemoryContext, qe
 		directoryPage.Mu.RLock()
 		pageObj := directoryPage.Value[pageId]
 		directoryPage.Mu.RUnlock()
-		pageObj.Mu.Lock()
 
+		pageObj.Mu.Lock()
 		logger.Log.WithFields(logrus.Fields{"Memlevel": pageObj.Level, "exactFreeMem": pageObj.ExactFreeMem, "offset": pageObj.Offset}).Info("Before Modification (PageObj)")
 		for i := range pageObj.PointerArray {
 			location := &pageObj.PointerArray[i]
@@ -272,20 +272,21 @@ func processPagesForUpdate(ctx context.Context, accountingCtx *MemoryContext, qe
 				continue
 			}
 
-			oldRowBytes := SliceBytesExpression(slice, page.Data, location.Offset, location.Offset+location.Length)
-			reader.Reset(*oldRowBytes)
-			slicepObj.cleaner(oldRowBytes)
+			SliceBytesExpression(slice, page.Data, location.Offset, location.Offset+location.Length)
+			reader.Reset(*slice)
 
 			DecodeRow(row, reader)
 
 			readerpObj.cleaner(reader)
 
 			lm.Lock(row.ID, row, R)
-			updateMatch := row.Values[filterKey] == filterVal
+			updateMatch := row.Values[filterKey] == filterVal //x
 			err := lm.Unlock(row.ID, row, R)
 			if err != nil {
 				return fmt.Errorf("unlock failed: %w", err)
 			}
+
+			fmt.Printf("Row: %+v\n", row)
 
 			if updateMatch {
 				if freeSpacePage.PageID == 0 {
@@ -301,28 +302,29 @@ func processPagesForUpdate(ctx context.Context, accountingCtx *MemoryContext, qe
 					return fmt.Errorf("unlock failed: %w", err)
 				}
 
+				fmt.Printf("Updated Row: %+v", row)
 				newRowBytes, err := EncodeRow(row, buffer)
 				if err != nil {
 					return fmt.Errorf("EncodeRow failed: %w", err)
 				}
 
-				bufferpObj.cleaner(buffer)
-
 				if !txOff {
-					err = wal.Log(txID, LogTypeUpdate, tableObj.TableName, row.ID, *oldRowBytes, newRowBytes)
+					err = wal.Log(txID, LogTypeUpdate, tableObj.TableName, row.ID, *slice, newRowBytes)
 					if err != nil {
 						return fmt.Errorf("wal.log failed: %w", err)
 					}
 				}
 
-				rowpObj.cleaner(row)
-
 				location.Free = true
 				freeSpacePage.FreeMemory += location.Length
 				nonAddedRows.BytesNeeded += uint16(len(newRowBytes))
-
 				nonAddedRows.Rows = append(nonAddedRows.Rows, newRowBytes)
+
 			}
+
+			slicepObj.cleaner(slice)
+			rowpObj.cleaner(row)
+			bufferpObj.cleaner(buffer)
 		}
 
 		pageObj.Mu.Unlock() // at the end of each page
@@ -345,7 +347,7 @@ func processPagesForUpdate(ctx context.Context, accountingCtx *MemoryContext, qe
 	return nil
 }
 
-func handleLikeInsert(ctx context.Context, accountingCtx *MemoryContext, qe *QueryEngine, nonAddedRows chan *NonAddedRows, tableObj *TableObj, tableName string, bpm *BufferPoolManager, tableStats *TableInfo) error {
+func handleLikeInsert(ctx context.Context, accountingCtx *MemoryContext, nonAddedRows chan *NonAddedRows, tableObj *TableObj, tableName string, bpm *BufferPoolManager, tableStats *TableInfo) error {
 	logger.Log.Info("handleLikeInsert(update) Started")
 
 	for nonAddedRow := range nonAddedRows {
@@ -362,6 +364,9 @@ func handleLikeInsert(ctx context.Context, accountingCtx *MemoryContext, qe *Que
 					return fmt.Errorf("findAndUpdate failed: %w", err)
 				}
 			}
+
+			var nonAddedRowsType = reflect.TypeOf((*NonAddedRows)(nil))
+			accountingCtx.Release(nonAddedRowsType, nonAddedRow)
 			continue
 		}
 
@@ -374,7 +379,6 @@ func handleLikeInsert(ctx context.Context, accountingCtx *MemoryContext, qe *Que
 		accountingCtx.Release(nonAddedRowsType, nonAddedRow)
 	}
 
-	qe.CtxManager.ReturnContext(accountingCtx)
 	logger.Log.Info("handleLikeInsert(update) Completed")
 	return nil
 }
@@ -777,12 +781,10 @@ func clearObjectFields(obj any) {
 	}
 }
 
-func SliceBytesExpression(dest *[]byte, source []byte, start, end uint16) *[]byte {
+func SliceBytesExpression(dest *[]byte, source []byte, start, end uint16) {
 	for i := start; i < end; i++ {
 		*dest = append(*dest, source[i])
 	}
-
-	return dest
 }
 
 func DetermineCapacity(alloc AllocationStrategy) int {

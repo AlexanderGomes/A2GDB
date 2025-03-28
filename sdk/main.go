@@ -20,7 +20,9 @@ func main() {
 		log.Fatal(err)
 	}
 
-	UpdateQuery(cred)
+	CreateTable(cred)
+	InsertMany(4000, cred)
+	//UpdateQuery(cred)
 }
 
 func CreateTable(cred *client.UserCred) {
