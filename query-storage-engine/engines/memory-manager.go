@@ -1,7 +1,6 @@
 package engines
 
 import (
-	"fmt"
 	"reflect"
 	"sync"
 	"sync/atomic"
@@ -153,8 +152,6 @@ func (mc *MemoryContext) CreatePool(objectType reflect.Type, allocator func() an
 
 	for range capacity {
 		obj := allocator()
-		fmt.Println(obj)
-		fmt.Println(objectType)
 		size := unsafe.Sizeof(obj)
 
 		atomic.AddUint64(&mc.stats.totalAllocated, uint64(size))
@@ -182,7 +179,7 @@ func (mm *MemoryContext) Acquire(objectType reflect.Type) any {
 	defer mm.mu.Unlock()
 
 	poolObj, exists := mm.pools[objectType]
-	if !exists || len(poolObj.pool) == 0 {
+	if !exists {
 		return nil
 	}
 
@@ -312,11 +309,10 @@ func (pObj *Pool) put(obj any) {
 	pObj.cleaner(obj)
 	pObj.pool = append(pObj.pool, obj)
 
-	// x == capacity means everybody returned their objects
-	// shrink
-	if len(pObj.pool) == pObj.capacity && pObj.capacity > 2 {
-		pObj.shrink()
-	}
+	// ## TODO - shrink is adding nil to the pool, and its not a good idea to shrink all the time
+	// if len(pObj.pool) == pObj.capacity && pObj.capacity > 2 {
+	// 	pObj.shrink()
+	// }
 }
 
 func (poolObj *Pool) double() {

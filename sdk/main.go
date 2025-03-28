@@ -23,6 +23,11 @@ func main() {
 	UpdateQuery(cred)
 }
 
+func CreateTable(cred *client.UserCred) {
+	schema := map[string]string{"UserId": "PRIMARY KEY", "Username": "VARCHAR", "Age": "INT", "City": "VARCHAR"}
+	cred.CreateTable("User", schema)
+}
+
 func Concurrent(queries []string, cred *client.UserCred) {
 	var wg sync.WaitGroup
 	for i := range len(queries) {

@@ -38,7 +38,7 @@ func cleanOrgnize(ctx context.Context, accountingCtx *MemoryContext, updateInfoC
 		}
 
 		space := updateInfo.FreeSpaceMapping
-
+		fmt.Printf("%+v\n", space)
 		newPage, err := RearrangePAGE(space.TempPagePtr, tableObj, tableObj.TableName)
 		if err != nil {
 			return fmt.Errorf("(cleanOrgnize) => RearrangePAGE failed: %w", err)
@@ -83,7 +83,7 @@ func cleanOrgnize(ctx context.Context, accountingCtx *MemoryContext, updateInfoC
 			return fmt.Errorf("saveMemMapping failed: %w", err)
 		}
 
-		var freeSpaceType = reflect.TypeOf((*FreeSpace)(nil)).Elem()
+		var freeSpaceType = reflect.TypeOf((*FreeSpace)(nil))
 		freed := accountingCtx.Release(freeSpaceType, space)
 		if !freed {
 			panic("freeSpaceObj wasn't freed")

@@ -327,7 +327,7 @@ func processPagesForUpdate(ctx context.Context, accountingCtx *MemoryContext, qe
 
 		pageObj.Mu.Unlock() // at the end of each page
 
-		if freeSpacePage != nil {
+		if freeSpacePage.PageID != 0 {
 			updateInfo.FreeSpaceMapping = freeSpacePage
 			updateInfo.NonAddedRow = nonAddedRows
 
@@ -370,7 +370,7 @@ func handleLikeInsert(ctx context.Context, accountingCtx *MemoryContext, qe *Que
 			return fmt.Errorf("findAndUpdate failed: %w", err)
 		}
 
-		var nonAddedRowsType = reflect.TypeOf((*NonAddedRows)(nil)).Elem()
+		var nonAddedRowsType = reflect.TypeOf((*NonAddedRows)(nil))
 		accountingCtx.Release(nonAddedRowsType, nonAddedRow)
 	}
 
