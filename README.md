@@ -1,10 +1,7 @@
-## Components
+## Welcome!
+In 2025, I’m dedicating my focus to building a Database-as-a-Service (DBaaS) as my specialization project — a hands-on journey into designing complex, scalable systems with a strong emphasis on resource efficiency, high-frequency trading–level performance, robust system architecture, and green software principles.
 
-### Planner
-- Generates and caches optimized query plans based on database statistics.
+## Why This Project?
+Database systems operate at extreme scales, processing billions of tuples and often handling data far larger than RAM. At this level, inefficiencies in code—whether in speed, memory usage, or algorithm complexity—become impossible to ignore. Algorithms that seem similar in theory can behave very differently in practice.
 
-### Query Engine
-- Executes query plans across different nodes.
-
-### Storage Engine
-- Manages disk storage operations.
+Not every application needs extreme performance, but the complacency in modern software development is hard to ignore. When websites just showing products consume a peak of 1GB and a medium of 600MB of RAM or a simple notes app uses 400–500MB, something is wrong. We’ve become too reliant on hardware improvements and have stagnated in software efficiency, or at the very least we're assuming that everybody has the latest phone and the best internet access.
